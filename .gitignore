@@ -1,0 +1,18 @@
+# Downloaded data (can be re-fetched; may be large)
+data/raw/
+data/cache/
+
+# Secrets (API keys, app tokens)
+.env
+*.key
+
+# Dependencies / build output
+node_modules/
+dist/
+__pycache__/
+.venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
