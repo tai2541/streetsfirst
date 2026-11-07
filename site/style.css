@@ -651,3 +651,5 @@ main.split #budgetSheet { z-index: 1200; padding-right: 0; }
 .home-tips .linkbtn { margin: 0; font-size: inherit; font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .home-card, .home-pin { transition: none; } .home-card:hover, .home-pin:hover { transform: none; } }
 body.budget-open #expandPanel, body.budget-open #expandDetail, body.budget-open #panelHandle, body.budget-open #resizeHandle { display: none; }
+/* desktop: the details panel always runs the full height, whatever its width or content */
+@media (min-width: 761px) { #detail:not(.split) { height: calc(100% - 24px); } }
