@@ -431,7 +431,9 @@
   const clampLeft = w => Math.min(Math.max(300, w), mainEl.offsetWidth - 200);
   function applyPanel() {
     if (isNarrow()) { panelEl.style.width = ''; return; }
-    const w = leftExpanded ? (leftWidths.expanded || Math.round(mainEl.offsetWidth / 2)) : leftWidths.normal;
+    let w = leftExpanded ? (leftWidths.expanded || Math.round(mainEl.offsetWidth / 2)) : leftWidths.normal;
+    // The budget table needs room for its year columns, and the map has nothing to show then: widen while it's open.
+    if (document.body.classList.contains('budget-view')) w = Math.max(w, Math.min(780, Math.round(mainEl.offsetWidth * 0.62)));
     panelEl.style.width = clampLeft(w) + 'px';
     mainEl.style.setProperty('--panel-w', panelEl.offsetWidth + 'px');
     const b = document.getElementById('expandPanel');
@@ -1179,6 +1181,7 @@
     const budget = b.dataset.tab === 'spending';
     document.body.classList.toggle('budget-view', budget);
     document.getElementById('mapNote').hidden = !budget;
+    applyPanel();
     setLineView(b.dataset.tab === 'traffic' ? 'traffic' : b.dataset.tab === 'walk' ? 'walk' : null);
   }
   tabs.forEach((b, i) => {
