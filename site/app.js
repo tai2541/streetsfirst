@@ -69,7 +69,7 @@
     if (pb.length) out.push({ cls: 'ped', text: pb.join(', ') });
     const still = stillDangerous(p);
     if (still) out.push({ cls: 'still', text: still.short });
-    if (p.ksi_years >= 3) out.push({ cls: 'still', text: `harm in ${p.ksi_years} different years` });
+    if (p.ksi_years >= 3) out.push({ cls: 'still', text: `killed or seriously hurt in ${p.ksi_years} different years` });
     if (p.injury) out.push({ cls: '', text: `${p.injury} injury crashes` });
     const wet = pct(p.wet_crashes, p.road_known), cityWet = Math.round(100 * meta.city_wet_share);
     if (p.road_known >= 5 && wet >= cityWet + 15) out.push({ cls: 'cond', text: `${wet}% on wet roads (city ${cityWet}%)` });
