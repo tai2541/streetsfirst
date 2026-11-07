@@ -527,3 +527,21 @@ body.proj-on .map-legend .lg-proj { display: flex; }
 .lg-pline { display: inline-block; width: 22px; height: 0; border-top: 3px dashed #5b3fd1; vertical-align: middle; margin-right: 6px; }
 .lg-pline.done { border-top-style: solid; opacity: .5; }
 .lg-ppt { display: inline-block; width: 9px; height: 9px; border: 2px solid #5b3fd1; border-radius: 50%; background: #fff; vertical-align: middle; margin: 0 9px 0 4px; }
+/* ---- "My pins" list (map control, shown once there's a pin) ---- */
+.pinlist[hidden] { display: none; }
+.pinlist { background: #fff; }
+.pinlist-btn { font: 600 12.5px/1 Inter, system-ui, sans-serif; color: #1d2430; background: #fff; border: 0; border-radius: 4px;
+  padding: 8px 9px; cursor: pointer; white-space: nowrap; display: flex; align-items: center; gap: 5px; }
+.pinlist-btn:hover { background: #f4f4f4; }
+.pinlist-btn small { background: #101b33; color: #fff; border-radius: 9px; padding: 2px 6px; font-size: 11px; }
+.pinlist-panel { width: 260px; max-height: 300px; overflow-y: auto; border-top: 1px solid #ccc; padding: 6px 8px 8px; font: 13px/1.4 Inter, system-ui, sans-serif; }
+.pinlist-panel ul { list-style: none; margin: 0; padding: 0; }
+.pinlist-panel li { display: flex; align-items: center; gap: 6px; padding: 5px 0; border-bottom: 1px solid #eef0f4; }
+.pinlist-go { flex: 1; min-width: 0; text-align: left; color: #1d2430 !important; text-decoration: none !important; }
+.pinlist-go b, .pinlist-go small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pinlist-go small { color: #5b6576; font-weight: 400; font-size: 11.5px; }
+.pinlist-go:hover b { text-decoration: underline; }
+.pinlist-acts { display: flex; gap: 8px; flex: none; font-size: 12px; }
+.pinlist-x { color: #8a1c1c !important; }
+.pinlist-note { margin: 6px 0 0; color: #5b6576; font-size: 11.5px; }
+.pinlist-panel .linkbtn { margin: 0; }

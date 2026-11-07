@@ -1182,7 +1182,7 @@
     if (!g) return searchMsg(`Couldn't find “${esc(text)}”. Try a street address like “600 4th Ave”.`);
     if (!inSeattle(g.lat, g.lon)) return searchMsg(`“${esc(g.label)}” is outside Seattle. This map covers Seattle only.`);
     closeList();
-    setPin(g, true);
+    addPin(g);
   }
   // Everything within a quarter mile (402 m): crash totals plus the highest-ranked places.
   function nearbySpots(lat, lon) {
@@ -1194,12 +1194,54 @@
   }
   const small = () => matchMedia('(max-width: 760px)').matches;
   const distText = m => (m < 160 ? `${Math.round(m * 3.28084 / 10) * 10} ft` : `${(m / 1609.34).toFixed(1)} mi`);
-  function setPin(g, fly) {
-    pinLayer.clearLayers();
-    try { localStorage.setItem('ipm.pin', JSON.stringify(g)); } catch { /* storage unavailable */ }
+  // Several pins, each { id, lat, lon, label (the address), name? (a nickname like "Home") }. Kept only in this
+  // browser (localStorage); nothing about them is sent anywhere after the address lookup.
+  const PIN_KEY = 'ipm.pins', MAX_PINS = 20;
+  const pinMarkers = new Map();
+  let pendingRename = null;
+  let pins = (() => {
+    try { const a = JSON.parse(localStorage.getItem(PIN_KEY)); if (Array.isArray(a)) return a.filter(g => g && inSeattle(g.lat, g.lon)); } catch { /* none */ }
+    try { const g = JSON.parse(localStorage.getItem('ipm.pin')); if (g && inSeattle(g.lat, g.lon)) return [{ ...g, id: 1 }]; } catch { /* none */ }
+    return [];
+  })();
+  function savePins() {
+    try { localStorage.setItem(PIN_KEY, JSON.stringify(pins)); localStorage.removeItem('ipm.pin'); } catch { /* storage unavailable */ }
+    renderPinList();
+  }
+  const pinTitle = g => g.name || g.label;
+  function addPin(g) {
+    // The same address again just opens the pin that's already there.
+    const same = pins.find(p => Math.abs(p.lat - g.lat) < 0.0002 && Math.abs(p.lon - g.lon) < 0.0002);
+    if (same) { openPin(same, true); return; }
+    if (pins.length >= MAX_PINS) { toast(`You have ${MAX_PINS} pins, the most this site keeps. Remove one in “My pins” to add another.`); return; }
+    const p = { id: Date.now(), lat: g.lat, lon: g.lon, label: g.label };
+    pins.push(p); savePins(); drawPin(p);
+    openPin(p, true, true);
+  }
+  function removePin(g) {
+    const m = pinMarkers.get(g.id); if (m) { m.closePopup(); pinLayer.removeLayer(m); }
+    pinMarkers.delete(g.id); pins = pins.filter(p => p.id !== g.id); savePins();
+    say(`Pin removed: ${pinTitle(g)}.`);
+  }
+  function openPin(g, fly, isNew) {
+    const m = pinMarkers.get(g.id) || drawPin(g);
+    if (!fly) { m.openPopup(); return m; }
+    const nb = nearbySpots(g.lat, g.lon);
+    say(`${isNew ? 'Address pinned' : 'Pin'}: ${pinTitle(g)}. ${nb.crashes ? plural(nb.crashes, 'crash', 'crashes') + ' within a quarter mile.' : 'No crashes within a quarter mile.'}`);
+    if (!detailEl.hidden) closeDetail(false);
+    const go = () => { m.openPopup(); };
+    // On phones the map is short: put the pin low so its pop-up fits above it.
+    let c = L.latLng(g.lat, g.lon);
+    if (small()) c = map.unproject(map.project(c, 16).subtract([0, map.getSize().y * 0.38]), 16);
+    if (reduceMotion) { map.setView(c, 16, { animate: false }); go(); }
+    else { map.once('moveend', go); map.flyTo(c, 16, { duration: 0.8 }); }
+    return m;
+  }
+  function drawPin(g) {
+    const old = pinMarkers.get(g.id); if (old) pinLayer.removeLayer(old);
     const nb = nearbySpots(g.lat, g.lon);
     // g.name is an optional nickname ("Home", "Maya's school"); g.label stays the real address for copying and reporting.
-    const title = g.name || g.label;
+    const title = pinTitle(g);
     const html = `<div class="pin-pop"><div class="pin-head"><div class="pin-title">📍 ${esc(title)}</div>${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}</div>
       <div class="pin-near">${nb.crashes
         ? `<p>Within a quarter mile, ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}: <b>${plural(nb.crashes, 'crash', 'crashes')}</b>${nb.ksi ? `, <b>${nb.ksi} killed or seriously hurt someone</b>` : ', none killed or seriously hurt anyone'}${nb.pb ? `, ${nb.pb} with people walking or biking` : ''}.</p>
@@ -1214,6 +1256,7 @@
       pane: 'pin', keyboard: true, title: title, alt: 'Your pin: ' + (g.name ? `${g.name}, ${g.label}` : g.label),
       icon: L.divIcon({ className: 'addr-pin', iconSize: [30, 42], iconAnchor: [15, 40], popupAnchor: [0, -36], html: '<span></span>' })
     }).bindPopup(html, { maxWidth: 320, maxHeight: small() ? 150 : 420, autoPanPaddingTopLeft: [12, 12], autoPanPaddingBottomRight: [12, 12] }).addTo(pinLayer);
+    pinMarkers.set(g.id, m);
     m.on('popupopen', e => {     // popups stop clicks from bubbling, so wire their buttons here
       const el = e.popup.getElement();
       el.querySelectorAll('[data-open]').forEach(b => (b.onclick = () => {
@@ -1227,41 +1270,73 @@
       };
       el.querySelectorAll('.res-link').forEach(l => (l.onclick = () => navigator.clipboard &&
         navigator.clipboard.writeText(g.label).then(() => toast('Address copied: ' + g.label + '. Paste it into the form.'), () => {})));
-      el.querySelector('.pin-remove').onclick = () => { pinLayer.clearLayers(); try { localStorage.removeItem('ipm.pin'); } catch { /* ignore */ } };
-      el.querySelector('.pin-rename').onclick = () => {
-        const head = el.querySelector('.pin-head');
-        head.innerHTML = `<form class="pin-rename-form"><label for="pinName">Name this pin</label>
-          <input id="pinName" type="text" maxlength="40" autocomplete="off" placeholder="e.g. Home, Work, School">
-          <div class="pin-rename-btns"><button type="submit" class="pin-save">Save</button>
-          <button type="button" class="linkbtn pin-cancel">Cancel</button></div>
-          <small class="pin-privacy">Leave it empty to show the address. Saved only on this device.</small></form>`;
-        const inp = head.querySelector('input'); inp.value = g.name || '';
-        inp.focus(); inp.select();
-        const reopen = () => setPin(g, false).openPopup();
-        head.querySelector('form').onsubmit = ev => {
-          ev.preventDefault();
-          const v = inp.value.trim().replace(/\s+/g, ' ').slice(0, 40);
-          if (v) g.name = v; else delete g.name;
-          reopen();
-          say(v ? `Pin renamed to ${v}.` : 'Pin name cleared. It shows the address.');
-        };
-        head.querySelector('.pin-cancel').onclick = reopen;
-        inp.onkeydown = ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); reopen(); } };
-      };
+      el.querySelector('.pin-remove').onclick = () => removePin(g);
+      el.querySelector('.pin-rename').onclick = () => startRename(el, g);
+      if (pendingRename === g.id) { pendingRename = null; startRename(el, g); }
     });
-    if (fly) {
-      say(`Address pinned: ${g.label}. ${nb.crashes ? plural(nb.crashes, 'crash', 'crashes') + ' within a quarter mile.' : 'No crashes within a quarter mile.'}`);
-      if (!detailEl.hidden) closeDetail(false);
-      const go = () => { m.openPopup(); };
-      // On phones the map is short: put the pin low so its pop-up fits above it.
-      let c = L.latLng(g.lat, g.lon);
-      if (small()) c = map.unproject(map.project(c, 16).subtract([0, map.getSize().y * 0.38]), 16);
-      if (reduceMotion) { map.setView(c, 16, { animate: false }); go(); }
-      else { map.once('moveend', go); map.flyTo(c, 16, { duration: 0.8 }); }
-    }
     return m;
   }
-  try { const g = JSON.parse(localStorage.getItem('ipm.pin')); if (g && inSeattle(g.lat, g.lon)) setPin(g, false); } catch { /* none saved */ }
+  function startRename(el, g) {
+    const head = el.querySelector('.pin-head');
+    head.innerHTML = `<form class="pin-rename-form"><label for="pinName">Name this pin</label>
+      <input id="pinName" type="text" maxlength="40" autocomplete="off" placeholder="e.g. Home, Work, School">
+      <div class="pin-rename-btns"><button type="submit" class="pin-save">Save</button>
+      <button type="button" class="linkbtn pin-cancel">Cancel</button></div>
+      <small class="pin-privacy">Leave it empty to show the address. Saved only on this device.</small></form>`;
+    const inp = head.querySelector('input'); inp.value = g.name || '';
+    inp.focus(); inp.select();
+    const reopen = () => drawPin(g).openPopup();
+    head.querySelector('form').onsubmit = ev => {
+      ev.preventDefault();
+      const v = inp.value.trim().replace(/\s+/g, ' ').slice(0, 40);
+      if (v) g.name = v; else delete g.name;
+      savePins(); reopen();
+      say(v ? `Pin renamed to ${v}.` : 'Pin name cleared. It shows the address.');
+    };
+    head.querySelector('.pin-cancel').onclick = reopen;
+    inp.onkeydown = ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); reopen(); } };
+  }
+
+  // "My pins": a small map button (only once there's a pin) that opens a short list to go to, rename or remove pins.
+  let pinBox = null;
+  const PinList = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd() {
+      pinBox = L.DomUtil.create('div', 'leaflet-bar pinlist');
+      pinBox.innerHTML = `<button type="button" class="pinlist-btn" aria-expanded="false" aria-controls="pinlistPanel"></button>
+        <div class="pinlist-panel" id="pinlistPanel" hidden></div>`;
+      L.DomEvent.disableClickPropagation(pinBox); L.DomEvent.disableScrollPropagation(pinBox);
+      const btn = pinBox.querySelector('.pinlist-btn'), panel = pinBox.querySelector('.pinlist-panel');
+      const setOpen = open => { panel.hidden = !open; btn.setAttribute('aria-expanded', String(open)); };
+      btn.onclick = () => setOpen(panel.hidden);
+      panel.addEventListener('click', e => {
+        const row = e.target.closest('[data-pin]'); if (!row) return;
+        const g = pins.find(p => p.id === +row.dataset.pin); if (!g) return;
+        const act = e.target.closest('[data-act]') && e.target.closest('[data-act]').dataset.act;
+        if (act === 'remove') { removePin(g); if (!pins.length) setOpen(false); return; }
+        setOpen(false);
+        if (act === 'rename') pendingRename = g.id;
+        openPin(g, true);
+      });
+      pinBox.addEventListener('keydown', e => { if (e.key === 'Escape' && !panel.hidden) { setOpen(false); btn.focus(); } });
+      document.addEventListener('click', e => { if (!pinBox.contains(e.target)) setOpen(false); });
+      return pinBox;
+    }
+  });
+  new PinList().addTo(map);
+  function renderPinList() {
+    if (!pinBox) return;
+    pinBox.hidden = !pins.length;
+    pinBox.querySelector('.pinlist-btn').innerHTML = `<span aria-hidden="true">📍</span> My pins <small>${pins.length}</small>`;
+    pinBox.querySelector('.pinlist-btn').title = 'Your pins: go to, rename or remove';
+    pinBox.querySelector('.pinlist-panel').innerHTML = `<ul>${pins.map(g => `<li data-pin="${g.id}">
+        <button type="button" class="linkbtn pinlist-go" title="Go to this pin"><b>${esc(pinTitle(g))}</b>${g.name ? `<small>${esc(g.label)}</small>` : ''}</button>
+        <span class="pinlist-acts"><button type="button" class="linkbtn" data-act="rename" aria-label="Rename ${esc(pinTitle(g))}">Rename</button>
+        <button type="button" class="linkbtn pinlist-x" data-act="remove" aria-label="Remove ${esc(pinTitle(g))}" title="Remove">✕</button></span></li>`).join('')}</ul>
+      <p class="pinlist-note">Saved only in this browser. Search an address to add another (up to ${MAX_PINS}).</p>`;
+  }
+  pins.forEach(drawPin);
+  savePins();   // also moves a pin saved by the older single-pin version to the new list
 
   // ---------- tabs ----------
   const tabs =[...document.querySelectorAll('nav [role=tab]')];
