@@ -329,7 +329,7 @@
   const collapsed = store.get('collapsed', { math: true });
   const widths = store.get('widths', { normal: 440, expanded: null });
   let expanded = store.get('expanded', false);
-  let showGraphs = store.get('graphs', false), renderGraphs = () => {};
+  let renderGraphs = () => {};
   // Redraw the graphs to fit when the detail panel is resized or widened.
   if (window.ResizeObserver) new ResizeObserver(() => renderGraphs()).observe(document.getElementById('detail'));
   const detailEl = document.getElementById('detail');
@@ -380,25 +380,6 @@
   }
   document.getElementById('expandDetail').onclick = toggleExpand;
   document.getElementById('expandPanel').onclick = toggleLeft;
-  // "Show graphs" tab above the widen tab. It bounces when a spot opens (until graphs are shown once)
-  // so it's noticed, but stops by itself and never moves for people who turn off motion.
-  const graphTab = document.getElementById('graphTab');
-  function syncGraphTab(bounce) {
-    graphTab.firstElementChild.textContent = showGraphs ? 'Hide graphs' : 'Show graphs';
-    graphTab.setAttribute('aria-expanded', String(showGraphs));
-    graphTab.classList.remove('bounce');
-    if (bounce && !showGraphs && !reduceMotion) { void graphTab.offsetWidth; graphTab.classList.add('bounce'); }
-  }
-  // On phones the edge tabs are hidden, so the graphs button moves into the detail header.
-  const narrowMq = window.matchMedia('(max-width: 760px)');
-  const placeGraphTab = () => { if (narrowMq.matches) document.querySelector('#detail .dbtns').prepend(graphTab); else detailEl.insertBefore(graphTab, document.getElementById('expandDetail')); };
-  narrowMq.addEventListener('change', placeGraphTab); placeGraphTab();
-  graphTab.onclick = () => {
-    showGraphs = !showGraphs; store.set('graphs', showGraphs); syncGraphTab(false);
-    const g = document.getElementById('graphs'); if (!g) return;
-    g.hidden = !showGraphs; g._w = 0; renderGraphs();
-    if (showGraphs) { const b = document.getElementById('detailBody'); b.scrollTo({ top: b.scrollTop + g.getBoundingClientRect().top - b.getBoundingClientRect().top - 8, behavior: reduceMotion ? 'auto' : 'smooth' }); }
-  };
   window.addEventListener('resize', () => { applyPanel(); applyLayout(); });
   applyPanel();
   applyLayout();
@@ -833,7 +814,7 @@
         </div>
         <div class="chips dchips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</div>
       </div>
-      <div id="graphs" class="graphs" ${showGraphs ? '' : 'hidden'}></div>
+      <div id="graphs" class="graphs"></div>
       <div class="dcols">
         <div class="dcol">
           ${sec('done', 'What SDOT has done here', treatments(p))}
@@ -870,7 +851,7 @@
       g.innerHTML = '<div class="gcol"><h3 class="gh">Crashes and repair reports over time</h3>' + timeChart(det, p, Math.min(w - 34, 760)) + '</div>' +
         '<div class="gcol"><h3 class="gh">Crashes by year</h3>' + yearChart(det.crashes) + '</div>';
     };
-    renderGraphs(); graphTab.hidden = false; syncGraphTab(!keepFocus);
+    renderGraphs();
     if (!keepFocus) { document.getElementById('detailBody').scrollTop = 0; document.getElementById('detailTitle').focus({ preventScroll: true }); }
 
     const body = document.getElementById('detailBody');
@@ -905,7 +886,6 @@
 
   // Locations outside the exported top lists (found by search): a short summary, no crash list.
   function selectLite(s) {
-    graphTab.hidden = true;
     current = { rank_ksi: s.rank, rank: null, lat: s.lat, lon: s.lon };
     opener = document.getElementById('search');
     history.replaceState(null, '', '#loc=' + s.rank);
