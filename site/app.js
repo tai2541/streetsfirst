@@ -1409,28 +1409,33 @@
   const tabs =[...document.querySelectorAll('nav [role=tab]')];
   // The budget has no locations, so it slides up over the map as a sheet. On desktop the list and the details panel
   // stay put beside it; on a phone it covers everything below the header. The list underneath keeps the last tab.
-  const sheetEl = document.getElementById('budgetSheet');
+  const sheets = [...document.querySelectorAll('.sheet')];
   let lastTab = tabs[0], unwidened = null;
-  const budgetOpen = () => document.body.classList.contains('budget-open');
+  const openSheet = () => sheets.find(x => x.classList.contains('open'));
   function setTabState(b) {
     tabs.forEach(x => { const on = x === b; x.classList.toggle('active', on); x.setAttribute('aria-selected', on); x.tabIndex = on ? 0 : -1; });
   }
-  function openBudget() {
-    if (budgetOpen()) return;
-    // A widened list or details panel would squeeze the sheet to nothing: narrow them while it's open, restore after.
-    if (!isNarrow() && (leftExpanded || expanded)) {
+  function showSheet(el) {
+    const cur = openSheet();
+    if (cur === el) return;
+    if (!cur && !isNarrow() && (leftExpanded || expanded)) {
+      // A widened list or details panel would squeeze the sheet to nothing: narrow them while it's open, restore after.
       unwidened = { left: leftExpanded, right: expanded };
       leftExpanded = expanded = false; applyPanel(); applyLayout();
       if (current) select(current, false, null, true);
     }
-    sheetEl.hidden = false; void sheetEl.offsetWidth;   // start the slide from below
-    document.body.classList.add('budget-open');
-    document.getElementById('budgetTitle').focus({ preventScroll: true });
+    if (cur) { cur.classList.remove('open'); cur.hidden = true; }   // sheet to sheet: swap without sliding
+    el.hidden = false;
+    if (!cur) void el.offsetWidth;   // first one: start the slide from below
+    el.classList.add('open'); el.querySelector('.bs-body').scrollTop = 0;
+    document.body.classList.add('sheet-open');
+    el.querySelector('h2').focus({ preventScroll: true });
   }
-  function closeBudget() {
-    if (!budgetOpen()) return;
-    document.body.classList.remove('budget-open');
-    setTimeout(() => { if (!budgetOpen()) sheetEl.hidden = true; }, reduceMotion ? 0 : 360);
+  function hideSheets() {
+    const cur = openSheet();
+    if (!cur) return;
+    cur.classList.remove('open'); document.body.classList.remove('sheet-open');
+    setTimeout(() => { if (!cur.classList.contains('open')) cur.hidden = true; }, reduceMotion ? 0 : 360);
     if (unwidened) {
       leftExpanded = unwidened.left; expanded = unwidened.right; unwidened = null; applyPanel(); applyLayout();
       if (current) select(current, false, null, true);
@@ -1438,14 +1443,15 @@
   }
   function showTab(b) {
     setTabState(b);
-    if (b.dataset.tab === 'spending') { openBudget(); return; }
-    closeBudget(); lastTab = b;
+    const sh = sheets.find(x => x.dataset.tab === b.dataset.tab);
+    if (sh) { showSheet(sh); return; }
+    hideSheets(); lastTab = b;
     document.querySelectorAll('#panel .tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
     setLineView(b.dataset.tab === 'traffic' ? 'traffic' : b.dataset.tab === 'walk' ? 'walk' : null);
   }
-  document.getElementById('closeBudget').onclick = () => { showTab(lastTab); lastTab.focus(); };
+  sheets.forEach(sh => (sh.querySelector('.bs-close').onclick = () => { showTab(lastTab); lastTab.focus(); }));
   document.addEventListener('keydown', e => {
-    if (e.key !== 'Escape' || !budgetOpen() || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+    if (e.key !== 'Escape' || !openSheet() || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
     e.stopPropagation(); showTab(lastTab); lastTab.focus();
   }, true);
   // Budget tab -> the crash map with SDOT's mapped projects switched on.
