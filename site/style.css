@@ -510,3 +510,7 @@ header nav { margin-left: 0; }
 .not-live { margin: 0 0 10px; padding: 7px 10px; background: #eef4f2; border-left: 3px solid #0f7a54; border-radius: 4px; font-size: 12.5px; color: #33443f; }
 /* the bus tab's full name only where the header has room for it on one row */
 @media (max-width: 1500px) { .tab-wide { display: none; } .tab-mid { display: inline; } }
+/* the title block gives way first (subtitle wraps) so the tabs stay on one row */
+header > div:first-child { flex: 1 1 300px; min-width: 0; }
+header nav { flex: none; }
+@media (max-width: 760px) { header nav { flex: 1 1 100%; } }
