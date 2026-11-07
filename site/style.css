@@ -272,3 +272,4 @@ main.split #expandDetail { transform: translateY(calc(-50% + 34px)); }
 @media (max-width: 760px) {
   #panelEdge { display: none; }
 }
+.map-legend .lg-line { display: inline-block; width: 14px; height: 0; border-top: 3px solid #3a4456; }

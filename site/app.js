@@ -121,6 +121,16 @@
   };
   baseLayers['Light gray'].addTo(map);
   L.control.layers(baseLayers, null, { position: 'topleft' }).addTo(map);
+  // The area this map covers: Seattle city limits. Everything outside is dimmed and the edge is outlined,
+  // so it's obvious where the data stops. Drawn in its own pane, under the markers, and not clickable.
+  if (D.boundary) {
+    map.createPane('boundary'); map.getPane('boundary').style.zIndex = 350; map.getPane('boundary').style.pointerEvents = 'none';
+    const polys = D.boundary.type === 'MultiPolygon' ? D.boundary.coordinates : [D.boundary.coordinates];
+    const toLL = ring => ring.map(([x, y]) => [y, x]);
+    const world = [[85, -180], [85, 180], [-85, 180], [-85, -180]];
+    L.polygon([world, ...polys.map(p => toLL(p[0]))], { pane: 'boundary', stroke: false, fillColor: '#1d2430', fillOpacity: 0.16, interactive: false }).addTo(map);
+    polys.forEach(p => L.polygon(toLL(p[0]), { pane: 'boundary', color: '#3a4456', weight: 3, opacity: 0.85, fill: false, interactive: false }).addTo(map));
+  }
   const layer = L.featureGroup().addTo(map);
   const isNarrow = () => window.innerWidth <= 760;
 
@@ -172,6 +182,7 @@
         <div>${sw(2)}26–50</div>
         <div>${sw(3)}51+</div>
         <div><i style="background:#fff;box-shadow:inset 0 0 0 3px #7a0c10"></i>Repeated deaths</div>
+        <div><b class="lg-line"></b>Seattle city limits (area covered)</div>
         <button type="button" class="pausebtn" aria-pressed="${paused}">${paused ? 'Play' : 'Pause'} animation</button>`;
       L.DomEvent.disableClickPropagation(d);
       d.querySelector('.pausebtn').onclick = e => {

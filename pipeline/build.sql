@@ -530,3 +530,12 @@ copy (
     (select list({'k': k, 'v': v} order by k) from weights)       as weights,
     (select list({'type': type, 'w': w} order by w desc, type) from request_weights) as request_weights
 ) to 'site/data/meta.json' (format json, array false);
+
+-- City outline (council districts merged), simplified to ~40 ft, so the map shows exactly the area covered.
+copy (
+  with d as (select gj_geom(f.geometry) g
+             from (select unnest(features) f from read_json('data/raw/districts_*.json', maximum_object_size = 500000000))
+             where f.geometry is not null)
+  select ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(ST_Union_Agg(g), 40), 'EPSG:2926', 'EPSG:4326'))::json as boundary
+  from d
+) to 'site/data/boundary.json' (format json, array false);
