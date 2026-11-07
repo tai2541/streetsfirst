@@ -32,7 +32,8 @@
   }
 
   // ---------- map ----------
-  const map = L.map('map', { zoomControl: true }).setView([47.61, -122.33], 12);
+  // zoomSnap 0.25 lets "show all" fit the city tightly instead of jumping a whole zoom level out.
+  const map = L.map('map', { zoomControl: true, zoomSnap: 0.25 }).setView([47.61, -122.33], 12);
   // Basemaps that need no API key. (CARTO started requiring a key.)
   const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
   const esriAttr = 'Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors · Data: City of Seattle';
@@ -47,7 +48,28 @@
   };
   baseLayers['Light gray'].addTo(map);
   L.control.layers(baseLayers, null, { position: 'topleft' }).addTo(map);
-  const layer = L.layerGroup().addTo(map);
+  const layer = L.featureGroup().addTo(map);
+
+  // "Show all" control under the zoom buttons: zoom back out to every ranked spot on screen.
+  function showAll() {
+    if (!layer.getLayers().length) return;
+    const d = document.getElementById('detail');
+    const right = !d.hidden && window.innerWidth > 760 ? d.offsetWidth + 30 : 30;
+    map.flyToBounds(layer.getBounds(), { paddingTopLeft: [30, 30], paddingBottomRight: [right, 30], maxZoom: 15, duration: 0.6 });
+  }
+  const ShowAll = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd() {
+      const box = L.DomUtil.create('div', 'leaflet-bar');
+      const a = L.DomUtil.create('a', 'showall-btn', box);
+      a.href = '#'; a.title = 'Show all ranked spots (H)'; a.setAttribute('role', 'button');
+      a.setAttribute('aria-label', 'Show all ranked spots');
+      a.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+      L.DomEvent.on(a, 'click', e => { L.DomEvent.preventDefault(e); L.DomEvent.stopPropagation(e); showAll(); });
+      return box;
+    }
+  });
+  new ShowAll().addTo(map);
   const color = r => (r <= 10 ? '#b3141b' : r <= 25 ? '#e0561f' : r <= 50 ? '#f0a020' : '#7a8597');
 
   let markers = {}, selected = null;
@@ -89,6 +111,62 @@
   const REQ_COLOR = '#1baf7a';       // aqua: requests (shape = square, never color alone)
   const focus = L.layerGroup().addTo(map);
   let crashFilter = 'all', reqFilter = '', showAllCrashes = false, showAllReqs = false, current = null;
+
+  // ---------- panel layout: expand, resize, collapsible sections (remembered) ----------
+  const store = {
+    get(k, d) { try { const v = JSON.parse(localStorage.getItem('ipm.' + k)); return v ?? d; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem('ipm.' + k, JSON.stringify(v)); } catch { /* storage unavailable */ } }
+  };
+  const collapsed = store.get('collapsed', {});
+  const widths = store.get('widths', { normal: 440, expanded: null });
+  let expanded = store.get('expanded', false);
+  const detailEl = document.getElementById('detail');
+  // Limits are relative to the map area so some map always stays visible beside the panel.
+  const mapW = () => document.getElementById('map').offsetWidth || window.innerWidth;
+  const maxW = () => Math.max(340, mapW() - 90);
+  const defaultExpanded = () => Math.max(800, Math.round(mapW() * 0.66));
+
+  function applyLayout() {
+    const w = expanded ? (widths.expanded || defaultExpanded()) : widths.normal;
+    detailEl.style.width = Math.min(Math.max(340, w), maxW()) + 'px';
+    detailEl.classList.toggle('expanded', expanded);
+    const b = document.getElementById('expandDetail');
+    b.textContent = expanded ? '⤡' : '⤢';
+    b.title = expanded ? 'Shrink (E)' : 'Expand (E)';
+  }
+  function toggleExpand() {
+    expanded = !expanded; store.set('expanded', expanded); applyLayout();
+    if (current) { select(current); flyVisible([current.lat, current.lon], map.getZoom()); }
+  }
+  document.getElementById('expandDetail').onclick = toggleExpand;
+  window.addEventListener('resize', applyLayout);
+  applyLayout();
+
+  (function resizer() {
+    const h = document.getElementById('resizeHandle');
+    let startX = 0, startW = 0;
+    h.addEventListener('pointerdown', e => {
+      startX = e.clientX; startW = detailEl.offsetWidth; h.setPointerCapture(e.pointerId);
+      document.body.classList.add('resizing');
+    });
+    h.addEventListener('pointermove', e => {
+      if (!h.hasPointerCapture(e.pointerId)) return;
+      detailEl.style.width = Math.min(Math.max(340, startW + (startX - e.clientX)), maxW()) + 'px';
+    });
+    h.addEventListener('pointerup', e => {
+      h.releasePointerCapture(e.pointerId); document.body.classList.remove('resizing');
+      widths[expanded ? 'expanded' : 'normal'] = detailEl.offsetWidth; store.set('widths', widths);
+    });
+  })();
+
+  document.addEventListener('keydown', e => {
+    if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+    if (e.key === 'h' || e.key === 'H') { showAll(); return; }
+    if (detailEl.hidden) return;
+    if (e.key === 'Escape') document.getElementById('closeDetail').click();
+    else if (e.key === 'e' || e.key === 'E') toggleExpand();
+    else if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('dsec-h')) { e.preventDefault(); e.target.click(); }
+  });
 
   const tipEl = document.createElement('div');
   tipEl.className = 'tip'; tipEl.hidden = true; document.body.appendChild(tipEl);
@@ -151,7 +229,8 @@
     const filters = { all: () => true, severe: c => c.s === 'F' || c.s === 'S', injury: c => c.s === 'I',
                       ped: c => c.pd > 0 || c.cy > 0, speeding: c => c.sp };
     const list = crashes.filter(filters[crashFilter]);
-    const shown = showAllCrashes ? list : list.slice(0, 20);
+    const all = showAllCrashes || expanded;
+    const shown = all ? list : list.slice(0, 20);
     const btn = (k, label, n) => `<button class="fbtn ${crashFilter === k ? 'on' : ''}" data-cf="${k}">${label} <small>${n}</small></button>`;
     return `
       <div class="fbar">
@@ -173,12 +252,12 @@
             ${cond ? `<div class="sub2 muted">${esc(cond)}</div>` : ''}</td></tr>`;
       }).join('') || '<tr><td colspan="3" class="muted">None</td></tr>'}
       </tbody></table>
-      ${list.length > 20 ? `<button class="linkbtn" data-more="crashes">${showAllCrashes ? 'Show fewer' : `Show all ${list.length}`}</button>` : ''}`;
+      ${list.length > 20 && !expanded ? `<button class="linkbtn" data-more="crashes">${showAllCrashes ? 'Show fewer' : `Show all ${list.length}`}</button>` : ''}`;
   }
 
   function reqTable(reqs) {
     const list = reqs.filter(r => !reqFilter || r.t === reqFilter);
-    const shown = showAllReqs ? list : list.slice(0, 20);
+    const shown = showAllReqs || expanded ? list : list.slice(0, 20);
     const types = countBy(reqs, r => r.t);
     return `
       <div class="fbar"><select id="reqType"><option value="">All types (${reqs.length})</option>
@@ -190,14 +269,14 @@
           <td>${esc(r.t)}<div class="sub2 muted">${esc(r.a || '')} · ${r.m} m away</div></td>
           <td>${esc(r.st || '')}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">None</td></tr>'}
       </tbody></table>
-      ${list.length > 20 ? `<button class="linkbtn" data-more="reqs">${showAllReqs ? 'Show fewer' : `Show all ${list.length}`}</button>` : ''}
+      ${list.length > 20 && !expanded ? `<button class="linkbtn" data-more="reqs">${showAllReqs ? 'Show fewer' : `Show all ${list.length}`}</button>` : ''}
       <div class="note">City status is unreliable: most requests stay "Reported" even after a fix.</div>`;
   }
 
   // Center a point in the part of the map not covered by the detail panel.
   function flyVisible(latlng, zoom) {
     const panel = document.getElementById('detail');
-    const shift = window.innerWidth > 760 ? (panel.offsetWidth || 440) / 2 : 0;
+    const shift = window.innerWidth > 760 ? (panel.offsetWidth || parseInt(panel.style.width, 10) || 440) / 2 : 0;
     const pt = map.project(latlng, zoom).add([shift, 0]);
     map.flyTo(map.unproject(pt, zoom), zoom, { duration: 0.6 });
   }
@@ -245,46 +324,57 @@
     const sv = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${p.lat},${p.lon}`;
     const types = countBy(det.crashes.filter(c => c.t), c => c.t).slice(0, 6);
     const untyped = det.crashes.filter(c => !c.t).length;
+    const sec = (id, title, html) =>
+      `<section class="dsec ${collapsed[id] ? 'collapsed' : ''}" data-sec="${id}">
+         <h3 class="dsec-h" tabindex="0" role="button" aria-expanded="${!collapsed[id]}">${title}</h3>
+         <div class="dsec-b">${html}</div></section>`;
     document.getElementById('detailBody').innerHTML = `
-      <h2>#${p.rank} ${esc(titleCase(p.location))}</h2>
-      <div class="note">${kind} · score ${p.score} = crash points ${p.crash_points} + repair-request points ${p.request_points} × ${weight('request_mult')}
-        · <a href="${sv}" target="_blank" rel="noopener">Street View ↗</a></div>
-      <div class="stat-grid">
-        <div class="stat"><b>${p.crashes}</b><span>crashes</span></div>
-        <div class="stat"><b>${p.fatal + p.serious}</b><span>fatal + serious</span></div>
-        <div class="stat"><b>${p.ped_crashes + p.bike_crashes}</b><span>hit ped / bike</span></div>
-        <div class="stat"><b>${p.requests}</b><span>repair requests</span></div>
+      <div class="dhead">
+        <h2>#${p.rank} ${esc(titleCase(p.location))}</h2>
+        <div class="note">${kind} · score ${p.score} = crash points ${p.crash_points} + repair-request points ${p.request_points} × ${weight('request_mult')}
+          · <a href="${sv}" target="_blank" rel="noopener">Street View ↗</a></div>
+        <div class="stat-grid">
+          <div class="stat"><b>${p.crashes}</b><span>crashes</span></div>
+          <div class="stat"><b>${p.fatal + p.serious}</b><span>fatal + serious</span></div>
+          <div class="stat"><b>${p.ped_crashes + p.bike_crashes}</b><span>hit ped / bike</span></div>
+          <div class="stat"><b>${p.requests}</b><span>repair requests</span></div>
+        </div>
       </div>
-      <h3>Why it ranks here</h3>
-      <ul>${reasons(p).map(r => `<li>${esc(r.text)}</li>`).join('')}</ul>
-
-      <h3>Crashes by year</h3>
-      ${yearChart(det.crashes)}
-
-      <h3>What kind of crashes</h3>
-      ${hbars(types, '#2a78d6', 'crashes')}
-      ${untyped ? `<div class="note">${untyped} crash${untyped > 1 ? 'es have' : ' has'} no type recorded.</div>` : ''}
-      <ul class="tight">
-        <li>Wet/icy road: ${p.wet_crashes} of ${p.road_known} recorded (${pct(p.wet_crashes, p.road_known)}%; city ${Math.round(100 * meta.city_wet_share)}%)</li>
-        <li>Dark: ${p.dark_crashes} of ${p.light_known} (${pct(p.dark_crashes, p.light_known)}%; city ${Math.round(100 * meta.city_dark_share)}%) · streetlights off/none: ${p.unlit_crashes}</li>
-      </ul>
-
-      <h3>Every crash</h3>
-      <div class="legend">${['F', 'S', 'I', 'P'].map(k => `<span><i style="background:${SEV[k].color}"></i>${SEV[k].label}</span>`).join('')}</div>
-      <div id="crashTable">${crashTable(det.crashes)}</div>
-
-      <h3>Repair requests within ${weight('request_radius_m')} m</h3>
-      <div class="legend"><span><i class="sq" style="background:${REQ_COLOR}"></i>Request location (on map)</span>
-        <span><i class="ring"></i>${weight('request_radius_m')} m search area</span></div>
-      ${hbars(countBy(det.requests, r => r.t), REQ_COLOR, 'requests')}
-      <div id="reqTable">${reqTable(det.requests)}</div>
-
-      <h3>Planned work</h3>
-      <div class="note">Not linked yet. Seattle's budget data has no locations (see the SDOT spending tab).</div>`;
+      <div class="dcols">
+        <div class="dcol">
+          ${sec('why', 'Why it ranks here', `<ul>${reasons(p).map(r => `<li>${esc(r.text)}</li>`).join('')}</ul>`)}
+          ${sec('years', 'Crashes by year', yearChart(det.crashes))}
+          ${sec('types', 'What kind of crashes', `
+            ${hbars(types, '#2a78d6', 'crashes')}
+            ${untyped ? `<div class="note">${untyped} crash${untyped > 1 ? 'es have' : ' has'} no type recorded.</div>` : ''}
+            <ul class="tight">
+              <li>Wet/icy road: ${p.wet_crashes} of ${p.road_known} recorded (${pct(p.wet_crashes, p.road_known)}%; city ${Math.round(100 * meta.city_wet_share)}%)</li>
+              <li>Dark: ${p.dark_crashes} of ${p.light_known} (${pct(p.dark_crashes, p.light_known)}%; city ${Math.round(100 * meta.city_dark_share)}%) · streetlights off/none: ${p.unlit_crashes}</li>
+            </ul>`)}
+          ${sec('reqtypes', `Repair requests within ${weight('request_radius_m')} m`, `
+            <div class="legend"><span><i class="sq" style="background:${REQ_COLOR}"></i>Request location (on map)</span>
+              <span><i class="ring"></i>${weight('request_radius_m')} m search area</span></div>
+            ${hbars(countBy(det.requests, r => r.t), REQ_COLOR, 'requests') || '<div class="note">None in Find It Fix It data.</div>'}`)}
+          ${sec('planned', 'Planned work', `<div class="note">Not linked yet. Seattle's budget data has no locations (see the SDOT spending tab).</div>`)}
+        </div>
+        <div class="dcol">
+          ${sec('crashes', 'Every crash', `
+            <div class="legend">${['F', 'S', 'I', 'P'].map(k => `<span><i style="background:${SEV[k].color}"></i>${SEV[k].label}</span>`).join('')}</div>
+            <div id="crashTable">${crashTable(det.crashes)}</div>`)}
+          ${sec('reqs', 'Every repair request', `<div id="reqTable">${reqTable(det.requests)}</div>`)}
+        </div>
+      </div>`;
     document.getElementById('detail').hidden = false;
 
     const body = document.getElementById('detailBody');
     body.onclick = e => {
+      const h = e.target.closest('.dsec-h');
+      if (h) {
+        const s = h.parentElement, id = s.dataset.sec;
+        collapsed[id] = !collapsed[id]; store.set('collapsed', collapsed);
+        s.classList.toggle('collapsed', collapsed[id]); h.setAttribute('aria-expanded', String(!collapsed[id]));
+        return;
+      }
       const cf = e.target.closest('[data-cf]');
       if (cf) { crashFilter = cf.dataset.cf; showAllCrashes = false; document.getElementById('crashTable').innerHTML = crashTable(det.crashes); return; }
       const more = e.target.closest('[data-more]');
@@ -374,5 +464,6 @@
     if (p) select(p, true);
   }
   window.addEventListener('hashchange', openFromHash);
-  openFromHash();
+  if (location.hash.length > 1) openFromHash();
+  else map.fitBounds(layer.getBounds(), { padding: [30, 30], maxZoom: 15 });
 })();
