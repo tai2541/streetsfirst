@@ -28,8 +28,7 @@
   // ---------- ranking modes ----------
   const MODES = {
     ksi: { label: 'Recommended', hint: 'Where people are most likely to keep getting killed or seriously hurt, from 5 years of crashes.', unit: 'pts' },
-    risk: { label: 'Risk for its traffic', hint: 'Dangerous for how busy it is: the same harm per vehicle. Often quieter streets.', unit: 'per 10k vehicles' },
-    fatal: { label: 'Fatal-weighted (old)', hint: 'The first version: one death outweighs 20 injury crashes. Kept for comparison.', unit: 'pts' }
+    risk: { label: 'Risk for its traffic', hint: 'Dangerous for how busy it is: the same harm per vehicle. Often quieter streets.', unit: 'per 10k vehicles' }
   };
   let mode = (() => { try { return JSON.parse(localStorage.getItem('ipm.mode')) || 'ksi'; } catch { return 'ksi'; } })();
   if (!MODES[mode]) mode = 'ksi';
@@ -38,8 +37,8 @@
   const N = meta.locations_scored;
   function applyMode() {
     D.priorities.forEach(p => {
-      p.rank = { ksi: p.rank_ksi, fatal: p.rank_fatal, risk: p.rank_risk }[mode] ?? null;
-      p.score = { ksi: p.score_ksi, fatal: p.score_fatal, risk: p.score_risk }[mode] ?? null;
+      p.rank = { ksi: p.rank_ksi, risk: p.rank_risk }[mode] ?? null;
+      p.score = { ksi: p.score_ksi, risk: p.score_risk }[mode] ?? null;
     });
     // Locations without a rank in this mode (e.g. no traffic count for "risk") sort last and aren't shown.
     D.priorities.sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
@@ -598,11 +597,8 @@
       ? `<p><b>Risk ${Math.round(p.score_risk)}</b> = expected harm ${fmt(Math.round(p.expected_harm))} ÷
           (${fmt(Math.max(p.volume, weight('risk_vol_floor')))} vehicles ÷ 10,000).</p>`
       : `<p class="note">Not ranked for risk: ${p.volume ? `fewer than ${weight('risk_min_crashes')} crashes` : 'no SDOT traffic count'}.</p>`;
-    const fatalLine = `<p><b>Old fatal-weighted score ${fmt(Math.round(p.score_fatal))}</b> = crash points ${fmt(Math.round(p.pts_old))}
-        + request points ${p.request_points} × ${weight('request_mult')}.</p>`;
-    const ranks = `<p class="note">Ranks: #${p.rank_ksi} recommended · ${p.rank_risk ? '#' + p.rank_risk : 'unranked'} risk ·
-        #${p.rank_fatal} fatal-weighted (old).</p>`;
-    return { ksi: ksiLine + riskLine + fatalLine, risk: riskLine + ksiLine + fatalLine, fatal: fatalLine + ksiLine + riskLine }[mode] + ranks;
+    const ranks = `<p class="note">Ranks: #${p.rank_ksi} recommended · ${p.rank_risk ? '#' + p.rank_risk : 'unranked'} for its traffic.</p>`;
+    return (mode === 'risk' ? riskLine + ksiLine : ksiLine + riskLine) + ranks;
   }
   const groupName = g => {
     const [a, s] = g.split(' / ');
@@ -880,12 +876,6 @@
           month count once. ${unscored.map(r => esc(r.type)).join(', ')} requests are shown but not scored: they aren't
           clearly tied to crashes, or weren't collected for the whole period.</li>
       </ol>`;
-    const fatal = `
-      <h3>Fatal-weighted ranking (old)</h3>
-      <p>The first version: fatal ${weight('fatal')}, serious injury ${weight('serious')}, injury ${weight('injury')},
-        property damage only ${weight('pdo')}, × ${weight('ped_bike_mult')} with a pedestrian or cyclist, plus request
-        points × ${weight('request_mult')}. Kept for comparison: one fatal crash outweighs 20 injury crashes, so spots with
-        only a few crashes but one death can rank very high.</p>`;
     const risk = `
       <h3>Risk for its traffic</h3>
       <p>Expected harm divided by traffic: vehicles entering an intersection (the streets' weekday counts added together)
@@ -915,7 +905,7 @@
       <p>SDOT's High Injury Network and High Collision Locations come from overlapping crash data, so this is a
         consistency check, not independent proof. Top 50 of each ranking:</p>
       <table class="vtable"><thead><tr><th scope="col"></th><th scope="col">High Injury Network</th><th scope="col">of those "High"</th><th scope="col">High Collision list ${meta.window_from.slice(0, 4)}+</th></tr></thead><tbody>
-        ${agRow('ksi', 'Recommended')}${agRow('risk', 'Risk for its traffic')}${agRow('fatal', 'Fatal-weighted (old)')}
+        ${agRow('ksi', 'Recommended')}${agRow('risk', 'Risk for its traffic')}
         ${agRow('baseline_crash_count', 'Baseline: 50 spots with most crashes')}
       </tbody></table>
       <p class="note">For scale: ${Math.round(100 * meta.busy_share_on_hin)}% of the ${fmt(meta.busy_locations)} spots with 10+ crashes are on the High Injury Network.</p>`;
@@ -925,7 +915,7 @@
         ${monthYear(meta.window_to)} (${fmt(meta.collisions_scored)} SDOT collision reports), ranked by how likely people are to keep
         getting killed or seriously hurt there.</p>
       ${example}
-      ${{ ksi: ksi + risk + fatal, risk: risk + ksi + fatal, fatal: fatal + ksi + risk }[mode]}
+      ${mode === 'risk' ? risk + ksi : ksi + risk}
       ${validation}
       ${agreement}
       <h3>Street details and SDOT actions</h3>

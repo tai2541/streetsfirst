@@ -50,7 +50,8 @@ before the newest crash (recent police reports arrive late):
 4. **Repair boost:** safety-related requests (signals, streetlights, signs, sidewalks, ADA,
    Safe Routes to School) since mid-2023, duplicates collapsed, raise the score by at most +25%.
 
-The v1 "fatal-weighted" ranking is kept for comparison. All weights are in the
+The site also offers "Risk for its traffic" (the same expected harm per vehicle). The original
+fatal-weighted ranking was retired from the site. All weights are in the
 `weights` table at the top of `pipeline/build.sql`.
 
 ## Status

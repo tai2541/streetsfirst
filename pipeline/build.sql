@@ -8,7 +8,8 @@
 --                      compounding; the fatal/serious part is blended with the typical share on similar
 --                      streets (empirical Bayes); then a small capped boost from safety-related requests.
 --   risk:              the same expected harm per 10,000 vehicles entering the spot.
---   fatal (old v1):    fatal crashes weighted far above everything else. Kept for comparison.
+--   fatal (old v1):    fatal crashes weighted far above everything else. Retired from the site; still
+--                      computed so the change can be compared.
 create or replace table weights as select * from (values
   ('ksi',               30.0),   -- points per fatal OR serious-injury collision
   ('fatal_growth',       1.5),   -- the nth fatal crash at a location counts ksi x growth^(n-1)
@@ -422,7 +423,6 @@ with yr as (select year(ws()) y0),
 sets as (
   select 'ksi' m, * from ranked where rank <= 50
   union all select 'risk', * from ranked where rank_risk <= 50
-  union all select 'fatal', * from ranked where rank_fatal <= 50
   union all select 'baseline_crash_count', * from (select * from ranked order by crashes desc, location limit 50)
 )
 select m as mode,
@@ -433,7 +433,7 @@ from sets group by m;
 
 -- ---------------------------------------------------------------- exports for the site
 create or replace macro export_set() as table
-  select * from ranked where rank <= 200 or rank_fatal <= 200 or rank_risk <= 200
+  select * from ranked where rank <= 200 or rank_risk <= 200
      or fatal >= 2;   -- repeated deaths are always shown, whatever their rank
 
 copy (
