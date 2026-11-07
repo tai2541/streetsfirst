@@ -778,7 +778,11 @@
     return `${a === 'I' ? 'intersections' : 'blocks'} on ${{ principal: 'principal arterials', minor: 'minor arterials', collector: 'collector arterials', state: 'state routes and freeways', local: 'neighborhood streets' }[s] || s}`;
   };
 
+  // The map view from before a spot was opened, so closing it zooms back out to where you were.
+  let viewBefore = null;
+  const rememberView = () => { if (detailEl.hidden && !viewBefore) viewBefore = { c: map.getCenter(), z: map.getZoom() }; };
   function select(p, fly, from, keepFocus) {
+    rememberView();
     if (!current || current.rank_ksi !== p.rank_ksi) { crashFilter = 'all'; reqFilter = ''; showAllCrashes = showAllReqs = false; }
     if (from !== undefined && !keepFocus) opener = from;
     current = p;
@@ -886,6 +890,7 @@
 
   // Locations outside the exported top lists (found by search): a short summary, no crash list.
   function selectLite(s) {
+    rememberView();
     current = { rank_ksi: s.rank, rank: null, lat: s.lat, lon: s.lon };
     opener = document.getElementById('search');
     history.replaceState(null, '', '#loc=' + s.rank);
@@ -913,6 +918,10 @@
 
   function closeDetail(restoreFocus) {
     detailEl.hidden = true; mainEl.classList.remove('split'); clearFocus();
+    applyLayout();
+    if (viewBefore) { if (reduceMotion) map.setView(viewBefore.c, viewBefore.z, { animate: false }); else map.flyTo(viewBefore.c, viewBefore.z, { duration: 0.6 }); }
+    else if (layer.getLayers().length) (reduceMotion ? map.fitBounds : map.flyToBounds).call(map, layer.getBounds(), { padding: [30, 30], maxZoom: 15 });
+    viewBefore = null;
     history.replaceState(null, '', location.pathname + location.search);
     if (restoreFocus && opener && document.contains(opener)) opener.focus();
     else if (restoreFocus) document.getElementById('list').querySelector('button')?.focus();
