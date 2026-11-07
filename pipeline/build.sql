@@ -433,7 +433,8 @@ from sets group by m;
 
 -- ---------------------------------------------------------------- exports for the site
 create or replace macro export_set() as table
-  select * from ranked where rank <= 200 or rank_fatal <= 200 or rank_risk <= 200;
+  select * from ranked where rank <= 200 or rank_fatal <= 200 or rank_risk <= 200
+     or fatal >= 2;   -- repeated deaths are always shown, whatever their rank
 
 copy (
   select rank, rank_noboost, rank_fatal, rank_risk, location, addr_type, round(lon, 6) lon, round(lat, 6) lat,

@@ -172,6 +172,7 @@
         <div>${sw(1)}11–25</div>
         <div>${sw(2)}26–50</div>
         <div>${sw(3)}51+</div>
+        <div><i style="background:#fff;box-shadow:inset 0 0 0 3px #7a0c10"></i>Repeated deaths</div>
         <button type="button" class="pausebtn" aria-pressed="${paused}">${paused ? 'Play' : 'Pause'} animation</button>`;
       L.DomEvent.disableClickPropagation(d);
       d.querySelector('.pausebtn').onclick = e => {
@@ -190,18 +191,28 @@
     const type = document.getElementById('addrFilter').value;
     const onlyFatal = document.getElementById('onlyFatal').checked;
     const ongoing = document.getElementById('onlyOngoing').checked;
-    return D.priorities
-      .filter(p => p.rank != null && p.rank <= 200)
-      .filter(p => (!type || p.addr_type === type || (type === 'B' && p.addr_type === 'A'))
-        && (!onlyFatal || p.fatal > 0) && (!ongoing || p.ksi_years >= 3))
-      .slice(0, n);
+    const keep = p => (!type || p.addr_type === type || (type === 'B' && p.addr_type === 'A'))
+        && (!onlyFatal || p.fatal > 0) && (!ongoing || p.ksi_years >= 3);
+    const rows = D.priorities.filter(p => p.rank != null && p.rank <= 200).filter(keep).slice(0, n);
+    // Spots where 2+ people died are never left off, even when their predicted-harm rank is low.
+    const inRows = new Set(rows.map(p => p.rank_ksi));
+    const extra = D.priorities.filter(p => p.fatal >= 2 && !inRows.has(p.rank_ksi) && keep(p))
+      .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9) || a.rank_ksi - b.rank_ksi);
+    return { rows, extra };
   }
+  const EXTRA_STYLE = { radius: 7, color: '#7a0c10', weight: 3, fillColor: '#fff', fillOpacity: 0.95 };
 
   function render() {
-    const rows = currentRows();
+    const { rows, extra } = currentRows();
     const maxScore = Math.max(...rows.map(r => r.score), 1);
 
     layer.clearLayers(); markers = {};
+    extra.forEach(p => {
+      const m = L.circleMarker([p.lat, p.lon], EXTRA_STYLE);
+      m.bindTooltip(`${p.rank ? '#' + fmt(p.rank) + ' ' : ''}${esc(p.name)}: ${p.fatal} deaths`, { direction: 'top', offset: [0, -4] })
+        .on('click', () => select(p, false, null));
+      m._p = p; m.addTo(layer); markers[p.rank_ksi] = m;
+    });
     // Draw lower ranks first so higher ranks sit on top.
     [...rows].reverse().forEach(p => {
       const t = TIERS[tier(p.rank)];
@@ -220,22 +231,27 @@
           });
       m.bindTooltip(`#${p.rank} ${esc(p.name)}`, { direction: 'top', offset: [0, p.rank <= 10 ? -14 : -4] })
         .on('click', () => select(p, false, m.getElement && m.getElement()));
-      m.addTo(layer); markers[p.rank] = m;
+      m._p = p; m.addTo(layer); markers[p.rank_ksi] = m;
     });
 
     const list = document.getElementById('list');
-    list.innerHTML = rows.length ? rows.map(p => {
+    const card = (p, isExtra) => {
       const chips = reasons(p).slice(0, 3);
+      const rk = p.rank != null ? '#' + fmt(p.rank) : '—';
       return `
-      <li data-id="${p.rank_ksi}" class="${p.rank <= 10 ? 'top10' : ''}">
-        <button type="button" class="card" aria-label="#${p.rank} ${esc(p.name)}">
-          <span class="row1"><span class="rank">#${p.rank}</span><span class="loc">${esc(p.name)}</span>
-            <span class="score">${scoreText(p)}</span></span>
+      <li data-id="${p.rank_ksi}" class="${isExtra ? 'extra' : p.rank <= 10 ? 'top10' : ''}">
+        <button type="button" class="card" aria-label="${rk} ${esc(p.name)}${isExtra ? ', ' + p.fatal + ' deaths' : ''}">
+          <span class="row1"><span class="rank">${rk}</span><span class="loc">${esc(p.name)}</span>
+            <span class="score">${p.score != null ? scoreText(p) : ''}</span></span>
           <span class="chips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</span>
           ${sdotRow(p)}
         </button>
       </li>`;
-    }).join('') : '<li class="empty">No spots match these filters.</li>';
+    };
+    list.innerHTML = (rows.length ? rows.map(p => card(p, false)).join('') : '<li class="empty">No spots match these filters.</li>') +
+      (extra.length ? `<li class="extra-head" role="presentation"><b>Repeated deaths</b>: 2 or more people died at each of these
+          spots. They rank lower because they have few other crashes, but they're always listed.</li>` +
+        extra.map(p => card(p, true)).join('') : '');
     list.querySelectorAll('li[data-id]').forEach(li => {
       const p = byId.get(+li.dataset.id);
       const btn = li.querySelector('button');
@@ -248,10 +264,12 @@
     if (current) markCurrent();
   }
 
+  const isExtraMarker = m => m.options && m.options.fillColor === EXTRA_STYLE.fillColor && m.options.radius === EXTRA_STYLE.radius;
   function highlight(p, on) {
-    const m = markers[p.rank]; if (!m) return;
-    if (m.setStyle) { m.setStyle({ weight: on ? 4 : TIERS[tier(p.rank)].weight, color: on ? '#1d2430' : TIERS[tier(p.rank)].stroke }); if (on) m.bringToFront(); }
-    else { m.setZIndexOffset(on ? 6000 : (current && current.rank === p.rank ? 5000 : 1000 - p.rank)); const el = m.getElement(); if (el) el.classList.toggle('hl', on); }
+    const m = markers[p.rank_ksi]; if (!m) return;
+    const base = isExtraMarker(m) ? EXTRA_STYLE : TIERS[tier(p.rank)];
+    if (m.setStyle) { m.setStyle({ weight: on ? 4 : (base.weight || EXTRA_STYLE.weight), color: on ? '#1d2430' : (base.stroke || base.color) }); if (on) m.bringToFront(); }
+    else { m.setZIndexOffset(on ? 6000 : (current && current.rank_ksi === p.rank_ksi ? 5000 : 1000 - p.rank)); const el = m.getElement(); if (el) el.classList.toggle('hl', on); }
     if (on) m.openTooltip(); else m.closeTooltip();
   }
 
@@ -497,8 +515,12 @@
 
   function drawFocus(p, det) {
     focus.clearLayers();
-    L.circle([p.lat, p.lon], { radius: weight('request_radius_m'), color: '#52514e', weight: 1, fill: false, interactive: false }).addTo(focus);
-    if (!markers[p.rank])  // spot not on the map in this view (found by search, or hidden by filters)
+    // The search area, made obvious: shaded, dashed, and labelled with its size on the map itself.
+    const rm = weight('request_radius_m');
+    L.circle([p.lat, p.lon], { radius: rm, color: '#1d2430', weight: 2, dashArray: '6 5', fillColor: REQ_COLOR, fillOpacity: 0.08, interactive: false }).addTo(focus);
+    L.marker([p.lat + rm / 111320, p.lon], { keyboard: false, interactive: false,
+      icon: L.divIcon({ className: 'radius-label', iconSize: null, html: `<span>Requests counted within ${ft(rm)} ft</span>` }) }).addTo(focus);
+    if (!markers[p.rank_ksi])  // spot not on the map in this view (found by search, or hidden by filters)
       L.circleMarker([p.lat, p.lon], { radius: 9, color: '#1d2430', weight: 3, fillColor: '#fff', fillOpacity: 0.9, interactive: false }).addTo(focus);
     const groups = new Map();
     (det ? det.requests : []).filter(r => !reqFilter || r.t === reqFilter).forEach(r => {
@@ -515,8 +537,8 @@
           html: `<span style="background:${REQ_COLOR};width:${size - 2}px;height:${size - 2}px">${n > 1 ? n : ''}</span>` })
       }).bindTooltip(`<b>${n} request${n > 1 ? 's' : ''} here</b><br>${lines}<br><span style="color:#c8c6bf">${esc(rs[0].a || '')}</span>`).addTo(focus);
     });
-    Object.entries(markers).forEach(([rank, m]) => dim(m, +rank !== p.rank));
-    const sel = markers[p.rank];
+    Object.entries(markers).forEach(([id, m]) => dim(m, +id !== p.rank_ksi));
+    const sel = markers[p.rank_ksi];
     if (sel && sel.bringToFront) sel.bringToFront();
     if (sel && sel.setZIndexOffset) sel.setZIndexOffset(5000);
   }
@@ -524,9 +546,8 @@
   function clearFocus() {
     focus.clearLayers();
     Object.values(markers).forEach(m => dim(m, false));
-    Object.keys(markers).map(Number).sort((a, b) => b - a).forEach(r => {
-      const m = markers[r];
-      if (m.bringToFront) m.bringToFront(); else m.setZIndexOffset(1000 - r);
+    Object.values(markers).sort((a, b) => (b._p.rank ?? 1e9) - (a._p.rank ?? 1e9)).forEach(m => {
+      if (m.bringToFront) m.bringToFront(); else m.setZIndexOffset(1000 - m._p.rank);
     });
     current = null; markCurrent();
   }
@@ -553,7 +574,12 @@
     const rk = p.rank_ksi;
     const line2 = `Ranks <b>#${rk}</b> of ${fmt(N)} crash locations (${topShare(rk)})` +
       (p.rank_risk ? `, #${p.rank_risk} for its traffic` : '') + '.';
-    return `<p class="verdict">${esc(parts.join(' '))}</p><p class="verdict2">${line2}</p>`;
+    const why = p.fatal >= 2 && rk > 50
+      ? `<p class="callout">${p.fatal} people died here. It ranks #${fmt(rk)} because the ranking estimates where people are most
+          likely to be hurt next, and this spot has few other crashes (${p.crashes} in total), so the model treats much of its
+          record as chance. That may understate it: repeated deaths can mean traffic moves at deadly speeds. It's always listed
+          so it isn't overlooked.</p>` : '';
+    return `<p class="verdict">${esc(parts.join(' '))}</p><p class="verdict2">${line2}</p>${why}`;
   }
 
   function mathBox(p) {
@@ -632,7 +658,7 @@
             </ul>`)}
           ${sec('reqtypes', `Repair requests within ${R} ft`, `
             <div class="legend"><span><i class="sq" style="background:${REQ_COLOR}"></i>Request location (on map)</span>
-              <span><i class="ring"></i>${R} ft search area</span></div>
+              <span><i class="ring"></i>Dashed circle: ${R} ft search area</span></div>
             ${hbars(countBy(det.requests, r => r.t), REQ_COLOR, 'requests') || '<div class="note">None in Find It Fix It data.</div>'}`)}
           ${sec('math', 'How this score is calculated', mathBox(p))}
         </div>
