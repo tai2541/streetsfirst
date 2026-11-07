@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Seattle Infrastructure Priority Map (v1)</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Seattle Infrastructure Priority Map <span class="tag">v1</span></h1>
+      <p class="sub" id="subtitle"></p>
+    </div>
+    <nav>
+      <button data-tab="priorities" class="active">Priorities</button>
+      <button data-tab="spending">SDOT spending</button>
+      <button data-tab="about">How it's scored</button>
+    </nav>
+  </header>
+
+  <main>
+    <aside id="panel">
+      <section id="tab-priorities" class="tab active">
+        <div class="controls">
+          <label>Show top
+            <select id="topN"><option>25</option><option selected>50</option><option>100</option><option>200</option></select>
+          </label>
+          <label>Type
+            <select id="addrFilter">
+              <option value="">All</option><option value="I">Intersections</option><option value="B">Blocks</option>
+            </select>
+          </label>
+        </div>
+        <ol id="list"></ol>
+      </section>
+
+      <section id="tab-spending" class="tab">
+        <p class="note">SDOT capital budget by program, from the City of Seattle Capital Budget dataset.
+          The city's data has <strong>no location field</strong>, so spending can't be placed on the map yet.
+          Years after the current one are planned amounts.</p>
+        <div id="budget"></div>
+      </section>
+
+      <section id="tab-about" class="tab">
+        <div id="about"></div>
+      </section>
+    </aside>
+
+    <div id="map"></div>
+  </main>
+
+  <div id="detail" hidden>
+    <button id="closeDetail" aria-label="Close">×</button>
+    <div id="detailBody"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="data/data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

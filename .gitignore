@@ -1,6 +1,11 @@
-# Downloaded data (can be re-fetched; may be large)
+# Downloaded data and local database (can be rebuilt with run.ps1)
 data/raw/
 data/cache/
+data/*.duckdb
+data/*.duckdb.wal
+
+# Local tools (DuckDB CLI binary)
+tools/
 
 # Secrets (API keys, app tokens)
 .env

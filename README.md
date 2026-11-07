@@ -34,4 +34,24 @@ added by plugging in new sources.
 work is already scheduled.
 
 ## Status
-Planning. See [docs/data-sources.md](docs/data-sources.md) for the data inventory.
+**v1** is a local site that ranks Seattle intersections and blocks by collision harm plus
+nearby infrastructure repair requests, and shows the SDOT capital budget through 2028.
+
+- Data inventory: [docs/data-sources.md](docs/data-sources.md)
+- Deployment plan and roadmap: [docs/deployment.md](docs/deployment.md)
+
+## Setup (Windows)
+1. Download the DuckDB CLI (v2.0.0, `duckdb-cli-windows-amd64`) from
+   https://github.com/duckdb/duckdb/releases and put `duckdb.exe` in `tools/duckdb/`.
+2. Run `powershell -ExecutionPolicy Bypass -File run.ps1` to fetch the data (about a minute)
+   and build. Add `-SkipFetch` to rebuild from data already downloaded.
+3. Open `site/index.html` in a browser.
+
+## Layout
+```
+pipeline/fetch.ps1   download raw city data -> data/raw/   (git-ignored)
+pipeline/build.sql   DuckDB: clean, score, export          (weights at the top)
+run.ps1              fetch + build + write site/data/data.js
+site/                static web page (Leaflet map)
+docs/                data sources, deployment plan
+```
