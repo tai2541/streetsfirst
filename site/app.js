@@ -99,6 +99,28 @@
 
   let markers = {}, selected = null;
 
+  // Fade markers that aren't the selected one (works for both circle and top-10 markers).
+  function dim(m, faded) {
+    if (m.setStyle) m.setStyle({ fillOpacity: faded ? 0.25 : 0.85, opacity: faded ? 0.4 : 1 });
+    else { m.setOpacity(faded ? 0.35 : 1); const el = m.getElement(); if (el) el.classList.toggle('faded', faded); }
+  }
+
+  // Legend for the rank tiers.
+  const Legend = L.Control.extend({
+    options: { position: 'bottomleft' },
+    onAdd() {
+      const d = L.DomUtil.create('div', 'map-legend');
+      d.innerHTML = `
+        <div><span class="lg-top"><span class="core">1</span></span>Top 10</div>
+        <div><i style="background:${color(11)}"></i>11–25</div>
+        <div><i style="background:${color(26)}"></i>26–50</div>
+        <div><i style="background:${color(51)}"></i>51+</div>`;
+      L.DomEvent.disableClickPropagation(d);
+      return d;
+    }
+  });
+  new Legend().addTo(map);
+
   function render() {
     const n = +document.getElementById('topN').value;
     const type = document.getElementById('addrFilter').value;
@@ -108,17 +130,30 @@
     const maxScore = Math.max(...rows.map(r => r.score), 1);
 
     layer.clearLayers(); markers = {};
-    rows.forEach(p => {
-      const m = L.circleMarker([p.lat, p.lon], {
-        radius: 5 + 11 * Math.sqrt(p.score / maxScore), color: '#fff', weight: 1.5,
-        fillColor: color(p.rank), fillOpacity: 0.88
-      }).bindTooltip(`#${p.rank} ${esc(titleCase(p.location))}`).on('click', () => select(p));
+    // Draw lower ranks first so higher ranks sit on top.
+    [...rows].reverse().forEach(p => {
+      const m = p.rank <= 10
+        // Top 10: numbered, glowing marker with a pulsing ring (staggered so they don't flash in sync).
+        ? L.marker([p.lat, p.lon], {
+            zIndexOffset: 1000 - p.rank, riseOnHover: true, keyboard: true, title: `#${p.rank} ${titleCase(p.location)}`,
+            icon: L.divIcon({
+              className: 'top-mark', iconSize: [40, 40], iconAnchor: [20, 20],
+              html: `<span class="pulse" style="animation-delay:-${(p.rank * 0.37).toFixed(2)}s"></span>
+                     <span class="core">${p.rank}</span>`
+            })
+          })
+        : L.circleMarker([p.lat, p.lon], {
+            radius: 5 + 9 * Math.sqrt(p.score / maxScore), color: '#fff', weight: 1.5,
+            fillColor: color(p.rank), fillOpacity: 0.85
+          });
+      m.bindTooltip(`#${p.rank} ${esc(titleCase(p.location))}`, { direction: 'top', offset: [0, p.rank <= 10 ? -14 : -4] })
+        .on('click', () => select(p));
       m.addTo(layer); markers[p.rank] = m;
     });
 
     const list = document.getElementById('list');
     list.innerHTML = rows.map(p => `
-      <li data-rank="${p.rank}">
+      <li data-rank="${p.rank}" class="${p.rank <= 10 ? 'top10' : ''}">
         <div class="row1"><span class="rank">#${p.rank}</span><span class="loc">${esc(titleCase(p.location))}</span>
           <span class="score">${p.score}</span></div>
         <div class="chips">${reasons(p).map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</div>
@@ -325,12 +360,20 @@
           html: `<span style="background:${REQ_COLOR};width:${size - 2}px;height:${size - 2}px">${n > 1 ? n : ''}</span>` })
       }).bindTooltip(`<b>${n} request${n > 1 ? 's' : ''} here</b><br>${lines}<br><span style="color:#898781">${esc(rs[0].a || '')}</span>`).addTo(focus);
     });
-    Object.entries(markers).forEach(([rank, m]) => m.setStyle({ fillOpacity: +rank === p.rank ? 0.95 : 0.25, opacity: +rank === p.rank ? 1 : 0.4 }));
+    Object.entries(markers).forEach(([rank, m]) => dim(m, +rank !== p.rank));
+    const sel = markers[p.rank];
+    if (sel && sel.bringToFront) sel.bringToFront();          // circle markers
+    if (sel && sel.setZIndexOffset) sel.setZIndexOffset(5000); // top-10 markers
   }
 
   function clearFocus() {
     focus.clearLayers();
-    Object.values(markers).forEach(m => m.setStyle({ fillOpacity: 0.88, opacity: 1 }));
+    Object.values(markers).forEach(m => dim(m, false));
+    // restore draw order: higher priority on top
+    Object.keys(markers).map(Number).sort((a, b) => b - a).forEach(r => {
+      const m = markers[r];
+      if (m.bringToFront) m.bringToFront(); else m.setZIndexOffset(1000 - r);
+    });
     document.querySelectorAll('#list li').forEach(li => li.classList.remove('selected'));
     current = null;
   }

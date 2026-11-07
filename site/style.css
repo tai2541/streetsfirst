@@ -50,6 +50,36 @@ main { flex: 1; display: flex; min-height: 0; }
 #resizeHandle:hover, body.resizing #resizeHandle { background: rgba(47,85,199,.18); }
 body.resizing { user-select: none; cursor: ew-resize; }
 
+/* ---- top 10 markers: glow + pulsing ring ---- */
+/* (no position override on .top-mark: Leaflet positions marker icons absolutely) */
+.top-mark .core { position: absolute; left: 7px; top: 7px; width: 26px; height: 26px; border-radius: 50%;
+  background: #b3141b; color: #fff; font: 700 12px/26px system-ui, sans-serif; text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 0 14px 5px rgba(179, 20, 27, .55); }
+.top-mark .pulse { position: absolute; left: 7px; top: 7px; width: 26px; height: 26px; border-radius: 50%;
+  background: rgba(179, 20, 27, .5); animation: top-pulse 2.2s ease-out infinite; pointer-events: none; }
+@keyframes top-pulse {
+  0%   { transform: scale(1);   opacity: .75; }
+  70%  { transform: scale(2.7); opacity: 0; }
+  100% { transform: scale(2.7); opacity: 0; }
+}
+.top-mark:hover .core { box-shadow: 0 0 0 2px #fff, 0 0 18px 8px rgba(179, 20, 27, .7); }
+.top-mark.faded .pulse { animation: none; opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .top-mark .pulse { animation: none; transform: scale(1.7); opacity: .3; }
+}
+
+/* top 10 in the list */
+#list li.top10 { border-left: 4px solid #b3141b; padding-left: 7px; }
+#list li.top10 .rank { color: #b3141b; }
+
+/* map legend */
+.map-legend { background: rgba(255,255,255,.94); border-radius: 8px; padding: 7px 10px; font-size: 12px; color: #1d2430;
+  box-shadow: 0 1px 4px rgba(0,0,0,.2); display: flex; flex-direction: column; gap: 4px; }
+.map-legend div { display: flex; align-items: center; gap: 7px; }
+.map-legend i { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 1.5px #fff, 0 0 0 2.5px rgba(0,0,0,.08); }
+.map-legend .lg-top .core { display: block; width: 16px; height: 16px; border-radius: 50%; background: #b3141b; color: #fff;
+  font: 700 9px/16px system-ui, sans-serif; text-align: center; box-shadow: 0 0 6px 2px rgba(179,20,27,.5); }
+
 .leaflet-bar a.showall-btn { display: flex; align-items: center; justify-content: center; color: #1d2430; }
 
 /* collapsible sections */
