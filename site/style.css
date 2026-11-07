@@ -34,6 +34,9 @@ main { flex: 1; display: flex; min-height: 0; }
 .chip.ped { background: #e7f0fd; color: #1f4fa8; }
 .chip.cond { background: #eaf6ee; color: #1f6b3a; }
 .chip.conf { background: #f4f1e6; color: #6b5a1f; border: 1px dashed #c9b98a; }
+.chip.sdot { background: #ece9fb; color: #3d2f9e; }
+table.kv td { text-align: left; padding: 3px 6px; }
+table.kv td:first-child { color: #52514e; white-space: nowrap; width: 1%; }
 .formula { font-size: 12.5px; margin: 6px 0 2px; padding: 6px 8px; background: #f6f8fb; border-radius: 6px; color: #1d2430; }
 #tab-about ol li { margin-bottom: 8px; }
 

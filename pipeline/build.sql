@@ -15,6 +15,8 @@ create or replace table weights as select * from (values
   ('reliability_k',      3.0),   -- ksi mode: crash points x crashes / (crashes + k)
   ('request_boost_max',  0.5),   -- ksi mode: requests raise the crash score by at most +50%...
   ('request_boost_half', 50.0),  -- ...reaching half that boost at this many request points
+  ('risk_min_crashes',   10.0),  -- risk mode: only locations with at least this many crashes
+  ('risk_awdt_floor',  2000.0),  -- risk mode: treat volumes below this as this (avoids extreme rates)
   ('fatal',            100.0),   -- fatal mode: points per fatal collision
   ('serious',           30.0),   -- serious injury collision
   ('injury',             5.0),   -- other injury collision
@@ -133,6 +135,74 @@ select *,
   case when crashes < 5 then 'low' when crashes < 15 then 'medium' else 'high' end as confidence
 from locations;
 
+-- ---------------------------------------------------------------- street context (spatial)
+-- Everything is projected to WA State Plane North (EPSG:2926, US feet) for distance math.
+load spatial;
+set geometry_always_xy = true;
+
+create or replace macro gj_geom(g) as ST_Transform(ST_GeomFromGeoJSON(g::json), 'EPSG:4326', 'EPSG:2926');
+
+create or replace table streets as
+select f.properties.COMPKEY as compkey, f.properties.UNITDESC as unitdesc,
+       nullif(f.properties.SPEEDLIMIT, 0) as speed, f.properties.ARTCLASS as artclass,
+       f.properties.ARTDESCRIPT as artdesc, nullif(f.properties.PVMTCONDINDX1, 0) as pci,
+       gj_geom(f.geometry) as geom
+from (select unnest(features) f from read_json('data/raw/streets_*.json', maximum_object_size = 500000000))
+where f.geometry is not null;
+
+create or replace table volumes as
+select f.properties.STNAME_ORD as street, nullif(f.properties.AWDT, 0) as awdt, gj_geom(f.geometry) as geom
+from (select unnest(features) f from read_json('data/raw/volumes_*.json', maximum_object_size = 500000000))
+where f.geometry is not null;
+
+create or replace table hin as   -- SDOT Vision Zero High Injury Network, 2026
+select f.properties.SEGMENT_NAME as name, f.properties.PRIORITY as priority, f.properties.HIN_SCORE as hin_score,
+       gj_geom(f.geometry) as geom
+from (select unnest(features) f from read_json('data/raw/hin_*.json', maximum_object_size = 500000000))
+where f.geometry is not null;
+
+create or replace table hcl as   -- SDOT Vision Zero High Collision Locations (by year)
+select f.properties.LOCATION as name, f.properties.HCL_YEAR as year, gj_geom(f.geometry) as geom
+from (select unnest(features) f from read_json('data/raw/hcl_*.json', maximum_object_size = 500000000))
+where f.geometry is not null;
+
+-- Intersections look 60 ft around the point (all approaching streets); blocks 40 ft (the block itself).
+create or replace table loc_pts as
+select location, ST_Transform(ST_Point(lon, lat), 'EPSG:4326', 'EPSG:2926') as geom,
+       case when addr_type = 'I' then 60 else 40 end as r
+from locations;
+
+-- One spatial join per layer (fast), then aggregate per location.
+create or replace table loc_context as
+with
+s as (select p.location,
+        max(s.speed) as speed_limit,
+        min(s.artclass) filter (where s.artclass between 1 and 5) as art_class,
+        min(s.pci) as pavement_min
+      from loc_pts p join streets s on ST_DWithin(p.geom, s.geom, 60)
+      where ST_Distance(p.geom, s.geom) <= p.r
+      group by p.location),
+v as (select p.location, max(v.awdt) as awdt
+      from loc_pts p join volumes v on ST_DWithin(p.geom, v.geom, 60) group by p.location),
+h as (select p.location, min(case h.priority when 'High' then 1 when 'Mid' then 2 when 'Low' then 3 end) as hin_level
+      from loc_pts p join hin h on ST_DWithin(p.geom, h.geom, 60) group by p.location),
+c as (select p.location, list(distinct c.year order by c.year) as hcl_years
+      from loc_pts p join hcl c on ST_DWithin(p.geom, c.geom, 80) group by p.location)
+select p.location, s.speed_limit, s.art_class, s.pavement_min, v.awdt, h.hin_level, c.hcl_years
+from loc_pts p
+left join s using (location) left join v using (location)
+left join h using (location) left join c using (location);
+
+create or replace table locations as
+select l.*, c.speed_limit,
+  c.art_class,
+  case c.art_class when 1 then 'Principal arterial' when 2 then 'Minor arterial' when 3 then 'Collector arterial'
+                   when 4 then 'State route' when 5 then 'Freeway' else 'Neighborhood street' end as street_type,
+  c.pavement_min, c.awdt,
+  case c.hin_level when 1 then 'High' when 2 then 'Mid' when 3 then 'Low' end as sdot_hin,
+  coalesce(c.hcl_years, []) as sdot_hcl_years
+from locations l left join loc_context c using (location);
+
 -- ---------------------------------------------------------------- nearby requests
 -- bounding-box prefilter (~0.001 deg) then equirectangular distance in meters
 create or replace table location_requests as
@@ -148,7 +218,7 @@ create or replace table location_request_summary as
 select lr.location,
        sum(lr.n) as requests,
        sum(lr.n * coalesce(rw.w, 1)) as request_points,
-       list({'type': lr.type, 'n': lr.n} order by lr.n desc) as request_types
+       list({'type': lr.type, 'n': lr.n} order by lr.n desc, lr.type) as request_types
 from (select location, type, count(*) n from location_requests group by all) lr
 left join request_weights rw on rw.type = lr.type
 group by lr.location;
@@ -170,29 +240,41 @@ select
 from locations l
 left join location_request_summary s using (location);
 
+-- Risk for its traffic: reliability-adjusted harm per 10,000 weekday vehicles on the busiest street there.
+-- Only where SDOT has a volume count and there are enough crashes (>= risk_min_crashes) to be meaningful.
+-- Volume floor avoids huge rates on very quiet streets.
+create or replace table priorities as
+select *,
+  case when awdt is not null and crashes >= wt('risk_min_crashes')
+       then round(ksi_points / (greatest(awdt, wt('risk_awdt_floor')) / 10000.0), 1) end as score_risk
+from priorities;
+
 create or replace table ranked as
-select row_number() over (order by score_ksi desc, crashes desc)   as rank,        -- default mode
-       row_number() over (order by score_fatal desc, crashes desc) as rank_fatal,
+select row_number() over (order by score_ksi desc, crashes desc, location)   as rank,        -- default mode
+       row_number() over (order by score_fatal desc, crashes desc, location) as rank_fatal,
+       case when score_risk is not null
+            then row_number() over (partition by score_risk is null order by score_risk desc, crashes desc, location) end as rank_risk,
        score_ksi as score, *
 from priorities;
 
 -- ---------------------------------------------------------------- exports for the site
 copy (
-  select rank, rank_fatal, location, addr_type, round(lon, 6) lon, round(lat, 6) lat,
-         score_ksi, score_fatal,
+  select rank, rank_fatal, rank_risk, location, addr_type, round(lon, 6) lon, round(lat, 6) lat,
+         score_ksi, score_fatal, score_risk,
+         speed_limit, street_type, pavement_min, awdt, sdot_hin, sdot_hcl_years,
          round(crash_points, 1) crash_points, round(ksi_points_raw, 1) ksi_points_raw,
          round(reliability, 3) reliability, ksi_points, request_boost, confidence,
          round(request_points, 1) request_points,
          crashes, fatal, serious, injury, ped_crashes, bike_crashes, speeding_crashes,
          wet_crashes, dark_crashes, unlit_crashes, road_known, light_known,
          first_crash, last_crash, requests, request_types
-  from ranked where rank <= 200 or rank_fatal <= 200 order by rank
+  from ranked where rank <= 200 or rank_fatal <= 200 or rank_risk <= 200 order by rank
 ) to 'site/data/priorities.json' (format json, array true);
 
 -- Drill-down: every crash and nearby request for the top 200 locations, keyed by location.
 -- Severity codes: F fatal, S serious injury, I injury, P property damage only, U unknown.
 copy (
-  with top as (select location from ranked where rank <= 200 or rank_fatal <= 200),
+  with top as (select location from ranked where rank <= 200 or rank_fatal <= 200 or rank_risk <= 200),
   c as (
     select c.location, list({
       'd': c.date,
@@ -202,18 +284,18 @@ copy (
       'inj': c.injuries, 'ser': c.serious_injuries, 'fat': c.fatalities,
       'rd': c.road_cond, 'lt': c.light_cond, 'wx': c.weather, 'sp': c.speeding
       -- no per-crash coordinates: SDOT snaps every crash to the intersection or block midpoint
-    } order by c.date desc) as crashes
+    } order by c.date desc, c.id) as crashes
     from collisions c join top using (location) group by c.location
   ),
   r as (
     select lr.location, list({
       'd': r.date, 't': r.type, 'st': r.status, 'a': r.address, 'm': round(lr.dist_m),
       'lat': round(r.lat, 6), 'lon': round(r.lon, 6)
-    } order by r.date desc) as requests
+    } order by r.date desc, r.id) as requests
     from location_requests lr join top using (location) join requests r on r.id = lr.id
     group by lr.location
   )
-  select map_from_entries(list((c.location, {'crashes': c.crashes, 'requests': coalesce(r.requests, [])}))) as details
+  select map_from_entries(list((c.location, {'crashes': c.crashes, 'requests': coalesce(r.requests, [])}) order by c.location)) as details
   from c left join r using (location)
 ) to 'site/data/details.json' (format json, array false);
 
@@ -233,9 +315,22 @@ copy (
     (select max(date) from collisions)                 as collisions_to,
     (select count(*) from requests)                    as requests,
     (select count(*) from locations)                   as locations_scored,
+    -- agreement with SDOT's own Vision Zero analysis, for each ranking's top 50
+    (select list({'mode': m, 'on_hin': on_hin, 'on_hin_high': on_hin_high, 'sdot_hcl': hcl, 'either': either} order by m)
+     from (
+       select m,
+         count(*) filter (where sdot_hin is not null)                                as on_hin,
+         count(*) filter (where sdot_hin = 'High')                                   as on_hin_high,
+         count(*) filter (where len(sdot_hcl_years) > 0)                             as hcl,
+         count(*) filter (where sdot_hin is not null or len(sdot_hcl_years) > 0)     as either
+       from (select 'ksi' m, * from ranked where rank <= 50
+             union all select 'fatal', * from ranked where rank_fatal <= 50
+             union all select 'risk', * from ranked where rank_risk <= 50)
+       group by m))                                    as sdot_agreement,
+    (select count(*) filter (where sdot_hin is not null) * 1.0 / count(*) from locations) as city_share_on_hin,
     -- citywide shares, used to flag locations that are unusually wet/dark
     (select round(sum(wet_crashes)  / sum(road_known),  3) from locations) as city_wet_share,
     (select round(sum(dark_crashes) / sum(light_known), 3) from locations) as city_dark_share,
-    (select list({'k': k, 'v': v}) from weights)       as weights,
-    (select list({'type': type, 'w': w}) from request_weights) as request_weights
+    (select list({'k': k, 'v': v} order by k) from weights)       as weights,
+    (select list({'type': type, 'w': w} order by w desc, type) from request_weights) as request_weights
 ) to 'site/data/meta.json' (format json, array false);

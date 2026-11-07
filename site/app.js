@@ -16,10 +16,11 @@
   D.priorities.forEach(p => { p.rank_ksi = p.rank; });
   function applyMode() {
     D.priorities.forEach(p => {
-      p.rank = mode === 'ksi' ? p.rank_ksi : p.rank_fatal;
-      p.score = mode === 'ksi' ? p.score_ksi : p.score_fatal;
+      p.rank = { ksi: p.rank_ksi, fatal: p.rank_fatal, risk: p.rank_risk }[mode] ?? null;
+      p.score = { ksi: p.score_ksi, fatal: p.score_fatal, risk: p.score_risk }[mode] ?? null;
     });
-    D.priorities.sort((a, b) => a.rank - b.rank);
+    // Locations without a rank in this mode (e.g. no traffic count for "risk") sort last and aren't shown.
+    D.priorities.sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
   }
   applyMode();
   const modeSel = document.getElementById('mode');
@@ -51,6 +52,9 @@
     if (p.speeding_crashes >= 2 && pct(p.speeding_crashes, p.crashes) >= 15)
       out.push({ cls: 'cond', text: `speeding in ${p.speeding_crashes} of ${p.crashes}` });
     if (p.requests) out.push({ cls: '', text: `${p.requests} nearby repair requests` });
+    if (p.sdot_hin) out.push({ cls: 'sdot', text: `SDOT High Injury Network (${p.sdot_hin})` });
+    if (p.sdot_hcl_years && p.sdot_hcl_years.length)
+      out.push({ cls: 'sdot', text: `SDOT high-collision list ${p.sdot_hcl_years.slice(-1)[0]}` });
     if (p.confidence !== 'high')
       out.push({ cls: 'conf', text: `${p.confidence} confidence: only ${p.crashes} crash${p.crashes > 1 ? 'es' : ''}` });
     return out;
@@ -125,7 +129,7 @@
     const n = +document.getElementById('topN').value;
     const type = document.getElementById('addrFilter').value;
     const rows = D.priorities
-      .filter(p => p.rank <= 200)
+      .filter(p => p.rank != null && p.rank <= 200)
       .filter(p => !type || (type === 'F' ? p.fatal > 0 : p.addr_type === type)).slice(0, n);
     const maxScore = Math.max(...rows.map(r => r.score), 1);
 
@@ -282,6 +286,22 @@
       </div>`).join('')}</div>`;
   }
 
+  // Street context from SDOT's street network, traffic counts and Vision Zero layers.
+  function streetInfo(p) {
+    const pci = p.pavement_min;
+    const pciLabel = pci == null ? 'not rated' : `${pci}/100 (${pci >= 70 ? 'good' : pci >= 40 ? 'fair' : 'poor'})`;
+    const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
+    return `<table class="kv">
+      ${row('Street type', esc(p.street_type || '—'))}
+      ${row('Speed limit', p.speed_limit ? p.speed_limit + ' mph' : '—')}
+      ${row('Traffic', p.awdt ? fmt(p.awdt) + ' vehicles / weekday <span class="muted">(busiest street, SDOT 2024)</span>' : '<span class="muted">no SDOT count</span>')}
+      ${row('Pavement', pciLabel + (pci != null ? ' <span class="muted">(worst block here)</span>' : ''))}
+      ${row('SDOT High Injury Network', p.sdot_hin ? `<b>${p.sdot_hin}</b> priority (2026)` : 'not on it')}
+      ${row('SDOT High Collision Location', p.sdot_hcl_years && p.sdot_hcl_years.length ? p.sdot_hcl_years.join(', ') : 'not listed')}
+    </table>
+    ${p.score_risk != null ? `<div class="note">Risk for its traffic: ${p.score_risk} (#${p.rank_risk} citywide).</div>` : ''}`;
+  }
+
   function countBy(arr, f) {
     const m = new Map(); arr.forEach(x => { const k = f(x); m.set(k, (m.get(k) || 0) + 1); });
     return [...m].map(([label, n]) => ({ label, n })).sort((a, b) => b.n - a.n);
@@ -402,12 +422,18 @@
       <div class="dhead">
         <h2>#${p.rank} ${esc(titleCase(p.location))}</h2>
         <div class="note">${kind} · <a href="${sv}" target="_blank" rel="noopener">Street View ↗</a></div>
-        <div class="formula">${mode === 'ksi'
-          ? `Score <b>${p.score}</b> = crash harm ${p.ksi_points_raw}
+        <div class="formula">${{
+          ksi: `Score <b>${p.score}</b> = crash harm ${p.ksi_points_raw}
              × reliability ${p.reliability.toFixed(2)} <span class="muted">(${p.crashes} crashes, ${p.confidence} confidence)</span>
-             × repair boost ${(1 + p.request_boost).toFixed(2)} <span class="muted">(${p.requests} requests)</span>`
-          : `Score <b>${p.score}</b> = crash points ${p.crash_points} + repair-request points ${p.request_points} × ${weight('request_mult')}`}
-          <span class="muted">· #${mode === 'ksi' ? p.rank_fatal : p.rank_ksi} in the ${mode === 'ksi' ? 'fatal-weighted' : 'recommended'} ranking</span></div>
+             × repair boost ${(1 + p.request_boost).toFixed(2)} <span class="muted">(${p.requests} requests)</span>`,
+          risk: `Risk <b>${p.score}</b> = crash harm after reliability ${p.ksi_points}
+             ÷ (${fmt(Math.max(p.awdt, weight('risk_awdt_floor')))} weekday vehicles ÷ 10,000)`,
+          fatal: `Score <b>${p.score}</b> = crash points ${p.crash_points} + repair-request points ${p.request_points} × ${weight('request_mult')}`
+        }[mode]}
+          <span class="muted">· ${['ksi', 'risk', 'fatal'].filter(m => m !== mode).map(m => {
+            const r = { ksi: p.rank_ksi, risk: p.rank_risk, fatal: p.rank_fatal }[m];
+            return `${r ? '#' + r : 'unranked'} ${{ ksi: 'recommended', risk: 'risk', fatal: 'fatal-weighted' }[m]}`;
+          }).join(' · ')}</span></div>
         <div class="stat-grid">
           <div class="stat"><b>${p.crashes}</b><span>crashes</span></div>
           <div class="stat"><b>${p.fatal + p.serious}</b><span>fatal + serious</span></div>
@@ -418,6 +444,7 @@
       <div class="dcols">
         <div class="dcol">
           ${sec('why', 'Why it ranks here', `<ul>${reasons(p).map(r => `<li>${esc(r.text)}</li>`).join('')}</ul>`)}
+          ${sec('street', 'The street', streetInfo(p))}
           ${sec('years', 'Crashes by year', yearChart(det.crashes))}
           ${sec('types', 'What kind of crashes', `
             ${hbars(types, '#2a78d6', 'crashes')}
@@ -535,12 +562,42 @@
         points × ${weight('request_mult')}.</p>
       <p class="note">Kept for comparison. One fatal crash outweighs 20 injury crashes here, so spots with only a few
         crashes but one or two deaths can rank very high.</p>`;
+    const risk = `
+      <h3>Risk for its traffic</h3>
+      <p>Same crash harm as the recommended ranking (after reliability), divided by how many vehicles use the street
+        (SDOT 2024 weekday counts, busiest street at the spot). This surfaces places that are dangerous <i>for how busy
+        they are</i>, often less obvious than the big arterials. Only spots with an SDOT count and at least
+        ${weight('risk_min_crashes')} crashes are ranked; volumes under ${fmt(weight('risk_awdt_floor'))} are treated as
+        ${fmt(weight('risk_awdt_floor'))} to avoid extreme rates on quiet streets.</p>
+      <p class="note">Why isn't this the default? Total harm counts every person hurt. A busy street with many injuries
+        affects more people than a quiet one with a high rate. Both views matter, so both are here.</p>`;
+    const ag = (meta.sdot_agreement || []).reduce((o, a) => (o[a.mode] = a, o), {});
+    const agLine = m => ag[m] ? `${ag[m].on_hin} of 50 on SDOT's High Injury Network (${ag[m].on_hin_high} on "High" segments),
+      ${ag[m].sdot_hcl} on SDOT's High Collision Locations list` : '';
+    const agreement = `
+      <h3>Check against SDOT's own analysis</h3>
+      <p>SDOT's Vision Zero team publishes a High Injury Network and yearly High Collision Locations. These were not
+        used in the score, so they're an independent check of each ranking's top 50:</p>
+      <ul>
+        <li><b>Recommended:</b> ${agLine('ksi')}</li>
+        <li><b>Risk for its traffic:</b> ${agLine('risk')}</li>
+        <li><b>Fatal-weighted:</b> ${agLine('fatal')}</li>
+      </ul>
+      <p class="note">For comparison, ${Math.round(100 * meta.city_share_on_hin)}% of all crash locations are on the
+        High Injury Network.</p>`;
+    const street = `
+      <h3>Street details</h3>
+      <p class="note">From SDOT's street network: street type, speed limit and pavement condition index (0–100;
+        labelled here as good 70+, fair 40–69, poor under 40, which are this site's bands, not an SDOT standard).
+        Traffic is SDOT's 2024 average weekday count. These are shown for context and aren't part of the score yet.</p>`;
     document.getElementById('about').innerHTML = `
       <h3>What this ranks</h3>
       <p>Every Seattle intersection and street block with a reported collision since ${meta.collisions_from},
         using SDOT collision records and Find It Fix It repair requests. Switch rankings with the <b>Ranking</b>
         menu on the Priorities tab.</p>
-      ${mode === 'ksi' ? ksi + fatal : fatal + ksi}
+      ${{ ksi: ksi + risk + fatal, risk: risk + ksi + fatal, fatal: fatal + ksi + risk }[mode]}
+      ${agreement}
+      ${street}
       <h3>Repair-request weights (by type, within ${weight('request_radius_m')} m)</h3>
       ${reqList}
       <p class="note">Encampment, parking, graffiti and similar report types are left out on purpose. This map is about
@@ -550,7 +607,7 @@
         (wide, straight streets invite speed), so it's flagged as context ("speeding in 8 of 30") rather than excluded.</p>
       <h3>Known limits</h3>
       <ul>
-        <li>Not adjusted for traffic volume yet. Busy streets naturally have more crashes.</li>
+        <li>Traffic counts cover arterials only; neighborhood streets have no count, so they can't be risk-ranked.</li>
         <li>Find It Fix It status is unreliable (most requests stay "Reported"), so open and fixed requests count the same.</li>
         <li>Planned projects aren't linked to locations yet.</li>
       </ul>`;
