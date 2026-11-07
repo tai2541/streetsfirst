@@ -1132,7 +1132,9 @@
     pinLayer.clearLayers();
     try { localStorage.setItem('ipm.pin', JSON.stringify(g)); } catch { /* storage unavailable */ }
     const nb = nearbySpots(g.lat, g.lon);
-    const html = `<div class="pin-pop"><div class="pin-title">📍 ${esc(g.label)}</div>
+    // g.name is an optional nickname ("Home", "Maya's school"); g.label stays the real address for copying and reporting.
+    const title = g.name || g.label;
+    const html = `<div class="pin-pop"><div class="pin-head"><div class="pin-title">📍 ${esc(title)}</div>${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}</div>
       <div class="pin-near">${nb.crashes
         ? `<p>Within a quarter mile, ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}: <b>${plural(nb.crashes, 'crash', 'crashes')}</b>${nb.ksi ? `, <b>${nb.ksi} killed or seriously hurt someone</b>` : ', none killed or seriously hurt anyone'}${nb.pb ? `, ${nb.pb} with people walking or biking` : ''}.</p>
           Highest-ranked places nearby:<ul>${nb.worst.map(n => `<li><button type="button" class="linkbtn" data-open="${n.x.rank}">#${fmt(n.x.rank)} ${esc(niceName(n.x.name))}</button>
@@ -1140,9 +1142,10 @@
         : 'No reported crashes within a quarter mile in the last five years.'}</div>
       <details class="pin-res" data-loc="${esc(g.label)}"><summary>Report a problem here</summary>${resourceList()}</details>
       <div class="pin-actions"><button type="button" class="linkbtn pin-copy">Copy address</button>
+        <button type="button" class="linkbtn pin-rename">Rename</button>
         <button type="button" class="linkbtn pin-remove">Remove pin</button></div></div>`;
     const m = L.marker([g.lat, g.lon], {
-      pane: 'pin', keyboard: true, title: g.label, alt: 'Your pin: ' + g.label,
+      pane: 'pin', keyboard: true, title: title, alt: 'Your pin: ' + (g.name ? `${g.name}, ${g.label}` : g.label),
       icon: L.divIcon({ className: 'addr-pin', iconSize: [30, 42], iconAnchor: [15, 40], popupAnchor: [0, -36], html: '<span></span>' })
     }).bindPopup(html, { maxWidth: 320, maxHeight: small() ? 150 : 420, autoPanPaddingTopLeft: [12, 12], autoPanPaddingBottomRight: [12, 12] }).addTo(pinLayer);
     m.on('popupopen', e => {     // popups stop clicks from bubbling, so wire their buttons here
@@ -1159,6 +1162,26 @@
       el.querySelectorAll('.res-link').forEach(l => (l.onclick = () => navigator.clipboard &&
         navigator.clipboard.writeText(g.label).then(() => toast('Address copied: ' + g.label + '. Paste it into the form.'), () => {})));
       el.querySelector('.pin-remove').onclick = () => { pinLayer.clearLayers(); try { localStorage.removeItem('ipm.pin'); } catch { /* ignore */ } };
+      el.querySelector('.pin-rename').onclick = () => {
+        const head = el.querySelector('.pin-head');
+        head.innerHTML = `<form class="pin-rename-form"><label for="pinName">Name this pin</label>
+          <input id="pinName" type="text" maxlength="40" autocomplete="off" placeholder="e.g. Home, Work, School">
+          <div class="pin-rename-btns"><button type="submit" class="pin-save">Save</button>
+          <button type="button" class="linkbtn pin-cancel">Cancel</button></div>
+          <small class="pin-privacy">Leave it empty to show the address. Saved only on this device.</small></form>`;
+        const inp = head.querySelector('input'); inp.value = g.name || '';
+        inp.focus(); inp.select();
+        const reopen = () => setPin(g, false).openPopup();
+        head.querySelector('form').onsubmit = ev => {
+          ev.preventDefault();
+          const v = inp.value.trim().replace(/\s+/g, ' ').slice(0, 40);
+          if (v) g.name = v; else delete g.name;
+          reopen();
+          say(v ? `Pin renamed to ${v}.` : 'Pin name cleared. It shows the address.');
+        };
+        head.querySelector('.pin-cancel').onclick = reopen;
+        inp.onkeydown = ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); reopen(); } };
+      };
     });
     if (fly) {
       say(`Address pinned: ${g.label}. ${nb.crashes ? plural(nb.crashes, 'crash', 'crashes') + ' within a quarter mile.' : 'No crashes within a quarter mile.'}`);
@@ -1170,6 +1193,7 @@
       if (reduceMotion) { map.setView(c, 16, { animate: false }); go(); }
       else { map.once('moveend', go); map.flyTo(c, 16, { duration: 0.8 }); }
     }
+    return m;
   }
   try { const g = JSON.parse(localStorage.getItem('ipm.pin')); if (g && inSeattle(g.lat, g.lon)) setPin(g, false); } catch { /* none saved */ }
 

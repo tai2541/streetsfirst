@@ -435,7 +435,14 @@ header nav { margin-left: 0; }
   border-radius: 50% 50% 50% 0; transform: rotate(-45deg); box-shadow: 0 3px 10px rgba(0,0,0,.4); }
 .addr-pin span::after { content: ''; position: absolute; left: 6px; top: 6px; width: 6px; height: 6px; border-radius: 50%; background: #f2b632; }
 .pin-pop { font: 13px/1.45 Inter, system-ui, sans-serif; }
-.pin-title { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+.pin-title { font-weight: 700; font-size: 14px; }
+.pin-head { margin-bottom: 6px; }
+.pin-addr { color: #5b6b66; font-size: 12px; margin: 1px 0 0 22px; }
+.pin-rename-form label { display: block; font-weight: 700; margin-bottom: 4px; }
+.pin-rename-form input { width: 100%; box-sizing: border-box; font: inherit; padding: 6px 8px; border: 1px solid #9fb0aa; border-radius: 6px; }
+.pin-rename-form input:focus { outline: 2px solid #0f7a54; outline-offset: 1px; }
+.pin-rename-btns { display: flex; gap: 12px; align-items: center; margin-top: 6px; }
+.pin-save { font: inherit; font-weight: 700; color: #fff; background: #0f7a54; border: 0; border-radius: 6px; padding: 5px 14px; cursor: pointer; }
 .pin-near ul { margin: 4px 0 8px; padding-left: 16px; }
 .pin-actions { display: flex; gap: 12px; align-items: center; margin-top: 6px; }
 .pin-pop .report-btn { color: #fff; }
