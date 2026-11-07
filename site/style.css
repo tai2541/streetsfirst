@@ -684,6 +684,8 @@ body.sheet-open #expandPanel, body.sheet-open #expandDetail, body.sheet-open #pa
 #searchResults .pin-privacy { white-space: normal; overflow-wrap: anywhere; }
 
 /* desktop pin pop-up is short; the summary lives in the right panel */
-.pin-pop.compact .pin-addr + .pin-addr { margin-top: 2px; }
-.pin-pop.compact > p.pin-addr { margin: 6px 0 8px; }
-.home-lead .report-btn { margin-top: 8px; }
+/* a pin in the right panel: its buttons sit under the title */
+.place-head:empty { display: none; }
+.place-head { margin: 0 0 6px; }
+.place-acts .pin-actions { margin: 0 0 10px; }
+.place-acts .report-btn { color: #fff; }

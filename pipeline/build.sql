@@ -35,8 +35,8 @@ create or replace table request_weights as select * from (values
   ('Traffic Signal Maintenance',   3.0),
   ('Streetlight Maintenance',      2.0),
   ('Street Sign Maintenance',      2.0),
-  ('Damaged Sidewalk',             2.0),
-  ('ADA Request (Transportation)', 2.0),
+  ('Damaged Sidewalk',             0.0),   -- trip and access hazards, not crash risk; still listed at each spot
+  ('ADA Request (Transportation)', 0.0),   -- same: access barriers, not crash risk
   ('Safe Routes to School',        2.0),
   ('Bicycle Facility Maintenance', 0.0),   -- only collected since 2024-11
   ('Pothole',                      0.0),

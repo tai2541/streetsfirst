@@ -608,7 +608,10 @@
     const inDetail = detailEl.contains(e.target);
     const inMap = document.getElementById('map').contains(e.target);
     if ((e.key === 'h' || e.key === 'H') && (inMap || inDetail)) { showAll(); return; }
-    if (!spotOpen()) return;
+    if (!spotOpen()) {
+      if (e.key === 'Escape' && placeG && (inMap || inDetail) && detailEl.classList.contains('place')) hidePlace(placeG);
+      return;
+    }
     if (e.key === 'Escape') closeDetail(true);
     else if ((e.key === 'e' || e.key === 'E') && inDetail && !isNarrow()) toggleExpand();
   });
@@ -1262,7 +1265,7 @@
   }
   // A searched address is shown (with its own marker) but only saved if you choose "Add to my pins".
   let previewMarker = null;
-  function clearPreview() { if (previewMarker) { pinLayer.removeLayer(previewMarker); previewMarker = null; } }
+  function clearPreview() { if (previewMarker) { previewMarker.closePopup(); pinLayer.removeLayer(previewMarker); previewMarker = null; } }
   // ---------- around an address or pin: every place with crashes within a quarter mile ----------
   // On the map: a dashed quarter-mile circle and a small grey dot for each place with crashes that isn't already drawn
   // (only the ranked list is drawn by default). On desktop the right panel shows the summary. Cleared when the pop-up closes.
@@ -1286,12 +1289,13 @@
     if (isNarrow() || (spotOpen() && !force)) return;
     detailEl.hidden = false; detailEl.classList.add('home', 'place'); applyLayout();
     renderGraphs = () => {};
-    document.getElementById('detailTitle').textContent = '📍 ' + pinTitle(g);
+    document.getElementById('detailTitle').textContent = '📍 ' + pinTitle(g) + (g.preview ? ' (not saved yet)' : '');
     const body = document.getElementById('detailBody'), list = nb.all.slice(0, 10);
     body.innerHTML = `<div class="home-wrap">
-      <p class="home-lead">${g.preview ? '<b>Not saved yet.</b> ' : ''}Within a quarter mile of ${esc(g.label)} (about a 5-minute walk),
-        from police crash reports ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}.
-        ${g.preview ? '<br><button type="button" class="report-btn place-add">📍 Add to my pins</button>' : ''}</p>
+      <div class="pin-head place-head">${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}</div>
+      <div class="place-acts">${pinActions(g)}</div>
+      <p class="home-lead">Within a quarter mile${g.name ? '' : ` of ${esc(g.label)}`} (about a 5-minute walk),
+        from police crash reports ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}.</p>
       <div class="stat-grid home-stats">${stat(fmt(nb.crashes), 'crashes')}${stat(fmt(nb.ksi), 'of them killed or seriously hurt someone')}${stat(fmt(nb.pb), 'involved people walking or biking')}</div>
       <section class="hsec hsec-top"><h3>Places with crashes nearby</h3>
         ${list.length ? `<ol class="home-top">${list.map((n, i) => `<li><button type="button" class="home-card" data-near="${i}">
@@ -1306,12 +1310,10 @@
     </div>`;
     body.scrollTop = 0; body.onchange = null;
     body.onclick = e => {
-      const n = e.target.closest('[data-near]'); if (n) { openNear(list[+n.dataset.near].x); return; }
-      if (e.target.closest('.place-add')) {
-        const k = { lat: g.lat, lon: g.lon, label: g.label }; clearPreview(); addPin(k, true);
-        const p = samePin(k); if (p) focusPop(pinMarkers.get(p.id), '.pin-copy');
-      }
+      const n = e.target.closest('[data-near]'); if (n) openNear(list[+n.dataset.near].x);
     };
+    const m = g.preview ? previewMarker : pinMarkers.get(g.id);
+    if (m) wirePin(body, g, m);
   }
   function hidePlace(g) {
     if (!placeG || placeG.id !== g.id) return;
@@ -1322,8 +1324,8 @@
   // Focus a button in a marker's pop-up once it's open (after the map has moved there).
   function focusPop(m, sel) {
     if (!m) return;
-    const f = () => { const el = m.getPopup() && m.getPopup().getElement(); const b = el && el.querySelector(sel); if (b) b.focus({ preventScroll: true }); };
-    if (m.isPopupOpen()) f(); else m.once('popupopen', () => setTimeout(f, 0));
+    const f = () => { const el = small() ? m.getPopup() && m.getPopup().getElement() : detailEl; const b = el && el.querySelector(sel); if (b) b.focus({ preventScroll: true }); };
+    if (m.isPopupOpen()) f(); else m.once(small() ? 'popupopen' : 'panelopen', () => setTimeout(f, 0));
   }
   function showAddress(g) {
     const same = samePin(g);
@@ -1381,31 +1383,50 @@
     const nb = nearbySpots(g.lat, g.lon);
     // g.name is an optional nickname ("Home", "Maya's school"); g.label stays the real address for copying and reporting.
     const title = pinTitle(g);
-    const compact = !small();   // desktop: crashes nearby are shown in the right panel instead
-    const html = `<div class="pin-pop${compact ? ' compact' : ''}"><div class="pin-head"><div class="pin-title">📍 ${esc(title)}</div>${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}${g.picked ? `<div class="pin-addr">Spot picked on the map${g.name ? '' : ' · nearest address'}</div>` : ''}${g.preview ? '<div class="pin-addr">Not saved yet</div>' : ''}</div>
-      ${compact ? `<p class="pin-addr">${nb.crashes ? `${plural(nb.crashes, 'crash', 'crashes')} within a quarter mile.` : 'No reported crashes within a quarter mile.'}
-        Details are in the panel on the right.</p>` : `<div class="pin-near">${nb.crashes
+    const html = `<div class="pin-pop"><div class="pin-head"><div class="pin-title">📍 ${esc(title)}</div>${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}${g.picked ? `<div class="pin-addr">Spot picked on the map${g.name ? '' : ' · nearest address'}</div>` : ''}${g.preview ? '<div class="pin-addr">Not saved yet</div>' : ''}</div>
+      <div class="pin-near">${nb.crashes
         ? `<p>Within a quarter mile, ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}: <b>${plural(nb.crashes, 'crash', 'crashes')}</b>${nb.ksi ? `, <b>${nb.ksi} killed or seriously hurt someone</b>` : ', none killed or seriously hurt anyone'}${nb.pb ? `, ${nb.pb} with people walking or biking` : ''}.</p>
           Highest-ranked places nearby:<ul>${nb.worst.map(n => `<li><button type="button" class="linkbtn" data-open="${n.x.rank}">#${fmt(n.x.rank)} ${esc(niceName(n.x.name))}</button>
             <span class="muted">${distText(n.m)}</span></li>`).join('')}</ul>`
         : 'No reported crashes within a quarter mile in the last five years.'}</div>
-      <details class="pin-res" data-loc="${esc(g.label)}"><summary>Report a problem here</summary>${resourceList()}</details>`}
-      ${g.preview
-        ? `<div class="pin-actions"><button type="button" class="report-btn pin-add">📍 Add to my pins</button>
-            <button type="button" class="linkbtn pin-copy">Copy address</button>
-            <button type="button" class="linkbtn pin-dismiss">Clear</button></div>`
-        : `<div class="pin-actions"><button type="button" class="linkbtn pin-copy">Copy address</button>
-            <button type="button" class="linkbtn pin-rename">Rename</button>
-            <button type="button" class="linkbtn pin-remove">Remove pin</button></div>`}</div>`;
+      <details class="pin-res" data-loc="${esc(g.label)}"><summary>Report a problem here</summary>${resourceList()}</details>
+      ${pinActions(g)}</div>`;
     const m = L.marker([g.lat, g.lon], {
       pane: 'pin', keyboard: true, title: title, alt: (g.preview ? 'Found address (not saved): ' : 'Your pin: ') + (g.name ? `${g.name}, ${g.label}` : g.label),
       icon: L.divIcon({ className: 'addr-pin' + (g.preview ? ' preview' : ''), iconSize: [30, 42], iconAnchor: [15, 40], popupAnchor: [0, -36], html: '<span></span>' })
     }).bindPopup(html, { maxWidth: 320, maxHeight: small() ? 150 : 420, autoPanPaddingTopLeft: [12, 12], autoPanPaddingBottomRight: [12, 12] }).addTo(pinLayer);
     if (g.preview) previewMarker = m; else pinMarkers.set(g.id, m);
+    // Desktop: no pop-up over the map (it hid the crash dots around the pin); the pin's summary and buttons go in
+    // the right panel. Clicking the pin again deselects it. Phones keep the pop-up. Decided per call, so resizing works.
+    const P = L.Marker.prototype, inPanel = () => !small() && !!placeG && placeG.id === g.id && detailEl.classList.contains('place');
+    m.openPopup = ll => {
+      if (small()) return P.openPopup.call(m, ll);
+      if (ll && inPanel()) { hidePlace(g); return m; }   // a click (Leaflet passes where) on the open pin: deselect
+      if (spotOpen()) { mainEl.classList.remove('split'); clearFocus(); viewBefore = null; history.replaceState(null, '', location.pathname + location.search); }
+      showPlace(g, true); m.fire('panelopen');
+      return m;
+    };
+    m.closePopup = () => { if (!small()) hidePlace(g); return P.closePopup.call(m); };
+    m.isPopupOpen = () => (small() ? P.isPopupOpen.call(m) : inPanel());
     m.on('popupclose', () => hidePlace(g));
     m.on('popupopen', e => {     // popups stop clicks from bubbling, so wire their buttons here
       showPlace(g);
-      const el = e.popup.getElement();
+      wirePin(e.popup.getElement(), g, m);
+    });
+    return m;
+  }
+  // The pin's buttons, in its phone pop-up or in the desktop panel.
+  function pinActions(g) {
+    return g.preview
+      ? `<div class="pin-actions"><button type="button" class="report-btn pin-add">📍 Add to my pins</button>
+          <button type="button" class="linkbtn pin-copy">Copy address</button>
+          <button type="button" class="linkbtn pin-dismiss">Clear</button></div>`
+      : `<div class="pin-actions"><button type="button" class="linkbtn pin-copy">Copy address</button>
+          <button type="button" class="linkbtn pin-rename">Rename</button>
+          <button type="button" class="linkbtn pin-remove">Remove pin</button></div>`;
+  }
+  function wirePin(el, g, m) {
+    {
       el.querySelectorAll('[data-open]').forEach(b => (b.onclick = () => {
         const id = +b.dataset.open, p = byId.get(id), lite = searchIdx.find(x => x.rank === id);
         m.closePopup(); showTab(document.getElementById('tabbtn-priorities'));
@@ -1415,7 +1436,7 @@
         const b = ev.target; const done = () => { b.textContent = 'Address copied'; setTimeout(() => (b.textContent = 'Copy address'), 1800); };
         if (navigator.clipboard) navigator.clipboard.writeText(g.label).then(done, () => prompt('Copy this address:', g.label)); else prompt('Copy this address:', g.label);
       };
-      el.querySelectorAll('.res-link').forEach(l => (l.onclick = () => navigator.clipboard &&
+      el.querySelectorAll('.pin-res .res-link').forEach(l => (l.onclick = () => navigator.clipboard &&
         navigator.clipboard.writeText(g.label).then(() => toast('Address copied: ' + g.label + '. Paste it into the form.'), () => {})));
       if (g.preview) {
         el.querySelector('.pin-add').onclick = () => {
@@ -1428,8 +1449,7 @@
       el.querySelector('.pin-remove').onclick = () => removePin(g);
       el.querySelector('.pin-rename').onclick = () => startRename(el, g);
       if (pendingRename === g.id) { pendingRename = null; startRename(el, g); }
-    });
-    return m;
+    }
   }
   function startRename(el, g) {
     const head = el.querySelector('.pin-head');
