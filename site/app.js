@@ -968,7 +968,7 @@
     if (li && !fly) li.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' });
 
     const det = (D.details && D.details[p.location]) || { crashes: [], requests: [] };
-    const kind = { I: 'Intersection', B: 'Street block', A: 'Alley' }[p.addr_type] || 'Location';
+    const kind = { I: 'Intersection', B: 'Stretch between intersections', A: 'Alley' }[p.addr_type] || 'Location';
     const sv = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${p.lat},${p.lon}`;
     const types = countBy(det.crashes.filter(c => c.t), c => crashType(c.t)).slice(0, 6);
     const untyped = det.crashes.filter(c => !c.t).length;
@@ -1082,7 +1082,7 @@
     document.getElementById('detailBody').innerHTML = `
       <div class="dhead">
         ${s.hood ? `<div class="where">${esc(s.hood)}${s.area && s.area !== s.hood ? ` <span class="muted">· ${esc(s.area)}</span>` : ''}</div>` : ''}
-        <div class="note">${{ I: 'Intersection', B: 'Street block', A: 'Alley' }[s.type] || 'Location'} ·
+        <div class="note">${{ I: 'Intersection', B: 'Stretch between intersections', A: 'Alley' }[s.type] || 'Location'} ·
           <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${s.lat},${s.lon}" target="_blank" rel="noopener">Street View ↗</a> · ${copyLoc(niceName(s.name))}</div>
         ${reportBox(niceName(s.name))}
         <p class="verdict">${plural(s.crashes, 'crash', 'crashes')} from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}${s.ksi ? `; ${s.ksi} killed or seriously injured someone` : ''}${s.pb ? `; ${s.pb} involved people walking or biking` : ''}.</p>
@@ -1956,7 +1956,7 @@
       <p class="note">For scale: ${Math.round(100 * meta.busy_share_on_hin)}% of the ${fmt(meta.busy_locations)} spots with 10+ crashes are on the High Injury Network.</p>`;
     document.getElementById('about').innerHTML = `
       <h3>What this ranks</h3>
-      <p>Every Seattle intersection and street block with a police-reported crash from ${monthYear(meta.window_from)} to
+      <p>Every Seattle intersection and every stretch of street between intersections with a police-reported crash from ${monthYear(meta.window_from)} to
         ${monthYear(meta.window_to)} (${fmt(meta.collisions_scored)} SDOT collision reports), ranked by how likely people are to keep
         getting killed or seriously hurt there.</p>
       ${example}
