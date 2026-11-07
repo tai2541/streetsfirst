@@ -78,41 +78,230 @@
       li.addEventListener('click', () => select(D.priorities.find(p => p.rank === +li.dataset.rank), true)));
   }
 
+  // ---------- drill-down ----------
+  const SEV = {  // ordinal blue ramp, validated (light end clears 2:1)
+    F: { label: 'Fatal', color: '#0d366b', order: 0 },
+    S: { label: 'Serious injury', color: '#1c5cab', order: 1 },
+    I: { label: 'Injury', color: '#3987e5', order: 2 },
+    P: { label: 'Property damage', color: '#86b6ef', order: 3 },
+    U: { label: 'Unknown', color: '#c3c2b7', order: 4 }
+  };
+  const REQ_COLOR = '#1baf7a';       // aqua: requests (shape = square, never color alone)
+  const focus = L.layerGroup().addTo(map);
+  let crashFilter = 'all', reqFilter = '', showAllCrashes = false, showAllReqs = false, current = null;
+
+  const tipEl = document.createElement('div');
+  tipEl.className = 'tip'; tipEl.hidden = true; document.body.appendChild(tipEl);
+  document.addEventListener('mousemove', e => {
+    const t = e.target.closest && e.target.closest('[data-tip]');
+    if (!t) { tipEl.hidden = true; return; }
+    tipEl.innerHTML = t.dataset.tip; tipEl.hidden = false;
+    const x = Math.min(e.clientX + 14, window.innerWidth - tipEl.offsetWidth - 8);
+    tipEl.style.left = x + 'px'; tipEl.style.top = (e.clientY + 14) + 'px';
+  });
+
+  function yearChart(crashes) {
+    const y0 = +meta.collisions_from.slice(0, 4), y1 = +meta.collisions_to.slice(0, 4);
+    const years = []; for (let y = y0; y <= y1; y++) years.push(y);
+    const rows = years.map(y => {
+      const c = crashes.filter(x => +x.d.slice(0, 4) === y);
+      const severe = c.filter(x => x.s === 'F' || x.s === 'S').length;
+      return { y, severe, other: c.length - severe, total: c.length };
+    });
+    const max = Math.max(1, ...rows.map(r => r.total)), H = 90;
+    const partial = meta.collisions_to.slice(5) !== '12-31';
+    return `
+      <div class="legend"><span><i style="background:${SEV.S.color}"></i>Fatal or serious</span>
+        <span><i style="background:${SEV.P.color}"></i>Other crashes</span></div>
+      <div class="cols" style="height:${H + 34}px">
+        ${rows.map((r, i) => {
+          const hs = Math.round(H * r.severe / max), ho = Math.round(H * r.other / max);
+          const gap = hs && ho ? 2 : 0;
+          const tip = `<b>${r.y}${partial && i === rows.length - 1 ? ' (partial year)' : ''}</b><br>${r.total} crashes<br>${r.severe} fatal or serious`;
+          return `<div class="col" data-tip="${esc(tip)}">
+            <span class="cap">${r.total || ''}</span>
+            <div class="stack">
+              ${ho ? `<div class="seg" style="height:${ho}px;background:${SEV.P.color};border-radius:${hs ? '4px 4px 0 0' : '4px 4px 0 0'}"></div>` : ''}
+              ${gap ? '<div style="height:2px"></div>' : ''}
+              ${hs ? `<div class="seg" style="height:${hs}px;background:${SEV.S.color};border-radius:${ho ? '0' : '4px 4px 0 0'}"></div>` : ''}
+            </div>
+            <span class="yr">'${String(r.y).slice(2)}${partial && i === rows.length - 1 ? '*' : ''}</span>
+          </div>`;
+        }).join('')}
+      </div>
+      ${partial ? `<div class="note">* ${y1} through ${meta.collisions_to}.</div>` : ''}`;
+  }
+
+  function hbars(items, color, unit) {
+    if (!items.length) return '';
+    const max = Math.max(...items.map(i => i.n));
+    return `<div class="hbars">${items.map(i => `
+      <div class="hbar" data-tip="${esc(`<b>${esc(i.label)}</b><br>${i.n} ${unit}`)}">
+        <div class="hlabel">${esc(i.label)}</div>
+        <div class="htrack"><div class="hfill" style="width:${Math.max(2, 100 * i.n / max)}%;background:${color}"></div><span>${i.n}</span></div>
+      </div>`).join('')}</div>`;
+  }
+
+  function countBy(arr, f) {
+    const m = new Map(); arr.forEach(x => { const k = f(x); m.set(k, (m.get(k) || 0) + 1); });
+    return [...m].map(([label, n]) => ({ label, n })).sort((a, b) => b.n - a.n);
+  }
+
+  function crashTable(crashes) {
+    const filters = { all: () => true, severe: c => c.s === 'F' || c.s === 'S', injury: c => c.s === 'I',
+                      ped: c => c.pd > 0 || c.cy > 0, speeding: c => c.sp };
+    const list = crashes.filter(filters[crashFilter]);
+    const shown = showAllCrashes ? list : list.slice(0, 20);
+    const btn = (k, label, n) => `<button class="fbtn ${crashFilter === k ? 'on' : ''}" data-cf="${k}">${label} <small>${n}</small></button>`;
+    return `
+      <div class="fbar">
+        ${btn('all', 'All', crashes.length)}${btn('severe', 'Fatal/serious', crashes.filter(filters.severe).length)}
+        ${btn('injury', 'Injury', crashes.filter(filters.injury).length)}${btn('ped', 'Ped/bike', crashes.filter(filters.ped).length)}
+        ${btn('speeding', 'Speeding', crashes.filter(filters.speeding).length)}
+      </div>
+      <table class="dtable"><thead><tr><th>Date</th><th>Severity</th><th>What happened</th></tr></thead><tbody>
+      ${shown.map(c => {
+        const who = [c.pd ? `${c.pd} pedestrian${c.pd > 1 ? 's' : ''}` : '', c.cy ? `${c.cy} cyclist${c.cy > 1 ? 's' : ''}` : ''].filter(Boolean).join(', ');
+        const hurt = [c.fat ? `${c.fat} killed` : '', c.ser ? `${c.ser} seriously injured` : '', c.inj ? `${c.inj} injured` : ''].filter(Boolean).join(', ');
+        const cond = [c.rd, c.lt, c.wx].filter(v => v && !/^unknown$/i.test(v)).join(' · ');
+        return `<tr>
+          <td class="nowrap">${c.d}</td>
+          <td class="nowrap"><i class="sev" style="background:${SEV[c.s].color}"></i>${SEV[c.s].label}</td>
+          <td>${esc(c.t || 'Type not recorded')}${c.sp ? ' <span class="flag">speeding</span>' : ''}
+            ${who ? `<div class="sub2">Involved ${esc(who)}</div>` : ''}
+            ${hurt ? `<div class="sub2">${esc(hurt)}</div>` : ''}
+            ${cond ? `<div class="sub2 muted">${esc(cond)}</div>` : ''}</td></tr>`;
+      }).join('') || '<tr><td colspan="3" class="muted">None</td></tr>'}
+      </tbody></table>
+      ${list.length > 20 ? `<button class="linkbtn" data-more="crashes">${showAllCrashes ? 'Show fewer' : `Show all ${list.length}`}</button>` : ''}`;
+  }
+
+  function reqTable(reqs) {
+    const list = reqs.filter(r => !reqFilter || r.t === reqFilter);
+    const shown = showAllReqs ? list : list.slice(0, 20);
+    const types = countBy(reqs, r => r.t);
+    return `
+      <div class="fbar"><select id="reqType"><option value="">All types (${reqs.length})</option>
+        ${types.map(t => `<option value="${esc(t.label)}" ${t.label === reqFilter ? 'selected' : ''}>${esc(t.label)} (${t.n})</option>`).join('')}
+      </select></div>
+      <table class="dtable"><thead><tr><th>Date</th><th>Request</th><th>Status</th></tr></thead><tbody>
+      ${shown.map((r, i) => `<tr class="reqrow" data-ri="${reqs.indexOf(r)}">
+          <td class="nowrap">${r.d}</td>
+          <td>${esc(r.t)}<div class="sub2 muted">${esc(r.a || '')} · ${r.m} m away</div></td>
+          <td>${esc(r.st || '')}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">None</td></tr>'}
+      </tbody></table>
+      ${list.length > 20 ? `<button class="linkbtn" data-more="reqs">${showAllReqs ? 'Show fewer' : `Show all ${list.length}`}</button>` : ''}
+      <div class="note">City status is unreliable: most requests stay "Reported" even after a fix.</div>`;
+  }
+
+  // Center a point in the part of the map not covered by the detail panel.
+  function flyVisible(latlng, zoom) {
+    const panel = document.getElementById('detail');
+    const shift = window.innerWidth > 760 ? (panel.offsetWidth || 440) / 2 : 0;
+    const pt = map.project(latlng, zoom).add([shift, 0]);
+    map.flyTo(map.unproject(pt, zoom), zoom, { duration: 0.6 });
+  }
+
+  function drawFocus(p, det) {
+    focus.clearLayers();
+    L.circle([p.lat, p.lon], { radius: weight('request_radius_m'), color: '#52514e', weight: 1, fill: false, interactive: false }).addTo(focus);
+    // Many requests share an exact address point: group them so one square shows the count.
+    const groups = new Map();
+    det.requests.filter(r => !reqFilter || r.t === reqFilter).forEach(r => {
+      const k = r.lat + ',' + r.lon;
+      (groups.get(k) || groups.set(k, []).get(k)).push(r);
+    });
+    groups.forEach(rs => {
+      const n = rs.length, size = n > 1 ? 18 : 12;
+      const lines = countBy(rs, r => r.t).map(t => `${esc(t.label)}: ${t.n}`).join('<br>');
+      L.marker([rs[0].lat, rs[0].lon], {
+        icon: L.divIcon({ className: 'reqmark', iconSize: [size, size],
+          html: `<span style="background:${REQ_COLOR};width:${size - 2}px;height:${size - 2}px">${n > 1 ? n : ''}</span>` })
+      }).bindTooltip(`<b>${n} request${n > 1 ? 's' : ''} here</b><br>${lines}<br><span style="color:#898781">${esc(rs[0].a || '')}</span>`).addTo(focus);
+    });
+    Object.entries(markers).forEach(([rank, m]) => m.setStyle({ fillOpacity: +rank === p.rank ? 0.95 : 0.25, opacity: +rank === p.rank ? 1 : 0.4 }));
+  }
+
+  function clearFocus() {
+    focus.clearLayers();
+    Object.values(markers).forEach(m => m.setStyle({ fillOpacity: 0.88, opacity: 1 }));
+    document.querySelectorAll('#list li').forEach(li => li.classList.remove('selected'));
+    current = null;
+  }
+
   function select(p, fly) {
-    selected = p.rank;
+    if (!current || current.rank !== p.rank) { crashFilter = 'all'; reqFilter = ''; showAllCrashes = showAllReqs = false; }
+    current = p; selected = p.rank;
+    if (location.hash !== '#' + p.rank) history.replaceState(null, '', '#' + p.rank);
     document.querySelectorAll('#list li').forEach(li => li.classList.toggle('selected', +li.dataset.rank === p.rank));
     const li = document.querySelector(`#list li[data-rank="${p.rank}"]`);
     if (li && !fly) li.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    if (fly) map.flyTo([p.lat, p.lon], 17, { duration: 0.6 });
+    if (fly) flyVisible([p.lat, p.lon], 18);
+
+    const det = (D.details && D.details[p.location]) || { crashes: [], requests: [] };
+    drawFocus(p, det);
 
     const kind = { I: 'Intersection', B: 'Street block', A: 'Alley' }[p.addr_type] || 'Location';
-    const reqs = (p.request_types || []).map(r => `<li>${esc(r.type)}: ${r.n}</li>`).join('');
     const sv = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${p.lat},${p.lon}`;
+    const types = countBy(det.crashes.filter(c => c.t), c => c.t).slice(0, 6);
+    const untyped = det.crashes.filter(c => !c.t).length;
     document.getElementById('detailBody').innerHTML = `
       <h2>#${p.rank} ${esc(titleCase(p.location))}</h2>
-      <div class="note">${kind} · score ${p.score} = crash points ${p.crash_points} + repair-request points ${p.request_points} × ${weight('request_mult')}</div>
+      <div class="note">${kind} · score ${p.score} = crash points ${p.crash_points} + repair-request points ${p.request_points} × ${weight('request_mult')}
+        · <a href="${sv}" target="_blank" rel="noopener">Street View ↗</a></div>
       <div class="stat-grid">
         <div class="stat"><b>${p.crashes}</b><span>crashes</span></div>
         <div class="stat"><b>${p.fatal + p.serious}</b><span>fatal + serious</span></div>
-        <div class="stat"><b>${p.ped_crashes + p.bike_crashes}</b><span>ped / bike</span></div>
+        <div class="stat"><b>${p.ped_crashes + p.bike_crashes}</b><span>hit ped / bike</span></div>
+        <div class="stat"><b>${p.requests}</b><span>repair requests</span></div>
       </div>
       <h3>Why it ranks here</h3>
       <ul>${reasons(p).map(r => `<li>${esc(r.text)}</li>`).join('')}</ul>
-      <h3>Crash conditions</h3>
-      <ul>
-        <li>Wet/icy road: ${p.wet_crashes} of ${p.road_known} with road condition recorded (${pct(p.wet_crashes, p.road_known)}%; city ${Math.round(100 * meta.city_wet_share)}%)</li>
-        <li>Dark: ${p.dark_crashes} of ${p.light_known} (${pct(p.dark_crashes, p.light_known)}%; city ${Math.round(100 * meta.city_dark_share)}%)</li>
-        <li>Streetlights off or none: ${p.unlit_crashes}</li>
-        <li>Crashes from ${p.first_crash} to ${p.last_crash}</li>
+
+      <h3>Crashes by year</h3>
+      ${yearChart(det.crashes)}
+
+      <h3>What kind of crashes</h3>
+      ${hbars(types, '#2a78d6', 'crashes')}
+      ${untyped ? `<div class="note">${untyped} crash${untyped > 1 ? 'es have' : ' has'} no type recorded.</div>` : ''}
+      <ul class="tight">
+        <li>Wet/icy road: ${p.wet_crashes} of ${p.road_known} recorded (${pct(p.wet_crashes, p.road_known)}%; city ${Math.round(100 * meta.city_wet_share)}%)</li>
+        <li>Dark: ${p.dark_crashes} of ${p.light_known} (${pct(p.dark_crashes, p.light_known)}%; city ${Math.round(100 * meta.city_dark_share)}%) · streetlights off/none: ${p.unlit_crashes}</li>
       </ul>
+
+      <h3>Every crash</h3>
+      <div class="legend">${['F', 'S', 'I', 'P'].map(k => `<span><i style="background:${SEV[k].color}"></i>${SEV[k].label}</span>`).join('')}</div>
+      <div id="crashTable">${crashTable(det.crashes)}</div>
+
       <h3>Repair requests within ${weight('request_radius_m')} m</h3>
-      ${reqs ? `<ul>${reqs}</ul>` : '<div class="note">None in Find It Fix It data.</div>'}
+      <div class="legend"><span><i class="sq" style="background:${REQ_COLOR}"></i>Request location (on map)</span>
+        <span><i class="ring"></i>${weight('request_radius_m')} m search area</span></div>
+      ${hbars(countBy(det.requests, r => r.t), REQ_COLOR, 'requests')}
+      <div id="reqTable">${reqTable(det.requests)}</div>
+
       <h3>Planned work</h3>
-      <div class="note">Not linked yet. Seattle's budget data has no locations (see the SDOT spending tab).</div>
-      <p><a href="${sv}" target="_blank" rel="noopener">Open Street View here ↗</a></p>`;
+      <div class="note">Not linked yet. Seattle's budget data has no locations (see the SDOT spending tab).</div>`;
     document.getElementById('detail').hidden = false;
+
+    const body = document.getElementById('detailBody');
+    body.onclick = e => {
+      const cf = e.target.closest('[data-cf]');
+      if (cf) { crashFilter = cf.dataset.cf; showAllCrashes = false; document.getElementById('crashTable').innerHTML = crashTable(det.crashes); return; }
+      const more = e.target.closest('[data-more]');
+      if (more && more.dataset.more === 'crashes') { showAllCrashes = !showAllCrashes; document.getElementById('crashTable').innerHTML = crashTable(det.crashes); return; }
+      if (more && more.dataset.more === 'reqs') { showAllReqs = !showAllReqs; document.getElementById('reqTable').innerHTML = reqTable(det.requests); return; }
+      const row = e.target.closest('.reqrow');
+      if (row) { const r = det.requests[+row.dataset.ri]; flyVisible([r.lat, r.lon], 19); }
+    };
+    body.onchange = e => {
+      if (e.target.id === 'reqType') { reqFilter = e.target.value; showAllReqs = false;
+        document.getElementById('reqTable').innerHTML = reqTable(det.requests); drawFocus(p, det); }
+    };
   }
-  document.getElementById('closeDetail').onclick = () => (document.getElementById('detail').hidden = true);
+  document.getElementById('closeDetail').onclick = () => {
+    document.getElementById('detail').hidden = true; clearFocus();
+    history.replaceState(null, '', location.pathname);
+  };
   document.getElementById('topN').onchange = render;
   document.getElementById('addrFilter').onchange = render;
 
@@ -177,4 +366,13 @@
     </ul>`;
 
   render();
+
+  // Shareable links: index.html#12 opens location #12.
+  function openFromHash() {
+    const r = parseInt(location.hash.slice(1), 10);
+    const p = r && D.priorities.find(x => x.rank === r);
+    if (p) select(p, true);
+  }
+  window.addEventListener('hashchange', openFromHash);
+  openFromHash();
 })();

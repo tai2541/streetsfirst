@@ -48,6 +48,8 @@ select
   ROADCOND                                 as road_cond,
   LIGHTCOND                                as light_cond,
   WEATHER                                  as weather,
+  ST_COLDESC                               as coll_type,
+  SPEEDING = 'Y'                           as speeding,
   coordinates[1]                           as lon,
   coordinates[2]                           as lat
 from raw
@@ -144,6 +146,34 @@ copy (
          first_crash, last_crash, requests, request_types
   from ranked where rank <= 200 order by rank
 ) to 'site/data/priorities.json' (format json, array true);
+
+-- Drill-down: every crash and nearby request for the top 200 locations, keyed by location.
+-- Severity codes: F fatal, S serious injury, I injury, P property damage only, U unknown.
+copy (
+  with top as (select location from ranked where rank <= 200),
+  c as (
+    select c.location, list({
+      'd': c.date,
+      's': case c.severity when 'Fatal Collision' then 'F' when 'Serious Injury Collision' then 'S'
+                           when 'Injury Collision' then 'I' when 'Property Damage Only Collision' then 'P' else 'U' end,
+      't': c.coll_type, 'pd': c.peds, 'cy': c.cyclists,
+      'inj': c.injuries, 'ser': c.serious_injuries, 'fat': c.fatalities,
+      'rd': c.road_cond, 'lt': c.light_cond, 'wx': c.weather, 'sp': c.speeding
+      -- no per-crash coordinates: SDOT snaps every crash to the intersection or block midpoint
+    } order by c.date desc) as crashes
+    from collisions c join top using (location) group by c.location
+  ),
+  r as (
+    select lr.location, list({
+      'd': r.date, 't': r.type, 'st': r.status, 'a': r.address, 'm': round(lr.dist_m),
+      'lat': round(r.lat, 6), 'lon': round(r.lon, 6)
+    } order by r.date desc) as requests
+    from location_requests lr join top using (location) join requests r on r.id = lr.id
+    group by lr.location
+  )
+  select map_from_entries(list((c.location, {'crashes': c.crashes, 'requests': coalesce(r.requests, [])}))) as details
+  from c left join r using (location)
+) to 'site/data/details.json' (format json, array false);
 
 -- SDOT capital spending by program and year (no locations in this dataset)
 copy (
