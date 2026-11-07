@@ -133,10 +133,10 @@ All read by `pipeline/fetch.ps1`, joined in `pipeline/traffic.sql`. Context only
 | Data | Source | Used for | Notes |
 |---|---|---|---|
 | Arterial traffic volumes, 2015–newest | ArcGIS `YYYY_Arterial_Traffic_Volumes` (one service per year; layer id and field names vary) | Busiest streets; traffic history per spot and street | Yearly layers re-publish old counts for streets not recounted (2022: ~125 of 1,930 new). History uses each count's own date (`START_DATE` / `COUNTSTART`); undated records dropped; repeated identical values hidden. Most streets have only ~2 real counts in 10 years, so there is no "fastest-growing" ranking. |
-| King County Metro GTFS timetable | https://metro.kingcounty.gov/GTFS/google_transit.zip | Where buses lose time at rush hour | Typical Wednesday in the next 90 days. Stretches between timed stops (~1.5 mi). Hourly average run time; baseline = mean of 2 quickest hours; peak = slowest of 7–9 am, 3–6 pm. Includes boarding time. Inside Seattle; stretches under 0.25 mi not ranked (minute-rounded times). |
+| King County Metro GTFS timetable | https://metro.kingcounty.gov/GTFS/google_transit.zip | Where buses lose time at rush hour | The Wednesday in the next 90 days with the most trips after holiday exceptions. Stretches between timed stops (median ~1.2 mi; a few blocks downtown). Hourly average run time; baseline = mean of the 2 quickest hours (usually late night); ranking adds up every trip's time above that baseline, per mile. Includes boarding time. Inside Seattle; stretches under 0.25 mi not ranked (minute-rounded times). |
 | Seattle Bus Volumes | ArcGIS `Seattle_Bus_Volumes` | Buses a weekday at each spot | Metro trips per street link. |
-| Speed humps, speed cushions | ArcGIS `Speed_Humps_(Active)`, `Speed_Cushions_(Active)` | "What SDOT has done here" | No install dates, so no before/after. Linked by street segment key. |
-| Radar speed signs | ArcGIS `Radar_Speed_Signs_CDL` | Same | No dates. |
+| Speed humps, speed cushions | ArcGIS `Speed_Humps_(Active)`, `Speed_Cushions_(Active)` | "What SDOT has done here" | Linked by street segment key. Install dates exist but aren't used yet. |
+| Radar speed signs | ArcGIS `Radar_Speed_Signs_CDL` | Same | No dates. PLANNED shown as planned; TEMPOUTSVC dropped. |
 | Protected bike lanes | ArcGIS `ProtectedBikeLanes` | Same, plus fix line on the timeline | `DATE_COMPLETED`; status CONST = under construction. |
 | Transit (bus) lanes | ArcGIS `Transit_Lanes` layer 1 | Same | `InstallationDate` (175 of 1,174 dated); removed lanes skipped. |
 
