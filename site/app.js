@@ -492,7 +492,7 @@
   const detailEl = document.getElementById('detail');
   const spotOpen = () => !detailEl.hidden && !detailEl.classList.contains('home');
   let ready = false;   // set at the end of start-up; the overview isn't drawn before then
-  const refreshHome = () => { if (ready && !spotOpen() && !isNarrow()) renderHome(); };
+  const refreshHome = () => { if (ready && !spotOpen() && !isNarrow()) { if (placeG && detailEl.classList.contains('place')) showPlace(placeG); else renderHome(); } };
   const pickSpot = (p, fly, from) => (spotOpen() && current && current.rank_ksi === p.rank_ksi ? closeDetail(true) : select(p, fly, from));
   const pickLine = (t, fly) => (spotOpen() && tSel === t ? closeDetail(false) : selectTraffic(t, fly));
   const mapW = () => document.getElementById('map').offsetWidth || window.innerWidth;
@@ -546,7 +546,7 @@
   window.addEventListener('resize', () => {
     applyPanel(); applyLayout();
     // Crossing the phone/desktop width: the overview lives only on desktop.
-    if (!spotOpen()) { if (isNarrow()) { detailEl.hidden = true; detailEl.classList.remove('home'); } else if (detailEl.hidden) refreshHome(); }
+    if (!spotOpen()) { if (isNarrow()) { detailEl.hidden = true; detailEl.classList.remove('home', 'place'); } else if (detailEl.hidden) refreshHome(); }
   });
   applyPanel();
   applyLayout();
@@ -1035,7 +1035,7 @@
         </div>
       </div>`;
     const wasHidden = detailEl.hidden;
-    detailEl.hidden = false; detailEl.classList.remove('home');
+    detailEl.hidden = false; detailEl.classList.remove('home', 'place');
     if (wasHidden) setSheet(false);
     applyLayout();
     if (fly) flyVisible([p.lat, p.lon], 17);
@@ -1103,7 +1103,7 @@
           This spot is outside them, so it isn't in the ranked list.</p>
       </div>`;
     const wasHidden = detailEl.hidden;
-    detailEl.hidden = false; detailEl.classList.remove('home'); if (wasHidden) setSheet(false); applyLayout();
+    detailEl.hidden = false; detailEl.classList.remove('home', 'place'); if (wasHidden) setSheet(false); applyLayout();
     flyVisible([s.lat, s.lon], 17);
     focus.clearLayers();
     L.circleMarker([s.lat, s.lon], { radius: 9, color: '#1d2430', weight: 3, fillColor: '#fff', fillOpacity: 0.9, interactive: false }).addTo(focus);
@@ -1114,7 +1114,8 @@
   function closeDetail(restoreFocus) {
     mainEl.classList.remove('split'); clearFocus();
     const wasLine = tSel; tSel = null;
-    if (isNarrow()) { detailEl.hidden = true; detailEl.classList.remove('home'); applyLayout(); } else renderHome();
+    if (isNarrow()) { detailEl.hidden = true; detailEl.classList.remove('home', 'place'); applyLayout(); }
+    else if (placeG) showPlace(placeG, true); else renderHome();
     tSel = wasLine;
     const right = isNarrow() ? 30 : detailEl.offsetWidth + 30;
     if (viewBefore) { if (reduceMotion) map.setView(viewBefore.c, viewBefore.z, { animate: false }); else map.flyTo(viewBefore.c, viewBefore.z, { duration: 0.6 }); }
@@ -1230,7 +1231,7 @@
     const near = searchIdx.map(x => ({ x, m: Math.hypot((x.lon - lon) * k, (x.lat - lat) * 111320) })).filter(n => n.m <= 402);
     const sum = f => near.reduce((t, n) => t + n.x[f], 0);
     return { crashes: sum('crashes'), ksi: sum('ksi'), pb: sum('pb'), places: near.length,
-      worst: near.slice().sort((a, b) => a.x.rank - b.x.rank).slice(0, 4) };
+      worst: near.slice().sort((a, b) => a.x.rank - b.x.rank).slice(0, 4), all: near.slice().sort((a, b) => a.x.rank - b.x.rank) };
   }
   const small = () => matchMedia('(max-width: 760px)').matches;
   const distText = m => (m < 160 ? `${Math.round(m * 3.28084 / 10) * 10} ft` : `${(m / 1609.34).toFixed(1)} mi`);
@@ -1262,6 +1263,62 @@
   // A searched address is shown (with its own marker) but only saved if you choose "Add to my pins".
   let previewMarker = null;
   function clearPreview() { if (previewMarker) { pinLayer.removeLayer(previewMarker); previewMarker = null; } }
+  // ---------- around an address or pin: every place with crashes within a quarter mile ----------
+  // On the map: a dashed quarter-mile circle and a small grey dot for each place with crashes that isn't already drawn
+  // (only the ranked list is drawn by default). On desktop the right panel shows the summary. Cleared when the pop-up closes.
+  const nearLayer = L.layerGroup().addTo(map);
+  let placeG = null;
+  const openNear = x => { const p = byId.get(x.rank); if (p) select(p, true, null); else selectLite(x); };
+  function drawNearby(g, nb) {
+    nearLayer.clearLayers();
+    L.circle([g.lat, g.lon], { radius: 402, color: '#2f55c7', weight: 1.5, dashArray: '5 6', fillColor: '#2f55c7', fillOpacity: 0.04, interactive: false }).addTo(nearLayer);
+    if (view) return;   // the line views have their own map
+    nb.all.forEach(({ x }) => {
+      if (markers[x.rank]) return;
+      L.circleMarker([x.lat, x.lon], { radius: 5, color: '#fff', weight: 1.5, fillColor: '#6b7586', fillOpacity: 0.9 })
+        .bindTooltip(`#${fmt(x.rank)} ${esc(niceName(x.name))}: ${plural(x.crashes, 'crash', 'crashes')}`, { direction: 'top', offset: [0, -4] })
+        .on('click', () => openNear(x)).addTo(nearLayer);
+    });
+  }
+  function showPlace(g, force) {
+    const nb = nearbySpots(g.lat, g.lon);
+    placeG = g; drawNearby(g, nb);
+    if (isNarrow() || (spotOpen() && !force)) return;
+    detailEl.hidden = false; detailEl.classList.add('home', 'place'); applyLayout();
+    renderGraphs = () => {};
+    document.getElementById('detailTitle').textContent = '📍 ' + pinTitle(g);
+    const body = document.getElementById('detailBody'), list = nb.all.slice(0, 10);
+    body.innerHTML = `<div class="home-wrap">
+      <p class="home-lead">${g.preview ? '<b>Not saved yet.</b> ' : ''}Within a quarter mile of ${esc(g.label)} (about a 5-minute walk),
+        from police crash reports ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}.
+        ${g.preview ? '<br><button type="button" class="report-btn place-add">📍 Add to my pins</button>' : ''}</p>
+      <div class="stat-grid home-stats">${stat(fmt(nb.crashes), 'crashes')}${stat(fmt(nb.ksi), 'of them killed or seriously hurt someone')}${stat(fmt(nb.pb), 'involved people walking or biking')}</div>
+      <section class="hsec hsec-top"><h3>Places with crashes nearby</h3>
+        ${list.length ? `<ol class="home-top">${list.map((n, i) => `<li><button type="button" class="home-card" data-near="${i}">
+            <span class="hc-rank" style="background:${TIERS[tier(n.x.rank)].color}">#${fmt(n.x.rank)}</span>
+            <span class="hc-main"><span class="hc-name">${esc(niceName(n.x.name))}</span>
+              <span class="hc-sub">${plural(n.x.crashes, 'crash', 'crashes')}${n.x.ksi ? ` · ${n.x.ksi} killed or seriously hurt someone` : ''}</span></span>
+            <span class="hc-val">${distText(n.m)}</span></button></li>`).join('')}</ol>
+          <div class="note">Ranked out of ${fmt(N)} places with crashes. ${nb.all.length > 10 ? `${nb.all.length - 10} more places nearby aren't listed here;
+            ` : ''}places outside the ranked list are on the map as small grey dots.</div>`
+          : '<p class="note">No crashes reported within a quarter mile in these years.</p>'}</section>
+      ${reportBox(g.label)}
+    </div>`;
+    body.scrollTop = 0; body.onchange = null;
+    body.onclick = e => {
+      const n = e.target.closest('[data-near]'); if (n) { openNear(list[+n.dataset.near].x); return; }
+      if (e.target.closest('.place-add')) {
+        const k = { lat: g.lat, lon: g.lon, label: g.label }; clearPreview(); addPin(k, true);
+        const p = samePin(k); if (p) focusPop(pinMarkers.get(p.id), '.pin-copy');
+      }
+    };
+  }
+  function hidePlace(g) {
+    if (!placeG || placeG.id !== g.id) return;
+    placeG = null; nearLayer.clearLayers();
+    if (detailEl.classList.contains('place')) refreshHome();
+  }
+
   // Focus a button in a marker's pop-up once it's open (after the map has moved there).
   function focusPop(m, sel) {
     if (!m) return;
@@ -1324,13 +1381,15 @@
     const nb = nearbySpots(g.lat, g.lon);
     // g.name is an optional nickname ("Home", "Maya's school"); g.label stays the real address for copying and reporting.
     const title = pinTitle(g);
-    const html = `<div class="pin-pop"><div class="pin-head"><div class="pin-title">📍 ${esc(title)}</div>${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}${g.picked ? `<div class="pin-addr">Spot picked on the map${g.name ? '' : ' · nearest address'}</div>` : ''}${g.preview ? '<div class="pin-addr">Not saved yet</div>' : ''}</div>
-      <div class="pin-near">${nb.crashes
+    const compact = !small();   // desktop: crashes nearby are shown in the right panel instead
+    const html = `<div class="pin-pop${compact ? ' compact' : ''}"><div class="pin-head"><div class="pin-title">📍 ${esc(title)}</div>${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}${g.picked ? `<div class="pin-addr">Spot picked on the map${g.name ? '' : ' · nearest address'}</div>` : ''}${g.preview ? '<div class="pin-addr">Not saved yet</div>' : ''}</div>
+      ${compact ? `<p class="pin-addr">${nb.crashes ? `${plural(nb.crashes, 'crash', 'crashes')} within a quarter mile.` : 'No reported crashes within a quarter mile.'}
+        Details are in the panel on the right.</p>` : `<div class="pin-near">${nb.crashes
         ? `<p>Within a quarter mile, ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}: <b>${plural(nb.crashes, 'crash', 'crashes')}</b>${nb.ksi ? `, <b>${nb.ksi} killed or seriously hurt someone</b>` : ', none killed or seriously hurt anyone'}${nb.pb ? `, ${nb.pb} with people walking or biking` : ''}.</p>
           Highest-ranked places nearby:<ul>${nb.worst.map(n => `<li><button type="button" class="linkbtn" data-open="${n.x.rank}">#${fmt(n.x.rank)} ${esc(niceName(n.x.name))}</button>
             <span class="muted">${distText(n.m)}</span></li>`).join('')}</ul>`
         : 'No reported crashes within a quarter mile in the last five years.'}</div>
-      <details class="pin-res" data-loc="${esc(g.label)}"><summary>Report a problem here</summary>${resourceList()}</details>
+      <details class="pin-res" data-loc="${esc(g.label)}"><summary>Report a problem here</summary>${resourceList()}</details>`}
       ${g.preview
         ? `<div class="pin-actions"><button type="button" class="report-btn pin-add">📍 Add to my pins</button>
             <button type="button" class="linkbtn pin-copy">Copy address</button>
@@ -1343,7 +1402,9 @@
       icon: L.divIcon({ className: 'addr-pin' + (g.preview ? ' preview' : ''), iconSize: [30, 42], iconAnchor: [15, 40], popupAnchor: [0, -36], html: '<span></span>' })
     }).bindPopup(html, { maxWidth: 320, maxHeight: small() ? 150 : 420, autoPanPaddingTopLeft: [12, 12], autoPanPaddingBottomRight: [12, 12] }).addTo(pinLayer);
     if (g.preview) previewMarker = m; else pinMarkers.set(g.id, m);
+    m.on('popupclose', () => hidePlace(g));
     m.on('popupopen', e => {     // popups stop clicks from bubbling, so wire their buttons here
+      showPlace(g);
       const el = e.popup.getElement();
       el.querySelectorAll('[data-open]').forEach(b => (b.onclick = () => {
         const id = +b.dataset.open, p = byId.get(id), lite = searchIdx.find(x => x.rank === id);
@@ -1777,7 +1838,7 @@
     document.getElementById('detailTitle').innerHTML = `<span class="drank">#${M.rank(s)}</span> ${esc(M.name(s))}`;
     document.getElementById('detailBody').innerHTML = M.detail(s);
     const wasHidden = detailEl.hidden;
-    detailEl.hidden = false; detailEl.classList.remove('home');
+    detailEl.hidden = false; detailEl.classList.remove('home', 'place');
     if (wasHidden) setSheet(false);
     applyLayout();
     const b = L.latLngBounds(flatPts(s.pts));
@@ -2147,8 +2208,8 @@
   // ---------- desktop overview: the details panel never closes; with nothing picked it shows where to start ----------
   let homeFocus = null;   // the overview card a spot was opened from, to return focus to it
   function renderHome() {
-    if (isNarrow()) { detailEl.hidden = true; detailEl.classList.remove('home'); return; }
-    detailEl.classList.add('home'); detailEl.hidden = false;
+    if (isNarrow()) { detailEl.hidden = true; detailEl.classList.remove('home', 'place'); return; }
+    detailEl.classList.add('home'); detailEl.classList.remove('place'); detailEl.hidden = false;
     applyLayout();
     const titleEl = document.getElementById('detailTitle'), body = document.getElementById('detailBody');
     renderGraphs = () => {};

@@ -682,3 +682,8 @@ body.sheet-open #expandPanel, body.sheet-open #expandDetail, body.sheet-open #pa
 /* address search: the privacy note wraps */
 #searchResults li.addr-opt span { min-width: 0; white-space: normal; }
 #searchResults .pin-privacy { white-space: normal; overflow-wrap: anywhere; }
+
+/* desktop pin pop-up is short; the summary lives in the right panel */
+.pin-pop.compact .pin-addr + .pin-addr { margin-top: 2px; }
+.pin-pop.compact > p.pin-addr { margin: 6px 0 8px; }
+.home-lead .report-btn { margin-top: 8px; }
