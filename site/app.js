@@ -432,15 +432,13 @@
   function applyPanel() {
     if (isNarrow()) { panelEl.style.width = ''; return; }
     let w = leftExpanded ? (leftWidths.expanded || Math.round(mainEl.offsetWidth / 2)) : leftWidths.normal;
-    // The budget table needs room for its year columns, and the map has nothing to show then: widen while it's open.
-    if (document.body.classList.contains('budget-view')) w = Math.max(w, Math.min(780, Math.round(mainEl.offsetWidth * 0.62)));
     panelEl.style.width = clampLeft(w) + 'px';
     mainEl.style.setProperty('--panel-w', panelEl.offsetWidth + 'px');
     const b = document.getElementById('expandPanel');
     b.textContent = leftExpanded ? '‹' : '›';
     b.title = leftExpanded ? 'Narrow the list' : 'Widen the list';
     b.setAttribute('aria-label', b.title); b.setAttribute('aria-pressed', String(leftExpanded));
-    map.invalidateSize();
+    if (!document.body.classList.contains('budget-view')) map.invalidateSize();   // never measure the map while it's hidden
   }
   function toggleLeft() {
     leftExpanded = !leftExpanded; store.set('leftExpanded', leftExpanded);
@@ -1199,13 +1197,17 @@
 
   // ---------- tabs ----------
   const tabs =[...document.querySelectorAll('nav [role=tab]')];
+  let budgetView = null;
   function showTab(b) {
     tabs.forEach(x => { const on = x === b; x.classList.toggle('active', on); x.setAttribute('aria-selected', on); x.tabIndex = on ? 0 : -1; });
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
-    const budget = b.dataset.tab === 'spending';
+    const budget = b.dataset.tab === 'spending', wasBudget = document.body.classList.contains('budget-view');
+    // The budget has no locations, so the map is hidden on that tab. Keep its view and restore it on the way out,
+    // which also makes Leaflet redraw every tile (a hidden map can be measured as 0 x 0 if the window is resized).
+    if (budget && !wasBudget) budgetView = { c: map.getCenter(), z: map.getZoom() };
     document.body.classList.toggle('budget-view', budget);
-    document.getElementById('mapNote').hidden = !budget;
     applyPanel();
+    if (!budget && wasBudget && budgetView) map.setView(budgetView.c, budgetView.z, { animate: false, reset: true });
     setLineView(b.dataset.tab === 'traffic' ? 'traffic' : b.dataset.tab === 'walk' ? 'walk' : null);
   }
   tabs.forEach((b, i) => {
