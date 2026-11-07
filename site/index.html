@@ -20,6 +20,7 @@
     <nav role="tablist" aria-label="Views">
       <button role="tab" id="tabbtn-priorities" data-tab="priorities" aria-controls="tab-priorities" aria-selected="true" class="active">Safety</button>
       <button role="tab" id="tabbtn-traffic" data-tab="traffic" aria-controls="tab-traffic" aria-selected="false" tabindex="-1">Traffic</button>
+      <button role="tab" id="tabbtn-walk" data-tab="walk" aria-controls="tab-walk" aria-selected="false" tabindex="-1">Sidewalks</button>
       <button role="tab" id="tabbtn-spending" data-tab="spending" aria-controls="tab-spending" aria-selected="false" tabindex="-1"><span class="tab-long">SDOT capital budget</span><span class="tab-short">Budget</span></button>
       <button role="tab" id="tabbtn-about" data-tab="about" aria-controls="tab-about" aria-selected="false" tabindex="-1"><span class="tab-long">How it's scored</span><span class="tab-short">Method</span></button>
     </nav>
@@ -75,6 +76,23 @@
         <p id="tHint" class="hint" aria-live="polite"></p>
         <ol id="tlist" class="tlist" aria-label="Ranked streets"></ol>
         <p class="note" id="tNote"></p>
+      </section>
+
+      <section id="tab-walk" class="tab" role="tabpanel" aria-labelledby="tabbtn-walk">
+        <div class="controls">
+          <label>Show
+            <select id="smode">
+              <option value="missing">Missing sidewalks SDOT ranks first</option>
+              <option value="poor">Sidewalks in poor condition</option>
+            </select>
+          </label>
+          <label>Top
+            <select id="stopN"><option>10</option><option>25</option><option selected>50</option><option>100</option></select>
+          </label>
+        </div>
+        <p id="sHint" class="hint" aria-live="polite"></p>
+        <ol id="slist" class="tlist" aria-label="Ranked sidewalk blocks"></ol>
+        <p class="note" id="sNote"></p>
       </section>
 
       <section id="tab-spending" class="tab" role="tabpanel" aria-labelledby="tabbtn-spending">

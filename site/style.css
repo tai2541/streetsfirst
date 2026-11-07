@@ -401,19 +401,19 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 body.traffic-view .lg-safety, body.traffic-view .pausebtn { display: none; }
 body:not(.traffic-view) .lg-traffic { display: none; }
 .lg-tline { display: inline-block; width: 22px; border-radius: 3px; flex: none; }
-#tlist { list-style: none; margin: 0; padding: 0; }
-#tlist li { border-radius: 12px; background: #fff; box-shadow: var(--lift); margin-bottom: 9px; transition: transform .15s ease, box-shadow .15s ease;
+.tlist { list-style: none; margin: 0; padding: 0; }
+.tlist li { border-radius: 12px; background: #fff; box-shadow: var(--lift); margin-bottom: 9px; transition: transform .15s ease, box-shadow .15s ease;
   animation: cardIn .35s ease both; animation-delay: calc(var(--i, 0) * 30ms); }
-#tlist li:hover { transform: translateY(-2px); box-shadow: var(--lift2); }
-#tlist li.selected { box-shadow: 0 0 0 2px #2f55c7, var(--lift2); }
-#tlist li.top10 { background: linear-gradient(90deg, #fff4f3 0%, #fff 40%); }
-#tlist .card { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 11px 12px; font: inherit; color: inherit; cursor: pointer; border-radius: 12px; }
-#tlist .card:focus-visible { outline: 2px solid #2f55c7; outline-offset: 1px; }
-#tlist li.t0 .rank { background: #b3141b; color: #fff; box-shadow: 0 0 0 3px rgba(179,20,27,.15); }
-#tlist li.t1 .rank { background: #e0561f; color: #fff; }
-#tlist li.t2 .rank { background: #f0a020; color: #3b2600; }
-#tlist .hood { display: block; font-size: 12px; font-weight: 400; color: #5b6576; margin-top: 1px; }
-@media (prefers-reduced-motion: reduce) { #tlist li { animation: none; } #tlist li:hover { transform: none; } }
+.tlist li:hover { transform: translateY(-2px); box-shadow: var(--lift2); }
+.tlist li.selected { box-shadow: 0 0 0 2px #2f55c7, var(--lift2); }
+.tlist li.top10 { background: linear-gradient(90deg, #fff4f3 0%, #fff 40%); }
+.tlist .card { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 11px 12px; font: inherit; color: inherit; cursor: pointer; border-radius: 12px; }
+.tlist .card:focus-visible { outline: 2px solid #2f55c7; outline-offset: 1px; }
+.tlist li.t0 .rank { background: #b3141b; color: #fff; box-shadow: 0 0 0 3px rgba(179,20,27,.15); }
+.tlist li.t1 .rank { background: #e0561f; color: #fff; }
+.tlist li.t2 .rank { background: #f0a020; color: #3b2600; }
+.tlist .hood { display: block; font-size: 12px; font-weight: 400; color: #5b6576; margin-top: 1px; }
+@media (prefers-reduced-motion: reduce) { .tlist li { animation: none; } .tlist li:hover { transform: none; } }
 .th-street { margin: 8px 0 2px; font-size: 13px; } .th-street svg { margin-top: 4px; }
 
 /* ---- Reporting problems: always one click away ---- */

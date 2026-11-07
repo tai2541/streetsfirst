@@ -917,6 +917,7 @@
           ${sec('done', 'What SDOT has done here', treatments(p))}
           ${sec('street', 'The street', streetInfo(p))}
           ${sec('traffic', 'Traffic here', trafficHere(p))}
+          ${sidewalksHere(p) ? sec('walk', 'Sidewalks here', sidewalksHere(p)) : ''}
           ${sec('types', 'What kind of crashes', `
             ${hbars(types, '#2a78d6', 'crashes')}
             ${untyped ? `<div class="note">${untyped} crash${untyped > 1 ? 'es have' : ' has'} no type recorded.</div>` : ''}
@@ -1022,7 +1023,7 @@
     if (viewBefore) { if (reduceMotion) map.setView(viewBefore.c, viewBefore.z, { animate: false }); else map.flyTo(viewBefore.c, viewBefore.z, { duration: 0.6 }); }
     else { const g = trafficOn ? tLayer : layer; if (g.getLayers().length) (reduceMotion ? map.fitBounds : map.flyToBounds).call(map, g.getBounds(), { padding: [30, 30], maxZoom: 15 }); }
     viewBefore = null;
-    if (tSel) { tSel = null; tLines.forEach(line => line.setStyle(lineStyle(line._t, false))); document.querySelectorAll('#tlist li.selected').forEach(li => li.classList.remove('selected')); }
+    if (tSel) { tSel = null; tLines.forEach(line => line.setStyle(lineStyle(line._t, false))); document.querySelectorAll('.tlist li.selected').forEach(li => li.classList.remove('selected')); }
     history.replaceState(null, '', location.pathname + location.search);
     if (restoreFocus && opener && document.contains(opener)) opener.focus();
     else if (restoreFocus) document.getElementById('list').querySelector('button')?.focus();
@@ -1178,7 +1179,7 @@
     const budget = b.dataset.tab === 'spending';
     document.body.classList.toggle('budget-view', budget);
     document.getElementById('mapNote').hidden = !budget;
-    setTrafficView(b.dataset.tab === 'traffic');
+    setLineView(b.dataset.tab === 'traffic' ? 'traffic' : b.dataset.tab === 'walk' ? 'walk' : null);
   }
   tabs.forEach((b, i) => {
     b.addEventListener('click', () => showTab(b));
@@ -1260,7 +1261,28 @@
       chips: s => [
         { cls: 'serious', text: `+${(s.peak - s.base).toFixed(1)} min a bus at ${hourName(s.hr)} (${Math.round(100 * s.slower)}% slower)` },
         { cls: 'ped', text: `${fmt(s.trips)} buses a weekday` },
-        { cls: 'state', text: `Buses lose ${(s.lost / 60).toFixed(1)} hours a day here` }]
+        { cls: 'state', text: `Buses lose ${(s.lost / 60).toFixed(1)} hours a day here` }],
+      note: `Metro sets each trip's scheduled time from how long buses really take at that hour, so busy-hour times include
+         traffic and extra time for people getting on and off. It's measured between Metro's timed stops (usually ½ to 1½ miles
+         apart; a few blocks downtown), so the slowdown could be anywhere along the stretch. Stretches under a quarter mile are
+         left out (the timetable is in whole minutes). Inside Seattle only.`,
+      detail: s => `
+      <div class="dhead">
+        <div class="where">${esc(TMODES.bus.sub(s))} · ${copyLoc(stretchName(s))}</div>
+        <p class="verdict">At ${hourName(s.hr)} on a weekday, Metro gives buses <b>${s.peak} minutes</b> for this
+          ${s.mi}-mile stretch, compared with ${s.base} minutes in the quickest (late-night) hours: <b>${Math.round(100 * s.slower)}% slower</b>.
+          ${fmt(s.trips)} buses run it each weekday; together they lose about <b>${(s.lost / 60).toFixed(1)} hours a day</b> here.</p>
+        <div class="stat-grid">
+          ${stat(s.base + ' min', 'quickest hours (late night)')}${stat(s.peak + ' min', 'at ' + hourName(s.hr))}
+          ${stat(fmt(s.trips), 'buses a weekday')}${stat((s.lost / 60).toFixed(1) + ' h', 'bus time lost a day')}
+        </div>
+      </div>
+      ${reportBox(stretchName(s))}
+      <h3>Safety spots along this stretch</h3>${safetyList(safetyAlong(s.pts))}
+      <h3>About this measure</h3>
+      <div class="note">From ${stopShort(s.from)} to ${stopShort(s.to)}. Metro sets scheduled times from how long buses really take
+        at each hour, so busy-hour times include traffic and extra boarding time. The slowdown could be anywhere along the
+        stretch. Weekday timetable in effect on ${T.weekday ? longDate(T.weekday) : 'a weekday'}.</div>`
     },
     busy: {
       hint: 'Streets with the most vehicles on an average weekday, from SDOT traffic counts. Bridge and ramp counts are ' +
@@ -1270,16 +1292,98 @@
       sub: s => (s.hood ? s.hood + ' · ' : '') + (s.est || !s.yr ? `SDOT estimate${s.yr ? ' from ' + s.yr : ''}, not a measured count` : `SDOT count from ${s.yr}`),
       score: s => `${fmt(Math.round(s.awdt / 1000))}k <small>a day</small>`,
       chips: s => [{ cls: 'ped', text: `${fmt(s.awdt)} vehicles a weekday` }]
-        .concat(trendText(s.hist) ? [{ cls: 'state', text: trendText(s.hist) }] : [])
+        .concat(trendText(s.hist) ? [{ cls: 'state', text: trendText(s.hist) }] : []),
+      note: `Counts are weekday averages from SDOT's yearly traffic counts. Many streets are counted every few years, so a count can
+         be several years old; trends use real counts only and skip 2020–2021 (pandemic traffic).`,
+      detail: s => `
+      <div class="dhead">
+        <div class="where">${esc(TMODES.busy.sub(s))} · ${copyLoc(niceName(s.street))}</div>
+        <p class="verdict"><b>${fmt(s.awdt)} vehicles</b> on an average weekday${s.est ? ' (an SDOT estimate, not a count)' : ''}.
+          ${trendText(s.hist) ? esc(trendText(s.hist)) + ' (real counts only).' : ''}</p>
+      </div>
+      ${trafficHistChart(s.hist) ? `<h3>Traffic counts over the years</h3>${trafficHistChart(s.hist)}
+        <div class="note">Each dot is a real SDOT count. Streets are recounted every few years.</div>` : ''}
+      ${reportBox(niceName(s.street))}
+      <h3>Safety spots along this street</h3>${safetyList(safetyAlong(s.pts))}`
     }
   };
+
+  // ---------- Sidewalks view: SDOT's missing-sidewalk priorities, and sidewalks rated poor ----------
+  const SW = D.sidewalks || { missing: [], poor: [], counts: {} };
+  const ftText = ft => (ft >= 1320 ? `${(ft / 5280).toFixed(1)} mi` : `${fmt(Math.round(ft / 10) * 10)} ft`);
+  const blockName = b => niceName(b.replace(/ BETWEEN /, ' between ').replace(/ AND /, ' and '));
+  const SMODES = {
+    missing: {
+      hint: `Blocks with no sidewalk, in SDOT's own order of priority. SDOT scores each missing block for safety, equity, schools,
+        transit, parks and nearby homes and shops, and sorts them into Tier 1 (build first) to Tier 5.
+        ${fmt(SW.counts.tier1_blocks || 0)} of ${fmt(SW.counts.missing_blocks || 0)} blocks with a missing sidewalk are Tier 1.`,
+      items: () => SW.missing, rank: s => s.id, name: s => blockName(s.name),
+      sub: s => [s.hood, s.art && s.art !== 'Not Designated' ? s.art : 'Neighborhood street'].filter(Boolean).join(' · '),
+      score: s => `Tier ${s.tier} <small>SDOT score ${s.score}</small>`,
+      chips: s => [
+        { cls: 'serious', text: s.sides === 2 ? 'No sidewalk on either side' : 'No sidewalk on one side' },
+        ...(s.safety ? [{ cls: 'fatal', text: `SDOT safety score ${s.safety}` }] : []),
+        ...(s.school ? [{ cls: 'ped', text: 'near a school' }] : []),
+        ...(s.transit ? [{ cls: 'state', text: 'near transit' }] : [])],
+      note: `From the Pedestrian Element of the Seattle Transportation Plan. Scores and tiers are SDOT's; this site only puts
+        them on a map with the crash ranking. Within a tier, blocks are ordered by SDOT's score, then length.`,
+      detail: s => `
+      <div class="dhead">
+        <div class="where">${esc(SMODES.missing.sub(s))} · ${copyLoc(blockName(s.name))}</div>
+        <p class="verdict"><b>${s.sides === 2 ? 'No sidewalk on either side' : 'No sidewalk on one side'}</b> of this
+          ${ftText(s.ft)} block. SDOT puts building one in <b>Tier ${s.tier}</b> of 5 (Tier 1 = build first), with a score of
+          ${s.score}.</p>
+        <div class="stat-grid">
+          ${stat(s.safety ?? 0, 'safety score')}${stat(s.equity ?? 0, 'equity score')}
+          ${stat(s.school ?? 0, 'school score')}${stat(s.transit ?? 0, 'transit score')}
+        </div>
+      </div>
+      ${reportBox(blockName(s.name))}
+      <h3>Safety spots along this block</h3>${safetyList(safetyAlong(s.pts))}
+      <h3>About this measure</h3>
+      <div class="note">SDOT's Seattle Transportation Plan scores every block missing a sidewalk; higher scores mean more need
+        (crashes and speeds, equity, schools, transit, parks, homes and shops nearby). The parts shown are SDOT's; the total
+        includes a few smaller ones.</div>`
+    },
+    poor: {
+      hint: `Blocks with the most sidewalk that SDOT rated poor or very poor (heaved, cracked or broken), from SDOT's sidewalk
+        inventory: ${SW.counts.poor_miles ?? '?'} miles on ${fmt(SW.counts.poor_blocks || 0)} blocks. Most of these ratings are from
+        ${SW.counts.poor_assessed_median || 'past'} surveys, so some may have been fixed since.`,
+      items: () => SW.poor, rank: s => s.id, name: s => blockName(s.name),
+      sub: s => [s.hood, s.y1 ? `rated ${s.y0 === s.y1 ? s.y1 : s.y0 + '–' + s.y1}` : ''].filter(Boolean).join(' · '),
+      score: s => `${ftText(s.vp + s.p)} <small>poor or worse</small>`,
+      chips: s => [
+        ...(s.vp ? [{ cls: 'fatal', text: `${ftText(s.vp)} very poor` }] : []),
+        ...(s.p ? [{ cls: 'serious', text: `${ftText(s.p)} poor` }] : [])],
+      note: `From SDOT's sidewalk inventory. Ratings come from SDOT surveys (most poor ratings are from ${SW.counts.poor_assessed_median || 'past years'});
+        a block can be fixed after it was rated. Ranked by length, so long blocks rank high. In Seattle, the owner of the
+        adjacent property is often responsible for sidewalk repair; this site doesn't show owners.`,
+      detail: s => `
+      <div class="dhead">
+        <div class="where">${esc(SMODES.poor.sub(s))} · ${copyLoc(blockName(s.name))}</div>
+        <p class="verdict"><b>${ftText(s.vp + s.p)}</b> of sidewalk on this block rated poor or very poor by SDOT
+          (${s.y0 === s.y1 ? 'in ' + s.y1 : s.y0 + ' to ' + s.y1}).</p>
+        <div class="stat-grid">${stat(ftText(s.vp), 'very poor')}${stat(ftText(s.p), 'poor')}</div>
+      </div>
+      ${reportBox(blockName(s.name))}
+      <h3>Safety spots along this block</h3>${safetyList(safetyAlong(s.pts))}`
+    }
+  };
+  const stat = (v, l) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`;
   const tmodeEl = document.getElementById('tmode'), ttopEl = document.getElementById('ttopN');
-  const tKey = s => (tmodeEl.value === 'bus' ? 'b' : 's') + s.id;
+  const VIEWS = {
+    traffic: { modes: TMODES, modeEl: tmodeEl, topEl: ttopEl, list: 'tlist', hint: 'tHint', note: 'tNote' },
+    walk: { modes: SMODES, modeEl: document.getElementById('smode'), topEl: document.getElementById('stopN'), list: 'slist', hint: 'sHint', note: 'sNote' }
+  };
+  let view = null;
+  const V = () => VIEWS[view || 'traffic'];
+  const curMode = () => V().modes[V().modeEl.value];
+  const tKey = s => V().modeEl.value + ':' + s.id;
   const lineStyle = (t, on) => ({ color: TIERS[t].color, weight: (t === 0 ? 7 : t === 1 ? 6 : t === 2 ? 5 : 4) + (on ? 3 : 0), opacity: 0.95, lineCap: 'round' });
 
   function renderTraffic() {
-    const M = TMODES[tmodeEl.value], all = M.items(), n = +ttopEl.value, rows = all.slice(0, n);
-    document.getElementById('tHint').innerHTML = M.hint;
+    const M = curMode(), all = M.items(), n = +V().topEl.value, rows = all.slice(0, n);
+    document.getElementById(V().hint).innerHTML = M.hint;
     tLayer.clearLayers(); tLines = new Map();
     // the rest of the network, faint, for context
     all.slice(n).forEach(s => L.polyline(s.pts, { color: '#8a94a6', weight: 2, opacity: 0.45, interactive: false }).addTo(tLayer));
@@ -1291,7 +1395,7 @@
         .on('click', () => selectTraffic(s));
       line._casing = casing; line._t = t; tLines.set(tKey(s), line);
     });
-    document.getElementById('tlist').innerHTML = rows.map((s, i) => {
+    document.getElementById(V().list).innerHTML = rows.map((s, i) => {
       const r = M.rank(s), t = tier(r);
       return `<li data-k="${tKey(s)}" class="${r <= 10 ? 'top10 ' : ''}t${t}${tSel === s ? ' selected' : ''}" style="--i:${Math.min(i, 15)}">
         <button type="button" class="card">
@@ -1301,19 +1405,13 @@
         </button></li>`;
     }).join('');
     const byKey = new Map(rows.map(s => [tKey(s), s]));
-    document.querySelectorAll('#tlist li').forEach(li => {
+    document.querySelectorAll('#' + V().list + ' li').forEach(li => {
       const s = byKey.get(li.dataset.k), line = tLines.get(li.dataset.k);
       li.querySelector('button').onclick = () => selectTraffic(s, true);
       const hl = on => { if (line) { line.setStyle(lineStyle(line._t, on || tSel === s)); if (on) line.bringToFront(); } };
       li.onmouseenter = () => hl(true); li.onmouseleave = () => hl(false);
     });
-    document.getElementById('tNote').innerHTML = tmodeEl.value === 'bus'
-      ? `Metro sets each trip's scheduled time from how long buses really take at that hour, so the rush-hour time includes
-         traffic and extra time for people getting on and off. It's measured between Metro's timed stops (usually ½ to 1½ miles apart; a few blocks downtown),
-         apart, so the slowdown could be anywhere along the stretch. Stretches under a quarter mile are left out (the timetable
-         is in whole minutes). Inside Seattle only.`
-      : `Counts are weekday averages from SDOT's yearly traffic counts. Many streets are counted every few years, so a count can
-         be several years old; trends use real counts only and skip 2020–2021 (pandemic traffic).`;
+    document.getElementById(V().note).innerHTML = M.note;
   }
 
   function trafficHistChart(hist) {
@@ -1351,39 +1449,12 @@
 
   function selectTraffic(s, fly) {
     rememberView();
-    const mode = tmodeEl.value, M = TMODES[mode];
+    const M = curMode();
     tSel = s; current = null;
     tLines.forEach((line, k) => line.setStyle(lineStyle(line._t, k === tKey(s))));
-    document.querySelectorAll('#tlist li').forEach(li => li.classList.toggle('selected', li.dataset.k === tKey(s)));
-    const along = safetyAlong(s.pts);
-    const stat = (v, l) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`;
+    document.querySelectorAll('#' + V().list + ' li').forEach(li => li.classList.toggle('selected', li.dataset.k === tKey(s)));
     document.getElementById('detailTitle').innerHTML = `<span class="drank">#${M.rank(s)}</span> ${esc(M.name(s))}`;
-    document.getElementById('detailBody').innerHTML = mode === 'bus' ? `
-      <div class="dhead">
-        <div class="where">${esc(M.sub(s))} · ${copyLoc(M.name(s))}</div>
-        <p class="verdict">At ${hourName(s.hr)} on a weekday, Metro gives buses <b>${s.peak} minutes</b> for this
-          ${s.mi}-mile stretch, compared with ${s.base} minutes when traffic is light: <b>${Math.round(100 * s.slower)}% slower</b>.
-          ${fmt(s.trips)} buses run it each weekday; together they lose about <b>${(s.lost / 60).toFixed(1)} hours a day</b> here.</p>
-        <div class="stat-grid">
-          ${stat(s.base + ' min', 'quickest hours (late night)')}${stat(s.peak + ' min', 'at ' + hourName(s.hr))}
-          ${stat(fmt(s.trips), 'buses a weekday')}${stat((s.lost / 60).toFixed(1) + ' h', 'bus time lost a day')}
-        </div>
-      </div>
-      ${reportBox(M.name(s))}
-      <h3>Safety spots along this stretch</h3>${safetyList(along)}
-      <h3>About this measure</h3>
-      <div class="note">From ${stopShort(s.from)} to ${stopShort(s.to)}. Metro sets scheduled times from how long buses really take
-        at each hour, so the rush-hour time includes traffic and extra boarding time. The slowdown could be anywhere along the
-        stretch. Weekday timetable in effect on ${T.weekday ? longDate(T.weekday) : 'a weekday'}.</div>` : `
-      <div class="dhead">
-        <div class="where">${esc(M.sub(s))} · ${copyLoc(M.name(s))}</div>
-        <p class="verdict"><b>${fmt(s.awdt)} vehicles</b> on an average weekday${s.est ? ' (an SDOT estimate, not a count)' : ''}.
-          ${trendText(s.hist) ? esc(trendText(s.hist)) + ' (real counts only).' : ''}</p>
-      </div>
-      ${trafficHistChart(s.hist) ? `<h3>Traffic counts over the years</h3>${trafficHistChart(s.hist)}
-        <div class="note">Each dot is a real SDOT count. Streets are recounted every few years.</div>` : ''}
-      ${reportBox(M.name(s))}
-      <h3>Safety spots along this street</h3>${safetyList(along)}`;
+    document.getElementById('detailBody').innerHTML = M.detail(s);
     const wasHidden = detailEl.hidden;
     detailEl.hidden = false;
     if (wasHidden) setSheet(false);
@@ -1398,7 +1469,17 @@
     };
     document.getElementById('detailBody').onchange = null;
   }
-  tmodeEl.onchange = ttopEl.onchange = () => { if (tSel) closeDetail(false); renderTraffic(); };
+  Object.values(VIEWS).forEach(v => { v.modeEl.onchange = v.topEl.onchange = () => { if (tSel) closeDetail(false); renderTraffic(); }; });
+
+  // "Sidewalks here" on a safety spot: SDOT's missing-sidewalk tier and sidewalk rated poor, right at the spot.
+  function sidewalksHere(p) {
+    const out = [];
+    if (p.sw_missing_tier) out.push(`<p><b>Part of this spot has no sidewalk.</b> SDOT puts building one in <b>Tier ${p.sw_missing_tier}</b>
+      of 5 (Tier 1 = build first).</p>`);
+    if (p.sw_poor_ft) out.push(`<p><b>${ftText(p.sw_poor_ft)}</b> of sidewalk here rated poor or very poor by SDOT${p.sw_poor_assessed ? ` (rated ${p.sw_poor_assessed}; may have been fixed since)` : ''}.</p>`);
+    if (!out.length) return '';
+    return out.join('') + '<div class="note">From SDOT\'s Seattle Transportation Plan and sidewalk inventory. Shown for context; not part of the safety score.</div>';
+  }
 
   // "Traffic here" on a safety spot: buses, the bus stretch through it, and real traffic counts over the years.
   function trafficHere(p) {
@@ -1419,13 +1500,16 @@
       'Bus times come from King County Metro\'s timetable. Shown for context; not part of the safety score.</div>';
   }
 
-  function setTrafficView(on) {
-    if (on === trafficOn) return;
-    trafficOn = on;
-    document.body.classList.toggle('traffic-view', on);
+  // Switch the map between the safety spots and a line view ('traffic', 'walk'), or back (null).
+  function setLineView(name) {
+    if (name === view) return;
+    const was = view; view = name; trafficOn = !!name;
+    document.body.classList.toggle('traffic-view', !!name);
+    document.body.classList.toggle('walk-view', name === 'walk');
     if (!detailEl.hidden) closeDetail(false);
-    if (on) { map.removeLayer(layer); clearFocus(); tLayer.addTo(map); renderTraffic(); }
-    else { map.removeLayer(tLayer); layer.addTo(map); tSel = null; }
+    tSel = null;
+    if (name) { if (!was) { map.removeLayer(layer); clearFocus(); tLayer.addTo(map); } renderTraffic(); }
+    else { map.removeLayer(tLayer); layer.addTo(map); }
   }
 
   // ---------- capital budget tab ----------
@@ -1586,6 +1670,15 @@
           are SDOT estimates; both are labeled. Trends use real counts only: SDOT's yearly layers repeat old counts for streets that
           weren't recounted, so those repeats are left out.</li>
         <li>Each street lists the safety spots along it, and each safety spot shows its buses, bus slowdown and traffic counts.</li>
+      </ul>
+      <h3>The Sidewalks tab</h3>
+      <ul>
+        <li><b>Missing sidewalks SDOT ranks first</b>: SDOT's own priorities from the Seattle Transportation Plan. SDOT scores each
+          block without a sidewalk (safety, equity, schools, transit, parks, homes and shops nearby) and sorts them into Tier 1 to 5.
+          This site doesn't change SDOT's order; it puts it on the map next to the crash ranking.</li>
+        <li><b>Sidewalks in poor condition</b>: blocks with the most sidewalk SDOT rated poor or very poor in its inventory. Many
+          ratings are several years old, so some may have been fixed. Who owns the adjacent property isn't shown.</li>
+        <li>Each block lists the safety spots along it, and each safety spot shows any missing or poor sidewalk right there.</li>
       </ul>
       <h3>Driver behavior</h3>
       <p class="note">Crashes involving speeding stay in the score. Repeated speeding at one spot usually points to road design

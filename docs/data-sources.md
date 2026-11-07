@@ -139,3 +139,14 @@ All read by `pipeline/fetch.ps1`, joined in `pipeline/traffic.sql`. Context only
 | Radar speed signs | ArcGIS `Radar_Speed_Signs_CDL` | Same | No dates. |
 | Protected bike lanes | ArcGIS `ProtectedBikeLanes` | Same, plus fix line on the timeline | `DATE_COMPLETED`; status CONST = under construction. |
 | Transit (bus) lanes | ArcGIS `Transit_Lanes` layer 1 | Same | `InstallationDate` (175 of 1,174 dated); removed lanes skipped. |
+
+## Added for the Sidewalks view (2026-11)
+
+| Layer | Used for | Caveats |
+|---|---|---|
+| Seattle_Transportation_Plan_Pedestrian_Element/FeatureServer/18 (Missing Sidewalks) | SDOT's Tier 1-5 priority and scores for every block without a sidewalk | SDOT's scores and order, shown unchanged; plan-time snapshot. `Remove = 1` rows dropped. |
+| Sidewalks_(Active)/FeatureServer/0, `CONDITION IN ('POOR','VERY-POOR')` | Blocks with the most sidewalk rated poor | Most poor ratings are from 2017 surveys; some may be fixed. Ranked by length, so long blocks rank high. |
+
+Never fetched: owner or parcel fields (PROPERTY_OWNER_RESPONSIBILITY, NEAREST_PARCEL_ID_NUMBER and similar). The map is about
+streets, not singling out homes. Candidates for later: Substandard Sidewalks (layer 19), Enhanced Street Crossings (layer 17),
+Curb_Ramps_(Active), Marked_Crosswalks_(Active), School_Walking_Boundaries.
