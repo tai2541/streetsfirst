@@ -551,6 +551,8 @@ copy (
     (select count(*) from collisions where date >= ws() and date < we() and peds + cyclists > 0
        and severity in ('Fatal Collision', 'Serious Injury Collision')) as city_ped_bike_ksi,
     (select round(sum(ksi) filter (where rank <= 50) * 1.0 / sum(ksi), 3) from ranked) as top50_ksi_share,
+    (select sum(ksi) filter (where rank <= 50) from ranked) as top50_ksi,
+    (select sum(ksi) from ranked) as city_ksi_crashes,
     -- citywide shares, used to flag locations that are unusually wet/dark (Unknown/Other excluded)
     (select round(sum(wet_crashes)  / sum(road_known),  3) from locations) as city_wet_share,
     (select round(sum(dark_crashes) / sum(light_known), 3) from locations) as city_dark_share,

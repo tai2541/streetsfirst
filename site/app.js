@@ -1129,15 +1129,16 @@
   // Citywide summary at the top of the list: what's at stake, in people. Numbers count up once on load.
   (function citySummary() {
     const el = document.getElementById('citySummary'); if (!el || meta.city_killed == null) return;
-    const share = Math.round(1000 * meta.top50_ksi_share) / 10, spots = (100 * 50 / meta.locations_scored).toFixed(1);
+    const oneIn = Math.round(meta.city_ksi_crashes / meta.top50_ksi);
     el.innerHTML = `
       <div class="cs-head">Seattle streets, ${monthYear(meta.window_from)} – ${monthYear(meta.window_to)}</div>
       <div class="cs-nums">
         <div><b data-n="${meta.city_killed}">${fmt(meta.city_killed)}</b><span>people killed</span></div>
         <div><b data-n="${meta.city_serious}">${fmt(meta.city_serious)}</b><span>seriously injured</span></div>
-        <div><b data-n="${share}" data-pct>${share}%</b><span>of those crashes were at the top 50 spots, just ${spots}% of places</span></div>
       </div>
-      <div class="cs-foot">Fixing the worst spots first reaches a lot of harm. Pick one below or on the map.</div>`;
+      <div class="cs-foot"><b class="cs-hi">About 1 in ${oneIn}</b> of the crashes that killed or seriously hurt someone
+        (${fmt(meta.top50_ksi)} of ${fmt(meta.city_ksi_crashes)}) happened at just <b class="cs-hi">50 spots</b>, out of
+        ${fmt(meta.locations_scored)} places with crashes. Those 50 are the top of this list.</div>`;
     if (reduceMotion) return;
     el.querySelectorAll('b[data-n]').forEach(b => {
       const to = +b.dataset.n, pct = b.hasAttribute('data-pct'), t0 = performance.now(), dur = 1100;

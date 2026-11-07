@@ -391,3 +391,7 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
   padding: 4px 26px 4px 9px; color: var(--ink); font-weight: 500; cursor: pointer; box-shadow: var(--lift); }
 .controls select:focus-visible, #reqType:focus-visible { outline: 0; border-color: #2f55c7; box-shadow: 0 0 0 3px rgba(47,85,199,.18); }
 .check input { accent-color: #2f55c7; }
+.cs-nums { grid-template-columns: 1fr 1fr; }
+.cs-nums b { font-size: 28px; }
+.cs-foot { font-size: 12.5px; line-height: 1.45; }
+.cs-hi { color: var(--amber); }
