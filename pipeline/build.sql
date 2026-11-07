@@ -227,6 +227,27 @@ left join s using (location) left join len using (location) left join loc_volume
 left join h using (location) left join c using (location)
 left join lp using (location) left join sg using (location);
 
+-- Neighborhoods (City of Seattle Neighborhood Map Atlas): 20 large areas, 94 neighborhoods. Used to say where a
+-- spot is ("West Seattle · Alki") and to label the map.
+create or replace table hoods as
+select f.properties.L_HOOD as area, f.properties.S_HOOD as neighborhood, gj_geom(f.geometry) as geom
+from (select unnest(features) f from read_json('data/raw/hoods_sub_*.json', maximum_object_size = 500000000))
+where f.geometry is not null;
+
+-- A spot on a border (arterials often are) gets both names: every neighborhood within 40 ft of it,
+-- otherwise the nearest one within 200 ft.
+create or replace table loc_context as
+with d as (select p.location, h.area, h.neighborhood, ST_Distance(p.geom, h.geom) as dist
+           from loc_pts p join hoods h on ST_DWithin(p.geom, h.geom, 200)),
+near as (select *, min(dist) over (partition by location) as dmin from d),
+pick as (select * from near where dist <= greatest(dmin, 40))
+select x.*, n.area, n.neighborhood
+from loc_context x
+left join (select location,
+             array_to_string(list(distinct area order by area), ' / ') as area,
+             array_to_string(list(distinct neighborhood order by neighborhood), ' / ') as neighborhood
+           from pick group by location) n using (location);
+
 -- ---------------------------------------------------------------- crash harm (any date range)
 create or replace macro harm_in(d0, d1) as table
 with c as (
@@ -309,6 +330,7 @@ select e.*, x.addr_type, x.intkey, x.speed_limit, x.art_class,
   x.pavement_min, x.block_ft, x.volume, x.volume_streets, x.volume_year, x.volume_estimated,
   case x.hin_level when 1 then 'High' when 2 then 'Mid' when 3 then 'Low' end as sdot_hin,
   x.hcl_years as sdot_hcl_years,
+  x.area, x.neighborhood,
   x.lpi_status, x.lpi_installed, x.lpi_planned, x.signalized, x.ped_signal, x.ped_audio, x.lt_protected, x.lt_installed,
   a.lon, a.lat,
   -- state facilities: WSDOT owns or shares responsibility
@@ -444,7 +466,7 @@ copy (
          ref_group, ref_n, round(ref_ksi_share, 4) ref_ksi_share, round(ref_ksi_harm_per_crash, 2) ref_ksi_harm_per_crash,
          round(request_boost, 3) request_boost, round(request_points, 1) request_points, scored_requests,
          round(pts_old, 1) pts_old,
-         speed_limit, street_type, state_route, structure, pavement_min,
+         area, neighborhood, speed_limit, street_type, state_route, structure, pavement_min,
          volume, volume_streets, volume_year, volume_estimated,
          sdot_hin, sdot_hcl_years, ksi_after_hcl,
          lpi_status, lpi_installed, lpi_planned, ped_after_lpi, signalized, ped_signal, ped_audio, lt_protected, lt_installed,
@@ -458,7 +480,7 @@ copy (
 -- Search index: every scored location, compact: [name, lat, lon, rank, crashes, ksi, ped/bike crashes, type]
 copy (
   select list([location, round(lat, 5)::varchar, round(lon, 5)::varchar, rank::varchar, crashes::varchar,
-               ksi::varchar, (ped_crashes + bike_crashes)::varchar, addr_type] order by rank) as idx
+               ksi::varchar, (ped_crashes + bike_crashes)::varchar, addr_type, coalesce(neighborhood, ''), coalesce(area, '')] order by rank) as idx
   from ranked
 ) to 'site/data/search.json' (format json, array false);
 
@@ -539,3 +561,14 @@ copy (
   select ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(ST_Union_Agg(g), 40), 'EPSG:2926', 'EPSG:4326'))::json as boundary
   from d
 ) to 'site/data/boundary.json' (format json, array false);
+
+-- Map labels: one point inside each area / neighborhood (level 1 = 20 areas, level 2 = 94 neighborhoods).
+copy (
+  select list({'n': n, 'lvl': lvl, 'lat': round(ST_Y(pt), 5), 'lon': round(ST_X(pt), 5)} order by lvl, n) as labels
+  from (
+    select area as n, 1 as lvl, ST_Transform(ST_PointOnSurface(ST_Union_Agg(geom)), 'EPSG:2926', 'EPSG:4326') pt from hoods group by area
+    union all
+    select neighborhood, 2, ST_Transform(ST_PointOnSurface(ST_Union_Agg(geom)), 'EPSG:2926', 'EPSG:4326') from hoods
+    group by neighborhood having neighborhood <> any_value(area)   -- skip names already shown as an area (e.g. Interbay)
+  )
+) to 'site/data/labels.json' (format json, array false);

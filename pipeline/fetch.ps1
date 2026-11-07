@@ -79,13 +79,15 @@ Get-ArcGISLayer "$gis/2024_Arterial_Traffic_Volumes/FeatureServer/0" 'FLOWSEGID,
 Get-ArcGISLayer "$gis/Vision_Zero_High_Injury_Network_Score/FeatureServer/2" 'SEGMENT_NAME,FROM_,TO_,LENGTH_MI,HIN_SCORE,PRIORITY' 'hin'
 Get-ArcGISLayer "$gis/Vision_Zero_High_Collision_Locations/FeatureServer/0" 'HCL_YEAR,LOCATION,INTKEY,TYPE' 'hcl'
 Get-ArcGISLayer "$gis/Vision_Zero_-_Leading_Pedestrian_Intervals_ACTIVE/FeatureServer/8" 'LOCATION,LPI_Status,LPI_Install_Date,LPI_Planned_Year' 'lpi'
+Get-ArcGISLayer "$gis/nma_nhoods_main/FeatureServer/0" 'L_HOOD' 'hoods_main'          # 20 areas (Ballard, West Seattle...)
+Get-ArcGISLayer "$gis/nma_nhoods_sub/FeatureServer/0" 'L_HOOD,S_HOOD' 'hoods_sub'        # 94 neighborhoods
 Get-ArcGISLayer "$gis/Seattle_City_Council_Districts/FeatureServer/0" 'C_DISTRICT,DISPLAY_NAME' 'districts'   # city outline + districts
 Get-ArcGISLayer "$gis/Traffic_Signal_Assemblies_(Active)/FeatureServer/0" `
   'INTKEY,UNITDESC,INSTALL_DATE,PEDSIGNALYN,PEDAUDIODEVICEYN,LTPROTECTEDYN,LTFIRSTINSTALLDT,LASTSIGNALOPTDT' 'signals'
 
 # ---- 5. Sanity checks, then swap into data/raw ----
 $minimum = @{ collisions = 20000; requests = 50000; budget = 10000; streets = 20000; volumes = 1000
-              hin = 50; hcl = 100; lpi = 500; signals = 800; districts = 7 }
+              hin = 50; hcl = 100; lpi = 500; signals = 800; districts = 7; hoods_main = 15; hoods_sub = 80 }
 $prev = @{}
 $prevFile = Join-Path $raw 'counts.json'
 if (Test-Path $prevFile) { (Get-Content $prevFile -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $prev[$_.Name] = [int]$_.Value } }

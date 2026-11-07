@@ -273,3 +273,20 @@ main.split #expandDetail { transform: translateY(calc(-50% + 34px)); }
   #panelEdge { display: none; }
 }
 .map-legend .lg-line { display: inline-block; width: 14px; height: 0; border-top: 3px solid #3a4456; }
+
+/* Neighborhood names on the map: 20 big areas when zoomed out, 94 neighborhoods when zoomed in. */
+.hood-label { background: none; border: 0; pointer-events: none; }
+.hood-label span {
+  position: absolute; transform: translate(-50%, -50%); white-space: nowrap;
+  color: #3f4a5c; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 5px #fff;
+}
+.hood-label.lvl1 span { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.hood-label.lvl2 span { font-size: 12px; font-style: italic; color: #4d586b; }
+.hood-label.lvl2 { display: none; }
+.zoomed-in .hood-label.lvl2 { display: block; }
+.zoomed-in .hood-label.lvl1 { display: none; }
+/* Where each spot is, under its name in the list, search results and details. */
+.loc .hood, #searchResults .hood { display: block; white-space: normal; font-size: 12px; font-weight: 400; color: #5b6576; margin-top: 1px; }
+.where { color: #3f4a5c; font-size: 14px; margin: 0 0 4px; }
+.zoomed-out .hood-label.lvl1 span { font-size: 10.5px; letter-spacing: .03em; }
+.hood-label.clash { visibility: hidden; }

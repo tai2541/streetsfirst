@@ -120,7 +120,33 @@
     ])
   };
   baseLayers['Light gray'].addTo(map);
-  L.control.layers(baseLayers, null, { position: 'topleft' }).addTo(map);
+  // Neighborhood names: the 20 large areas (Ballard, West Seattle...) when zoomed out, the 94 neighborhoods when zoomed in.
+  map.createPane('labels'); map.getPane('labels').style.zIndex = 450; map.getPane('labels').style.pointerEvents = 'none';
+  const hoodLabels = L.layerGroup((D.labels || []).map(l => Object.assign(L.marker([l.lat, l.lon], {
+    pane: 'labels', interactive: false, keyboard: false,
+    icon: L.divIcon({ className: 'hood-label lvl' + l.lvl, iconSize: null, html: `<span>${esc(l.n)}</span>` })
+  }), { _label: l.n }))).addTo(map);
+  // When names overlap, the best-known ones win.
+  const WELL_KNOWN = ['Downtown', 'West Seattle', 'Ballard', 'Capitol Hill', 'Queen Anne', 'University District', 'Beacon Hill', 'Rainier Valley', 'Lake City', 'Northgate', 'Magnolia', 'Central Area', 'Fremont', 'Georgetown', 'Columbia City', 'Wallingford', 'Green Lake'];
+  const rankOf = m => { const i = WELL_KNOWN.indexOf(m._label); return i < 0 ? 99 : i; };
+  // Hide any name that would overlap one already drawn, so the names stay readable at every zoom.
+  const declutter = () => {
+    if (!map.hasLayer(hoodLabels)) return;
+    const c = map.getContainer();
+    c.classList.toggle('zoomed-in', map.getZoom() >= 13.5);
+    c.classList.toggle('zoomed-out', map.getZoom() < 12);
+    const kept = [];
+    hoodLabels.getLayers().sort((x, y) => rankOf(x) - rankOf(y)).forEach(m => {
+      const el = m.getElement(); if (!el) return;
+      el.classList.remove('clash');
+      const s = el.firstElementChild, r = s.getBoundingClientRect();
+      if (!r.width) return;   // this level is hidden at this zoom
+      const hit = kept.some(k => r.left < k.right + 4 && r.right > k.left - 4 && r.top < k.bottom + 2 && r.bottom > k.top - 2);
+      if (hit) el.classList.add('clash'); else kept.push(r);
+    });
+  };
+  map.on('zoomend overlayadd', declutter); declutter();
+  L.control.layers(baseLayers, { 'Neighborhood names': hoodLabels }, { position: 'topleft' }).addTo(map);
   // The area this map covers: Seattle city limits. Everything outside is dimmed and the edge is outlined,
   // so it's obvious where the data stops. Drawn in its own pane, under the markers, and not clickable.
   if (D.boundary) {
@@ -251,7 +277,7 @@
       return `
       <li data-id="${p.rank_ksi}" class="${isExtra ? 'extra' : p.rank <= 10 ? 'top10' : ''}">
         <button type="button" class="card" aria-label="${rk} ${esc(p.name)}${isExtra ? ', ' + p.fatal + ' deaths' : ''}">
-          <span class="row1"><span class="rank">${rk}</span><span class="loc">${esc(p.name)}</span>
+          <span class="row1"><span class="rank">${rk}</span><span class="loc">${esc(p.name)}${p.area ? `<span class="hood">${esc(p.area)}</span>` : ''}</span>
             <span class="score">${p.score != null ? scoreText(p) : ''}</span></span>
           <span class="chips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</span>
           ${sdotRow(p)}
@@ -688,6 +714,7 @@
     document.getElementById('detailTitle').innerHTML = `<span class="drank">#${p.rank ?? p.rank_ksi}</span> ${esc(p.name)}`;
     document.getElementById('detailBody').innerHTML = `
       <div class="dhead">
+        ${p.neighborhood ? `<div class="where">${esc(p.neighborhood)}${p.area && p.area !== p.neighborhood ? ` <span class="muted">· ${esc(p.area)}</span>` : ''}</div>` : ''}
         <div class="note">${kind} · <a href="${sv}" target="_blank" rel="noopener">Street View ↗</a> ·
           <button type="button" class="linkbtn" id="copyLink">Copy link</button> ·
           <a href="https://www.seattle.gov/customer-service-bureau/find-it-fix-it-mobile-app" target="_blank" rel="noopener">Report a problem ↗</a></div>
@@ -772,6 +799,7 @@
     document.getElementById('detailTitle').innerHTML = `<span class="drank">#${s.rank}</span> ${esc(niceName(s.name))}`;
     document.getElementById('detailBody').innerHTML = `
       <div class="dhead">
+        ${s.hood ? `<div class="where">${esc(s.hood)}${s.area && s.area !== s.hood ? ` <span class="muted">· ${esc(s.area)}</span>` : ''}</div>` : ''}
         <div class="note">${{ I: 'Intersection', B: 'Street block', A: 'Alley' }[s.type] || 'Location'} ·
           <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${s.lat},${s.lon}" target="_blank" rel="noopener">Street View ↗</a> ·
           <a href="https://www.seattle.gov/customer-service-bureau/find-it-fix-it-mobile-app" target="_blank" rel="noopener">Report a problem ↗</a></div>
@@ -802,8 +830,8 @@
   function weight(k) { const w = meta.weights.find(x => x.k === k); return w ? w.v : '?'; }
 
   // ---------- search: every scored location ----------
-  const searchIdx = (D.search || []).map(r => ({ name: r[0], lat: +r[1], lon: +r[2], rank: +r[3], crashes: +r[4], ksi: +r[5], pb: +r[6], type: r[7] }));
-  searchIdx.forEach(s => (s.key = niceName(s.name).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ')));
+  const searchIdx = (D.search || []).map(r => ({ name: r[0], lat: +r[1], lon: +r[2], rank: +r[3], crashes: +r[4], ksi: +r[5], pb: +r[6], type: r[7], hood: r[8] || '', area: r[9] || '' }));
+  searchIdx.forEach(s => (s.key = (niceName(s.name) + ' ' + s.hood + ' ' + s.area).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ')));
   const sInput = document.getElementById('search'), sList = document.getElementById('searchResults');
   let sHits = [], sActive = -1;
   function runSearch() {
@@ -813,7 +841,7 @@
     sHits = searchIdx.filter(s => words.every(w => s.key.includes(w))).slice(0, 8);   // index is in rank order
     sActive = -1;
     sList.innerHTML = sHits.length ? sHits.map((s, i) => `<li role="option" id="sr-${i}" data-i="${i}">
-        <span>${esc(niceName(s.name))}</span><small>#${fmt(s.rank)} · ${plural(s.crashes, 'crash', 'crashes')}</small></li>`).join('')
+        <span>${esc(niceName(s.name))}${s.area ? `<small class="hood">${esc(s.area)}</small>` : ''}</span><small>#${fmt(s.rank)} · ${plural(s.crashes, 'crash', 'crashes')}</small></li>`).join('')
       : '<li class="none">No crash location matches. Only places with a reported crash are scored.</li>';
     sList.hidden = false; sInput.setAttribute('aria-expanded', 'true');
   }
