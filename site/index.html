@@ -15,7 +15,7 @@
       <h1>Seattle Infrastructure Priority Map <span class="tag">v1</span></h1>
       <p class="sub">Where Seattle's streets hurt people most, ranked by what to fix first. Pick a spot to see why.</p>
     </div>
-    <a class="report-head" href="https://www.seattle.gov/customer-service-bureau#popular" target="_blank" rel="noopener">Report a problem to the City ↗</a>
+    <a class="report-head" id="reportHead" href="https://www.seattle.gov/customer-service-bureau#popular" aria-haspopup="dialog">Report a problem to the City</a>
     <nav role="tablist" aria-label="Views">
       <button role="tab" id="tabbtn-priorities" data-tab="priorities" aria-controls="tab-priorities" aria-selected="true" class="active">Safety</button>
       <button role="tab" id="tabbtn-traffic" data-tab="traffic" aria-controls="tab-traffic" aria-selected="false" tabindex="-1">Traffic</button>
@@ -29,8 +29,8 @@
       <section id="tab-priorities" class="tab active" role="tabpanel" aria-labelledby="tabbtn-priorities">
         <div id="citySummary" class="city-summary"></div>
         <div class="searchbox">
-          <input id="search" type="search" autocomplete="off" placeholder="Find any street or intersection"
-                 aria-label="Find any street or intersection" aria-controls="searchResults" aria-expanded="false">
+          <input id="search" type="search" autocomplete="off" placeholder="Find a street, intersection or address"
+                 aria-label="Find a street, intersection or address" aria-controls="searchResults" aria-expanded="false">
           <ul id="searchResults" role="listbox" aria-label="Matching locations" hidden></ul>
         </div>
         <div class="controls">
@@ -104,6 +104,12 @@
     <div id="map" aria-label="Map of ranked locations"></div>
     <div id="mapNote" hidden>The budget isn't on the map: the city's budget data has no locations.</div>
   </main>
+
+  <dialog id="resources" aria-labelledby="resTitle">
+    <div class="res-top"><h2 id="resTitle">Report a problem to the City</h2><button id="resClose" type="button" aria-label="Close">×</button></div>
+    <p>Seattle fixes what people report. Pick what you see. Each link opens the City's own form.</p>
+    <div id="resBody"></div>
+  </dialog>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="data/data.js"></script>

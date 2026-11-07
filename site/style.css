@@ -428,3 +428,34 @@ header nav { margin-left: 0; }
   box-shadow: 0 1px 4px rgba(20,90,60,.3); transition: background .15s; }
 .report-btn:hover { background: #148f63; }
 @media (max-width: 760px) { .report-head { order: 3; width: 100%; text-align: center; } }
+
+/* ---- address pin ---- */
+.addr-pin { background: none; border: 0; }
+.addr-pin span { position: absolute; left: 3px; top: 0; width: 24px; height: 24px; background: #101b33; border: 3px solid #fff;
+  border-radius: 50% 50% 50% 0; transform: rotate(-45deg); box-shadow: 0 3px 10px rgba(0,0,0,.4); }
+.addr-pin span::after { content: ''; position: absolute; left: 6px; top: 6px; width: 6px; height: 6px; border-radius: 50%; background: #f2b632; }
+.pin-pop { font: 13px/1.45 Inter, system-ui, sans-serif; }
+.pin-title { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+.pin-near ul { margin: 4px 0 8px; padding-left: 16px; }
+.pin-actions { display: flex; gap: 12px; align-items: center; margin-top: 6px; }
+.pin-pop .report-btn { color: #fff; }
+#searchResults li.addr-opt { color: #101b33; }
+#searchResults li.addr-opt b { font-weight: 700; }
+
+/* ---- where to report ---- */
+.res-list { list-style: none; margin: 8px 0 4px; padding: 0; display: grid; gap: 5px; }
+.res-list li { display: flex; flex-direction: column; background: #fff; border: 1px solid #cfeadd; border-radius: 9px; padding: 6px 10px; }
+.res-list a { font-weight: 700; color: #0f7a54; text-decoration: none; }
+.res-list a:hover { text-decoration: underline; }
+.res-list span { font-size: 12px; color: #5b6b66; }
+.res-more { font-size: 12.5px; margin: 8px 0 0; line-height: 1.5; }
+.res-tip { font-size: 12px; color: #5b6b66; margin: 6px 0 0; }
+#resources { border: 0; border-radius: 16px; padding: 18px 20px; max-width: 460px; width: calc(100% - 32px); max-height: 85vh;
+  box-shadow: 0 20px 60px rgba(0,0,0,.35); font: 14px/1.45 Inter, system-ui, sans-serif; color: #17202e; }
+#resources::backdrop { background: rgba(16,27,51,.55); }
+#resources .res-top { display: flex; justify-content: space-between; align-items: center; }
+#resources h2 { margin: 0; font-size: 18px; }
+#resources p { margin: 6px 0; }
+#resClose { border: 0; background: none; font-size: 26px; line-height: 1; cursor: pointer; color: #5b6b66; }
+.pin-res summary { cursor: pointer; font-weight: 700; color: #0f7a54; margin: 6px 0; }
+.pin-res .res-list li { padding: 4px 8px; }

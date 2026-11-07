@@ -27,19 +27,42 @@
   const crashType = t => t.replace(/\s*--\s*/g, ', ');
   // Reporting is the point: people who see a problem should be one click from telling the City.
   const REPORT_URL = 'https://www.seattle.gov/customer-service-bureau#popular';
-  const reportBox = place => `<div class="report">
-      <div><b>See a problem here?</b> A pothole, broken streetlight or signal, faded crosswalk, damaged sidewalk or missing sign:
-        report it to the City. Reports are how problems get on the City's repair list.</div>
-      <div class="report-actions">
-        <a class="report-btn" href="${REPORT_URL}" target="_blank" rel="noopener">Report it to the City ↗</a>
-        <button type="button" class="linkbtn copyloc" data-loc="${esc(place)}">Copy this location</button>
-      </div></div>`;
+  // Where to go for what. City forms only; on purpose no encampment or parking-enforcement links (this map is about fixing streets).
+  const CWI = 'https://seattle-cwiprod.motorolasolutions.com/cwi/direct/';
+  const RESOURCES = [
+    ['Pothole', CWI + 'TRPOTHOL', 'SDOT'],
+    ['Broken or damaged sidewalk', CWI + 'TRDMGSDW', 'SDOT'],
+    ['Traffic signal or street sign problem', CWI + 'TRTFCMNT', 'SDOT (also faded crosswalks and road markings)'],
+    ['Streetlight out', CWI + 'CLSTLT', 'Seattle City Light · (206) 684-7056'],
+    ['Clogged storm drain', CWI + 'PUCLOGDR', 'Seattle Public Utilities'],
+    ['Plants blocking a sidewalk, sign or view', CWI + 'OVERVEGI', 'Overgrown vegetation'],
+    ['Illegal dumping or needles', CWI + 'PUILDUMP', 'Seattle Public Utilities'],
+    ['Curb ramp or accessibility barrier', 'https://www.seattle.gov/transportation/projects-and-programs/programs/ada-program/make-an-ada-request', 'SDOT ADA request'],
+    ['Something else', 'https://seattle-cwiprod.motorolasolutions.com/cwi/select', 'Full list of City request types']
+  ];
+  const resourceList = () => `<ul class="res-list">${RESOURCES.map(([t, u, w]) =>
+    `<li><a href="${u}" target="_blank" rel="noopener">${t} ↗</a><span>${w}</span></li>`).join('')}</ul>
+    <p class="res-more"><b>Street flooding or a sewer backup right now?</b> Call Seattle Public Utilities, 24/7: <a href="tel:+12063861800">(206) 386-1800</a>.
+      Danger to life: call 911.<br>Not sure? Call the City at <a href="tel:+12066842489">(206) 684-2489</a> (weekdays 8 to 5),
+      use the <a href="https://www.seattle.gov/customer-service-bureau/find-it-fix-it-mobile-app" target="_blank" rel="noopener">Find It, Fix It app ↗</a>,
+      or see <a href="${REPORT_URL}" target="_blank" rel="noopener">all popular services ↗</a>.</p>`;
+  const reportBox = () => `<div class="report">
+      <div><b>See a problem here?</b> Reports are how problems get on the City's repair list. Pick what it is:</div>
+      ${resourceList()}
+      <p class="res-tip">Tip: use “Copy this location” at the top to paste the spot into the form.</p></div>`;
+  const copyLoc = place => `<button type="button" class="linkbtn copyloc" data-loc="${esc(place)}">Copy this location</button>`;
   document.addEventListener('click', e => {
     const b = e.target.closest && e.target.closest('.copyloc'); if (!b) return;
     const done = () => { b.textContent = 'Location copied'; setTimeout(() => (b.textContent = 'Copy this location'), 1800); };
     if (navigator.clipboard) navigator.clipboard.writeText(b.dataset.loc + ', Seattle').then(done, () => prompt('Copy this location:', b.dataset.loc));
     else prompt('Copy this location:', b.dataset.loc);
   });
+
+  const resDlg = document.getElementById('resources');
+  document.getElementById('resBody').innerHTML = resourceList();
+  document.getElementById('reportHead').addEventListener('click', e => { e.preventDefault(); resDlg.showModal(); });
+  document.getElementById('resClose').addEventListener('click', () => resDlg.close());
+  resDlg.addEventListener('click', e => { if (e.target === resDlg) resDlg.close(); });
 
   // ---------- ranking modes ----------
   const MODES = {
@@ -830,7 +853,7 @@
       <div class="dhead">
         ${p.neighborhood ? `<div class="where">${esc(p.neighborhood)}${p.area && p.area !== p.neighborhood ? ` <span class="muted">· ${esc(p.area)}</span>` : ''}</div>` : ''}
         <div class="note">${kind} · <a href="${sv}" target="_blank" rel="noopener">Street View ↗</a> ·
-          <button type="button" class="linkbtn" id="copyLink">Copy link</button></div>
+          <button type="button" class="linkbtn" id="copyLink">Copy link</button> · ${copyLoc(p.name)}</div>
         ${verdict(p)}
         <div class="stat-grid">
           <div class="stat"><b>${p.crashes}</b><span>crashes</span></div>
@@ -839,7 +862,7 @@
           <div class="stat"><b>${p.requests}</b><span>repair requests nearby</span></div>
         </div>
         <div class="chips dchips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</div>
-        ${reportBox(p.name)}
+        ${reportBox()}
       </div>
       <div id="graphs" class="graphs"></div>
       <div class="dcols">
@@ -930,8 +953,8 @@
       <div class="dhead">
         ${s.hood ? `<div class="where">${esc(s.hood)}${s.area && s.area !== s.hood ? ` <span class="muted">· ${esc(s.area)}</span>` : ''}</div>` : ''}
         <div class="note">${{ I: 'Intersection', B: 'Street block', A: 'Alley' }[s.type] || 'Location'} ·
-          <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${s.lat},${s.lon}" target="_blank" rel="noopener">Street View ↗</a></div>
-        ${reportBox(niceName(s.name))}
+          <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${s.lat},${s.lon}" target="_blank" rel="noopener">Street View ↗</a> · ${copyLoc(niceName(s.name))}</div>
+        ${reportBox()}
         <p class="verdict">${plural(s.crashes, 'crash', 'crashes')} from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}${s.ksi ? `; ${s.ksi} killed or seriously injured someone` : ''}${s.pb ? `; ${s.pb} involved people walking or biking` : ''}.</p>
         <p class="verdict2">Ranks <b>#${fmt(s.rank)}</b> of ${fmt(N)} crash locations (${topShare(s.rank)}).</p>
         <p class="note">Full crash and request details are included for the top-ranked spots only.
@@ -973,14 +996,20 @@
     if (q.length < 2) { sList.hidden = true; sInput.setAttribute('aria-expanded', 'false'); return; }
     const words = q.split(' ');
     sHits = searchIdx.filter(s => words.every(w => s.key.includes(w))).slice(0, 8);   // index is in rank order
+    // Any text can also be pinned as an address: first when it starts with a house number, otherwise last.
+    const addr = { addr: true, text: sInput.value.trim() };
+    if (/^\d/.test(addr.text)) sHits.unshift(addr); else sHits.push(addr);
     sActive = -1;
-    sList.innerHTML = sHits.length ? sHits.map((s, i) => `<li role="option" id="sr-${i}" data-i="${i}">
-        <span>${esc(niceName(s.name))}${s.area ? `<small class="hood">${esc(s.area)}</small>` : ''}</span><small>#${fmt(s.rank)} · ${plural(s.crashes, 'crash', 'crashes')}</small></li>`).join('')
-      : '<li class="none">No crash location matches. Only places with a reported crash are scored.</li>';
+    sList.innerHTML = sHits.map((s, i) => s.addr
+      ? `<li role="option" id="sr-${i}" data-i="${i}" class="addr-opt"><span>📍 Pin this address on the map: <b>${esc(s.text)}</b></span></li>`
+      : `<li role="option" id="sr-${i}" data-i="${i}">
+        <span>${esc(niceName(s.name))}${s.area ? `<small class="hood">${esc(s.area)}</small>` : ''}</span><small>#${fmt(s.rank)} · ${plural(s.crashes, 'crash', 'crashes')}</small></li>`).join('') +
+      (sHits.length === 1 ? '<li class="none">No crash location matches. Only places with a reported crash are scored.</li>' : '');
     sList.hidden = false; sInput.setAttribute('aria-expanded', 'true');
   }
   function pick(i) {
     const s = sHits[i]; if (!s) return;
+    if (s.addr) { sList.hidden = true; sInput.setAttribute('aria-expanded', 'false'); pinAddress(s.text); return; }
     sList.hidden = true; sInput.setAttribute('aria-expanded', 'false'); sInput.value = niceName(s.name);
     const p = byId.get(s.rank);
     if (p) select(p, true, sInput); else selectLite(s);
@@ -999,8 +1028,83 @@
   sList.addEventListener('mousedown', e => { const li = e.target.closest('li[data-i]'); if (li) { e.preventDefault(); pick(+li.dataset.i); } });
   sInput.addEventListener('blur', () => setTimeout(() => { sList.hidden = true; sInput.setAttribute('aria-expanded', 'false'); }, 150));
 
+  // ---------- address pin: a personal reference point (home, work, a kid's school) ----------
+  // The typed address goes to Esri's geocoder (OpenStreetMap's if Esri fails) only when someone asks to pin it.
+  const SEA = { w: -122.46, s: 47.48, e: -122.22, n: 47.74 };
+  const inSeattle = (lat, lon) => lat > SEA.s && lat < SEA.n && lon > SEA.w && lon < SEA.e;
+  map.createPane('pin'); map.getPane('pin').style.zIndex = 660;
+  const pinLayer = L.layerGroup().addTo(map);
+  async function geocode(text) {
+    const q = encodeURIComponent(/seattle/i.test(text) ? text : text + ', Seattle, WA');
+    try {
+      const r = await fetch('https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates' +
+        `?SingleLine=${q}&f=json&maxLocations=1&searchExtent=${SEA.w},${SEA.s},${SEA.e},${SEA.n}`).then(x => x.json());
+      const c = r.candidates && r.candidates[0];
+      if (c && c.score >= 80) return { lat: c.location.y, lon: c.location.x, label: c.address };
+    } catch { /* try the next one */ }
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=jsonv2&limit=1` +
+        `&viewbox=${SEA.w},${SEA.n},${SEA.e},${SEA.s}&bounded=1`).then(x => x.json());
+      if (r[0]) return { lat: +r[0].lat, lon: +r[0].lon, label: r[0].display_name.split(', ').slice(0, 3).join(', ') };
+    } catch { /* not found */ }
+    return null;
+  }
+  function searchMsg(html) { sList.innerHTML = `<li class="none">${html}</li>`; sList.hidden = false; sInput.setAttribute('aria-expanded', 'true'); }
+  async function pinAddress(text) {
+    if (!text) return;
+    searchMsg('Finding that address…');
+    const g = await geocode(text);
+    if (!g) return searchMsg(`Couldn't find “${esc(text)}”. Try a street address like “600 4th Ave”.`);
+    if (!inSeattle(g.lat, g.lon)) return searchMsg(`“${esc(g.label)}” is outside Seattle. This map covers Seattle only.`);
+    sList.hidden = true; sInput.setAttribute('aria-expanded', 'false');
+    setPin(g, true);
+  }
+  function nearbySpots(lat, lon) {
+    const k = Math.cos(lat * Math.PI / 180) * 111320;
+    return D.priorities.filter(p => p.rank != null && p.rank <= 200)
+      .map(p => ({ p, m: Math.hypot((p.lon - lon) * k, (p.lat - lat) * 111320) }))
+      .filter(x => x.m <= 800).sort((a, b) => a.m - b.m).slice(0, 4);
+  }
+  const distText = m => (m < 160 ? `${Math.round(m * 3.28084 / 10) * 10} ft` : `${(m / 1609.34).toFixed(1)} mi`);
+  function setPin(g, fly) {
+    pinLayer.clearLayers();
+    try { localStorage.setItem('ipm.pin', JSON.stringify(g)); } catch { /* storage unavailable */ }
+    const near = nearbySpots(g.lat, g.lon);
+    const html = `<div class="pin-pop"><div class="pin-title">📍 ${esc(g.label)}</div>
+      <div class="pin-near">${near.length
+        ? `Ranked safety spots within half a mile:<ul>${near.map(x => `<li><button type="button" class="linkbtn" data-open="${x.p.rank_ksi}">#${x.p.rank} ${esc(x.p.name)}</button>
+            <span class="muted">${distText(x.m)}</span></li>`).join('')}</ul>`
+        : 'None of the top 200 safety spots are within half a mile.'}</div>
+      <details class="pin-res"><summary>Report a problem here</summary>${resourceList()}</details>
+      <div class="pin-actions"><button type="button" class="linkbtn pin-copy">Copy address</button>
+        <button type="button" class="linkbtn pin-remove">Remove pin</button></div></div>`;
+    const m = L.marker([g.lat, g.lon], {
+      pane: 'pin', keyboard: true, title: g.label, alt: 'Your pin: ' + g.label,
+      icon: L.divIcon({ className: 'addr-pin', iconSize: [30, 42], iconAnchor: [15, 40], popupAnchor: [0, -36], html: '<span></span>' })
+    }).bindPopup(html, { maxWidth: 320 }).addTo(pinLayer);
+    m.on('popupopen', e => {     // popups stop clicks from bubbling, so wire their buttons here
+      const el = e.popup.getElement();
+      el.querySelectorAll('[data-open]').forEach(b => (b.onclick = () => {
+        const p = byId.get(+b.dataset.open); if (!p) return;
+        m.closePopup(); showTab(document.getElementById('tabbtn-priorities')); select(p, true, null);
+      }));
+      el.querySelector('.pin-copy').onclick = ev => {
+        const b = ev.target; const done = () => { b.textContent = 'Address copied'; setTimeout(() => (b.textContent = 'Copy address'), 1800); };
+        if (navigator.clipboard) navigator.clipboard.writeText(g.label).then(done, () => prompt('Copy this address:', g.label)); else prompt('Copy this address:', g.label);
+      };
+      el.querySelector('.pin-remove').onclick = () => { pinLayer.clearLayers(); try { localStorage.removeItem('ipm.pin'); } catch { /* ignore */ } };
+    });
+    if (fly) {
+      if (!detailEl.hidden) closeDetail(false);
+      const go = () => { m.openPopup(); };
+      if (reduceMotion) { map.setView([g.lat, g.lon], 16, { animate: false }); go(); }
+      else { map.once('moveend', go); map.flyTo([g.lat, g.lon], 16, { duration: 0.8 }); }
+    }
+  }
+  try { const g = JSON.parse(localStorage.getItem('ipm.pin')); if (g && inSeattle(g.lat, g.lon)) setPin(g, false); } catch { /* none saved */ }
+
   // ---------- tabs ----------
-  const tabs = [...document.querySelectorAll('nav [role=tab]')];
+  const tabs =[...document.querySelectorAll('nav [role=tab]')];
   function showTab(b) {
     tabs.forEach(x => { const on = x === b; x.classList.toggle('active', on); x.setAttribute('aria-selected', on); x.tabIndex = on ? 0 : -1; });
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
@@ -1176,7 +1280,7 @@
     document.getElementById('detailTitle').innerHTML = `<span class="drank">#${M.rank(s)}</span> ${esc(M.name(s))}`;
     document.getElementById('detailBody').innerHTML = mode === 'bus' ? `
       <div class="dhead">
-        <div class="where">${esc(M.sub(s))}</div>
+        <div class="where">${esc(M.sub(s))} · ${copyLoc(M.name(s))}</div>
         <p class="verdict">At ${hourName(s.hr)} on a weekday, Metro gives buses <b>${s.peak} minutes</b> for this
           ${s.mi}-mile stretch, compared with ${s.base} minutes when traffic is light: <b>${Math.round(100 * s.slower)}% slower</b>.
           ${fmt(s.trips)} buses run it each weekday; together they lose about <b>${(s.lost / 60).toFixed(1)} hours a day</b> here.</p>
@@ -1185,20 +1289,20 @@
           ${stat(fmt(s.trips), 'buses a weekday')}${stat((s.lost / 60).toFixed(1) + ' h', 'bus time lost a day')}
         </div>
       </div>
-      ${reportBox(M.name(s))}
+      ${reportBox()}
       <h3>Safety spots along this stretch</h3>${safetyList(along)}
       <h3>About this measure</h3>
       <div class="note">From ${stopShort(s.from)} to ${stopShort(s.to)}. Metro sets scheduled times from how long buses really take
         at each hour, so the rush-hour time includes traffic and extra boarding time. The slowdown could be anywhere along the
         stretch. Timetable for ${T.weekday ? longDate(T.weekday) : 'a weekday'}.</div>` : `
       <div class="dhead">
-        <div class="where">${esc(M.sub(s))}</div>
+        <div class="where">${esc(M.sub(s))} · ${copyLoc(M.name(s))}</div>
         <p class="verdict"><b>${fmt(s.awdt)} vehicles</b> on an average weekday${s.est ? ' (an SDOT estimate, not a count)' : ''}.
           ${trendText(s.hist) ? esc(trendText(s.hist)) + ' (real counts only).' : ''}</p>
       </div>
       ${trafficHistChart(s.hist) ? `<h3>Traffic counts over the years</h3>${trafficHistChart(s.hist)}
         <div class="note">Each dot is a real SDOT count. Streets are recounted every few years.</div>` : ''}
-      ${reportBox(M.name(s))}
+      ${reportBox()}
       <h3>Safety spots along this street</h3>${safetyList(along)}`;
     const wasHidden = detailEl.hidden;
     detailEl.hidden = false;
