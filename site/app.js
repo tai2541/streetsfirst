@@ -309,7 +309,7 @@
     mainEl.style.setProperty('--panel-w', panelEl.offsetWidth + 'px');
     const b = document.getElementById('expandPanel');
     b.textContent = leftExpanded ? '‹' : '›';
-    b.title = b.ariaLabel = leftExpanded ? 'Narrow the list' : 'Widen the list';
+    b.title = leftExpanded ? 'Narrow the list' : 'Widen the list';
     b.setAttribute('aria-label', b.title); b.setAttribute('aria-pressed', String(leftExpanded));
     map.invalidateSize();
   }
@@ -323,13 +323,16 @@
     // Both expanded: the detail panel fills everything right of the list (the two meet in the middle).
     const split = expanded && leftExpanded;
     detailEl.classList.toggle('split', split);
+    mainEl.classList.toggle('split', split && !detailEl.hidden);   // both edge tabs on one line: offset them
     const w = split ? mapW() : expanded ? (widths.expanded || defaultExpanded()) : widths.normal;
     detailEl.style.width = (split ? w : Math.min(Math.max(340, w), maxW())) + 'px';
     detailEl.classList.toggle('expanded', expanded);
     const b = document.getElementById('expandDetail');
-    b.textContent = expanded ? '⤡' : '⤢';
-    b.title = expanded ? 'Shrink (E)' : 'Expand (E)';
-    b.setAttribute('aria-label', expanded ? 'Shrink panel' : 'Expand panel');
+    // Same control as the list's edge tab: the arrow points the way the edge will move.
+    b.textContent = expanded ? '›' : '‹';
+    b.title = expanded ? 'Narrow the details (E)' : 'Widen the details (E)';
+    b.setAttribute('aria-label', expanded ? 'Narrow the details' : 'Widen the details');
+    b.setAttribute('aria-pressed', String(expanded));
   }
   function toggleExpand() {
     expanded = !expanded; store.set('expanded', expanded); applyLayout();
@@ -776,7 +779,7 @@
   }
 
   function closeDetail(restoreFocus) {
-    detailEl.hidden = true; clearFocus();
+    detailEl.hidden = true; mainEl.classList.remove('split'); clearFocus();
     history.replaceState(null, '', location.pathname + location.search);
     if (restoreFocus && opener && document.contains(opener)) opener.focus();
     else if (restoreFocus) document.getElementById('list').querySelector('button')?.focus();
