@@ -25,6 +25,21 @@
     return t;
   }
   const crashType = t => t.replace(/\s*--\s*/g, ', ');
+  // Reporting is the point: people who see a problem should be one click from telling the City.
+  const REPORT_URL = 'https://www.seattle.gov/customer-service-bureau#popular';
+  const reportBox = place => `<div class="report">
+      <div><b>See a problem here?</b> A pothole, broken streetlight or signal, faded crosswalk, damaged sidewalk or missing sign:
+        report it to the City. Reports are how problems get on the City's repair list.</div>
+      <div class="report-actions">
+        <a class="report-btn" href="${REPORT_URL}" target="_blank" rel="noopener">Report it to the City ↗</a>
+        <button type="button" class="linkbtn copyloc" data-loc="${esc(place)}">Copy this location</button>
+      </div></div>`;
+  document.addEventListener('click', e => {
+    const b = e.target.closest && e.target.closest('.copyloc'); if (!b) return;
+    const done = () => { b.textContent = 'Location copied'; setTimeout(() => (b.textContent = 'Copy this location'), 1800); };
+    if (navigator.clipboard) navigator.clipboard.writeText(b.dataset.loc + ', Seattle').then(done, () => prompt('Copy this location:', b.dataset.loc));
+    else prompt('Copy this location:', b.dataset.loc);
+  });
 
   // ---------- ranking modes ----------
   const MODES = {
@@ -815,8 +830,7 @@
       <div class="dhead">
         ${p.neighborhood ? `<div class="where">${esc(p.neighborhood)}${p.area && p.area !== p.neighborhood ? ` <span class="muted">· ${esc(p.area)}</span>` : ''}</div>` : ''}
         <div class="note">${kind} · <a href="${sv}" target="_blank" rel="noopener">Street View ↗</a> ·
-          <button type="button" class="linkbtn" id="copyLink">Copy link</button> ·
-          <a href="https://www.seattle.gov/customer-service-bureau/find-it-fix-it-mobile-app" target="_blank" rel="noopener">Report a problem ↗</a></div>
+          <button type="button" class="linkbtn" id="copyLink">Copy link</button></div>
         ${verdict(p)}
         <div class="stat-grid">
           <div class="stat"><b>${p.crashes}</b><span>crashes</span></div>
@@ -825,6 +839,7 @@
           <div class="stat"><b>${p.requests}</b><span>repair requests nearby</span></div>
         </div>
         <div class="chips dchips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</div>
+        ${reportBox(p.name)}
       </div>
       <div id="graphs" class="graphs"></div>
       <div class="dcols">
@@ -915,8 +930,8 @@
       <div class="dhead">
         ${s.hood ? `<div class="where">${esc(s.hood)}${s.area && s.area !== s.hood ? ` <span class="muted">· ${esc(s.area)}</span>` : ''}</div>` : ''}
         <div class="note">${{ I: 'Intersection', B: 'Street block', A: 'Alley' }[s.type] || 'Location'} ·
-          <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${s.lat},${s.lon}" target="_blank" rel="noopener">Street View ↗</a> ·
-          <a href="https://www.seattle.gov/customer-service-bureau/find-it-fix-it-mobile-app" target="_blank" rel="noopener">Report a problem ↗</a></div>
+          <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${s.lat},${s.lon}" target="_blank" rel="noopener">Street View ↗</a></div>
+        ${reportBox(niceName(s.name))}
         <p class="verdict">${plural(s.crashes, 'crash', 'crashes')} from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}${s.ksi ? `; ${s.ksi} killed or seriously injured someone` : ''}${s.pb ? `; ${s.pb} involved people walking or biking` : ''}.</p>
         <p class="verdict2">Ranks <b>#${fmt(s.rank)}</b> of ${fmt(N)} crash locations (${topShare(s.rank)}).</p>
         <p class="note">Full crash and request details are included for the top-ranked spots only.
@@ -1170,6 +1185,7 @@
           ${stat(fmt(s.trips), 'buses a weekday')}${stat((s.lost / 60).toFixed(1) + ' h', 'bus time lost a day')}
         </div>
       </div>
+      ${reportBox(M.name(s))}
       <h3>Safety spots along this stretch</h3>${safetyList(along)}
       <h3>About this measure</h3>
       <div class="note">From ${stopShort(s.from)} to ${stopShort(s.to)}. Metro sets scheduled times from how long buses really take
@@ -1182,6 +1198,7 @@
       </div>
       ${trafficHistChart(s.hist) ? `<h3>Traffic counts over the years</h3>${trafficHistChart(s.hist)}
         <div class="note">Each dot is a real SDOT count. Streets are recounted every few years.</div>` : ''}
+      ${reportBox(M.name(s))}
       <h3>Safety spots along this street</h3>${safetyList(along)}`;
     const wasHidden = detailEl.hidden;
     detailEl.hidden = false;
