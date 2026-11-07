@@ -33,10 +33,20 @@
 
   // ---------- map ----------
   const map = L.map('map', { zoomControl: true }).setView([47.61, -122.33], 12);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19, subdomains: 'abcd',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a> · Data: City of Seattle'
-  }).addTo(map);
+  // Basemaps that need no API key. (CARTO started requiring a key.)
+  const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+  const esriAttr = 'Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors · Data: City of Seattle';
+  const tile = (path, opts = {}) => L.tileLayer(esri + path + '/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, maxNativeZoom: 16, attribution: esriAttr, ...opts });
+  const baseLayers = {
+    'Light gray': L.layerGroup([tile('Canvas/World_Light_Gray_Base'), tile('Canvas/World_Light_Gray_Reference')]),
+    'Streets': tile('World_Street_Map', { maxNativeZoom: 19 }),
+    'Satellite': L.layerGroup([
+      tile('World_Imagery', { maxNativeZoom: 19, attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics · Data: City of Seattle' }),
+      tile('Reference/World_Transportation', { maxNativeZoom: 19 })
+    ])
+  };
+  baseLayers['Light gray'].addTo(map);
+  L.control.layers(baseLayers, null, { position: 'topleft' }).addTo(map);
   const layer = L.layerGroup().addTo(map);
   const color = r => (r <= 10 ? '#b3141b' : r <= 25 ? '#e0561f' : r <= 50 ? '#f0a020' : '#7a8597');
 
