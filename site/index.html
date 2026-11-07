@@ -54,9 +54,12 @@
               <option value="">Everywhere</option><option value="I">At intersections</option><option value="B">Between intersections</option>
             </select>
           </label>
-          <label class="check"><input type="checkbox" id="onlyFatal"> Has a death</label>
-          <label class="check" title="Only spots where someone was killed or seriously injured in 3 or more different years"><input type="checkbox" id="onlyOngoing"> Serious crashes year after year</label>
-          <label class="check" title="Hides spots where SDOT's published project maps (new sidewalks, neighborhood safety projects, head-start walk signals) show planned work nearby. SDOT may have other plans it doesn't publish on a map."><input type="checkbox" id="noPlan"> No SDOT project published nearby</label>
+        </div>
+        <div class="tags" role="group" aria-label="Only show">
+          <span class="tags-l" aria-hidden="true">Only show</span>
+          <label class="tag" title="Only spots where someone was killed"><input type="checkbox" id="onlyFatal">Someone died</label>
+          <label class="tag" title="Only spots where someone was killed or seriously injured in 3 or more different years"><input type="checkbox" id="onlyOngoing">Repeat serious crashes</label>
+          <label class="tag" title="Hides spots where SDOT's published project maps (new sidewalks, neighborhood safety projects, head-start walk signals) show planned work nearby. SDOT may have other plans it doesn't publish on a map."><input type="checkbox" id="noPlan">No published SDOT project</label>
         </div>
         <ol id="list" aria-label="Ranked locations"></ol>
         <p class="note provenance" id="provenance"></p>
