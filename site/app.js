@@ -1131,7 +1131,7 @@
     sActive = -1; sInput.removeAttribute('aria-activedescendant');
     say(nPlaces ? `${nPlaces === 8 ? '8 or more' : nPlaces} matching places` : 'No matching crash location. You can pin it as an address.');
     sList.innerHTML = sHits.map((s, i) => s.addr
-      ? `<li role="option" id="sr-${i}" data-i="${i}" class="addr-opt"><span>📍 Pin this address on the map: <b>${esc(s.text)}</b><small class="pin-privacy">Looked up with Esri’s address search. The pin is saved only on this device.</small></span></li>`
+      ? `<li role="option" id="sr-${i}" data-i="${i}" class="addr-opt"><span>📍 Find this address on the map: <b>${esc(s.text)}</b><small class="pin-privacy">Looked up with Esri’s address search. You can then add it to your pins, which are saved only on this device.</small></span></li>`
       : `<li role="option" id="sr-${i}" data-i="${i}">
         <span>${esc(niceName(s.name))}${s.area ? `<small class="hood">${esc(s.area)}</small>` : ''}</span><small>#${fmt(s.rank)} · ${plural(s.crashes, 'crash', 'crashes')}</small></li>`).join('') +
       (!nPlaces ? '<li class="none">No crash location matches. Only places with a reported crash are scored.</li>' : '');
@@ -1187,7 +1187,16 @@
     if (!g) return searchMsg(`Couldn't find “${esc(text)}”. Try a street address like “600 4th Ave”.`);
     if (!inSeattle(g.lat, g.lon)) return searchMsg(`“${esc(g.label)}” is outside Seattle. This map covers Seattle only.`);
     closeList();
-    addPin(g);
+    showAddress(g);
+  }
+  // Nearest street address for a spot picked on the map (same Esri service as the search). Falls back to coordinates.
+  async function reverseGeocode(lat, lon) {
+    try {
+      const r = await fetch('https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/reverseGeocode' +
+        `?location=${lon},${lat}&f=json&featureTypes=PointAddress,StreetAddress,StreetInt`).then(x => x.json());
+      const a = r.address; if (a && (a.Match_addr || a.Address)) return a.Match_addr || a.Address;
+    } catch { /* offline or blocked */ }
+    return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
   }
   // Everything within a quarter mile (402 m): crash totals plus the highest-ranked places.
   function nearbySpots(lat, lon) {
@@ -1214,15 +1223,44 @@
     renderPinList();
   }
   const pinTitle = g => g.name || g.label;
-  function addPin(g) {
-    // The same address again just opens the pin that's already there.
-    const same = pins.find(p => Math.abs(p.lat - g.lat) < 0.0002 && Math.abs(p.lon - g.lon) < 0.0002);
-    if (same) { openPin(same, true); return; }
+  const samePin = g => pins.find(p => Math.abs(p.lat - g.lat) < 0.0002 && Math.abs(p.lon - g.lon) < 0.0002);
+  function addPin(g, stay) {
+    // The same spot again just opens the pin that's already there.
+    const same = samePin(g);
+    if (same) { openPin(same, !stay); return; }
     if (pins.length >= MAX_PINS) { toast(`You have ${MAX_PINS} pins, the most this site keeps. Remove one in “My pins” to add another.`); return; }
-    const p = { id: Date.now(), lat: g.lat, lon: g.lon, label: g.label };
+    const p = { id: Date.now(), lat: g.lat, lon: g.lon, label: g.label, ...(g.picked ? { picked: true } : {}) };
     pins.push(p); savePins(); drawPin(p);
-    openPin(p, true, true);
+    if (stay) { openPin(p, false); say(`Pin added: ${p.label}. It's in “My pins”.`); } else openPin(p, true, true);
   }
+  // A searched address is shown (with its own marker) but only saved if you choose "Add to my pins".
+  let previewMarker = null;
+  function clearPreview() { if (previewMarker) { pinLayer.removeLayer(previewMarker); previewMarker = null; } }
+  function showAddress(g) {
+    const same = samePin(g);
+    if (same) { clearPreview(); openPin(same, true); return; }
+    clearPreview();
+    const pv = { ...g, id: 'preview', preview: true };
+    const m = drawPin(pv);
+    const nb = nearbySpots(g.lat, g.lon);
+    say(`Found ${g.label}. ${nb.crashes ? plural(nb.crashes, 'crash', 'crashes') + ' within a quarter mile.' : 'No crashes within a quarter mile.'} Choose Add to my pins to keep it.`);
+    flyToMarker(m, pv);
+  }
+  // Right-click (long-press on a phone) anywhere on the map: add a pin there.
+  map.on('contextmenu', e => {
+    const ll = e.latlng;
+    if (!inSeattle(ll.lat, ll.lng)) { L.popup({ closeButton: false }).setLatLng(ll).setContent('This map covers Seattle only.').openOn(map); return; }
+    const pop = L.popup({ className: 'ctx-pop', closeButton: false, offset: [0, -4] }).setLatLng(ll)
+      .setContent('<button type="button" class="ctx-add">📍 Add pin here</button>').openOn(map);
+    const b = pop.getElement().querySelector('.ctx-add');
+    b.focus();
+    b.onclick = async () => {
+      b.disabled = true; b.textContent = 'Finding the nearest address…';
+      const label = await reverseGeocode(ll.lat, ll.lng);
+      map.closePopup(pop);
+      addPin({ lat: ll.lat, lon: ll.lng, label, picked: true }, true);
+    };
+  });
   function removePin(g) {
     const m = pinMarkers.get(g.id); if (m) { m.closePopup(); pinLayer.removeLayer(m); }
     pinMarkers.delete(g.id); pins = pins.filter(p => p.id !== g.id); savePins();
@@ -1233,6 +1271,9 @@
     if (!fly) { m.openPopup(); return m; }
     const nb = nearbySpots(g.lat, g.lon);
     say(`${isNew ? 'Address pinned' : 'Pin'}: ${pinTitle(g)}. ${nb.crashes ? plural(nb.crashes, 'crash', 'crashes') + ' within a quarter mile.' : 'No crashes within a quarter mile.'}`);
+    return flyToMarker(m, g);
+  }
+  function flyToMarker(m, g) {
     if (!detailEl.hidden) closeDetail(false);
     const go = () => { m.openPopup(); };
     // On phones the map is short: put the pin low so its pop-up fits above it.
@@ -1243,25 +1284,29 @@
     return m;
   }
   function drawPin(g) {
-    const old = pinMarkers.get(g.id); if (old) pinLayer.removeLayer(old);
+    const old = !g.preview && pinMarkers.get(g.id); if (old) pinLayer.removeLayer(old);
     const nb = nearbySpots(g.lat, g.lon);
     // g.name is an optional nickname ("Home", "Maya's school"); g.label stays the real address for copying and reporting.
     const title = pinTitle(g);
-    const html = `<div class="pin-pop"><div class="pin-head"><div class="pin-title">📍 ${esc(title)}</div>${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}</div>
+    const html = `<div class="pin-pop"><div class="pin-head"><div class="pin-title">📍 ${esc(title)}</div>${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}${g.picked ? `<div class="pin-addr">Spot picked on the map${g.name ? '' : ' · nearest address'}</div>` : ''}${g.preview ? '<div class="pin-addr">Not saved yet</div>' : ''}</div>
       <div class="pin-near">${nb.crashes
         ? `<p>Within a quarter mile, ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}: <b>${plural(nb.crashes, 'crash', 'crashes')}</b>${nb.ksi ? `, <b>${nb.ksi} killed or seriously hurt someone</b>` : ', none killed or seriously hurt anyone'}${nb.pb ? `, ${nb.pb} with people walking or biking` : ''}.</p>
           Highest-ranked places nearby:<ul>${nb.worst.map(n => `<li><button type="button" class="linkbtn" data-open="${n.x.rank}">#${fmt(n.x.rank)} ${esc(niceName(n.x.name))}</button>
             <span class="muted">${distText(n.m)}</span></li>`).join('')}</ul>`
         : 'No reported crashes within a quarter mile in the last five years.'}</div>
       <details class="pin-res" data-loc="${esc(g.label)}"><summary>Report a problem here</summary>${resourceList()}</details>
-      <div class="pin-actions"><button type="button" class="linkbtn pin-copy">Copy address</button>
-        <button type="button" class="linkbtn pin-rename">Rename</button>
-        <button type="button" class="linkbtn pin-remove">Remove pin</button></div></div>`;
+      ${g.preview
+        ? `<div class="pin-actions"><button type="button" class="report-btn pin-add">📍 Add to my pins</button>
+            <button type="button" class="linkbtn pin-copy">Copy address</button>
+            <button type="button" class="linkbtn pin-dismiss">Clear</button></div>`
+        : `<div class="pin-actions"><button type="button" class="linkbtn pin-copy">Copy address</button>
+            <button type="button" class="linkbtn pin-rename">Rename</button>
+            <button type="button" class="linkbtn pin-remove">Remove pin</button></div>`}</div>`;
     const m = L.marker([g.lat, g.lon], {
-      pane: 'pin', keyboard: true, title: title, alt: 'Your pin: ' + (g.name ? `${g.name}, ${g.label}` : g.label),
-      icon: L.divIcon({ className: 'addr-pin', iconSize: [30, 42], iconAnchor: [15, 40], popupAnchor: [0, -36], html: '<span></span>' })
+      pane: 'pin', keyboard: true, title: title, alt: (g.preview ? 'Found address (not saved): ' : 'Your pin: ') + (g.name ? `${g.name}, ${g.label}` : g.label),
+      icon: L.divIcon({ className: 'addr-pin' + (g.preview ? ' preview' : ''), iconSize: [30, 42], iconAnchor: [15, 40], popupAnchor: [0, -36], html: '<span></span>' })
     }).bindPopup(html, { maxWidth: 320, maxHeight: small() ? 150 : 420, autoPanPaddingTopLeft: [12, 12], autoPanPaddingBottomRight: [12, 12] }).addTo(pinLayer);
-    pinMarkers.set(g.id, m);
+    if (g.preview) previewMarker = m; else pinMarkers.set(g.id, m);
     m.on('popupopen', e => {     // popups stop clicks from bubbling, so wire their buttons here
       const el = e.popup.getElement();
       el.querySelectorAll('[data-open]').forEach(b => (b.onclick = () => {
@@ -1275,6 +1320,11 @@
       };
       el.querySelectorAll('.res-link').forEach(l => (l.onclick = () => navigator.clipboard &&
         navigator.clipboard.writeText(g.label).then(() => toast('Address copied: ' + g.label + '. Paste it into the form.'), () => {})));
+      if (g.preview) {
+        el.querySelector('.pin-add').onclick = () => { const k = { lat: g.lat, lon: g.lon, label: g.label }; clearPreview(); addPin(k, true); };
+        el.querySelector('.pin-dismiss').onclick = () => { clearPreview(); say('Cleared.'); };
+        return;
+      }
       el.querySelector('.pin-remove').onclick = () => removePin(g);
       el.querySelector('.pin-rename').onclick = () => startRename(el, g);
       if (pendingRename === g.id) { pendingRename = null; startRename(el, g); }

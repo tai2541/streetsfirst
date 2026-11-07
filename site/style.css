@@ -574,3 +574,15 @@ body.proj-on .map-legend .lg-proj { display: flex; }
   border-left: 4px solid var(--c); border-radius: 12px; padding: 8px 14px 10px; margin: 14px 0; }
 .graphs .gcol + .gcol { margin-top: 14px; }
 #detail .graphs .gh { font-size: 14.5px; font-weight: 700; text-transform: none; letter-spacing: 0; color: var(--c); margin: 4px 0 6px; }
+/* a searched address that isn't saved yet: same pin shape, hollow and dashed */
+.addr-pin.preview span { background: #fff; border-style: dashed; border-color: #101b33; }
+.addr-pin.preview span::after { background: #101b33; }
+.pin-actions .pin-add { border: 0; font: inherit; font-weight: 700; cursor: pointer; padding: 6px 12px; }
+.pin-actions { flex-wrap: wrap; }
+/* right-click menu */
+.ctx-pop .leaflet-popup-content { margin: 6px; }
+.ctx-pop .leaflet-popup-content-wrapper { border-radius: 10px; padding: 0; }
+.ctx-add { border: 0; background: #fff; font: 600 13.5px Inter, system-ui, sans-serif; color: #101b33; padding: 8px 12px;
+  border-radius: 7px; cursor: pointer; white-space: nowrap; }
+.ctx-add:hover, .ctx-add:focus-visible { background: #eef2fb; outline: 2px solid #2f55c7; outline-offset: 0; }
+.ctx-add:disabled { color: #5b6576; cursor: progress; }
