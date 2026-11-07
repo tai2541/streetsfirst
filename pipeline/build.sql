@@ -517,7 +517,7 @@ copy (
 copy (
   select program, project, code, year, round(sum(amount)) amount
   from capital_budget
-  where dept = 'Seattle Department of Transportation' and year >= 2024
+  where dept = 'Seattle Department of Transportation' and year >= year(current_date) - 2
   group by all having sum(amount) <> 0
   order by program, project, year
 ) to 'site/data/sdot_budget.json' (format json, array true);

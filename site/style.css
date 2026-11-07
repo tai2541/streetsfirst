@@ -395,3 +395,4 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 .cs-nums b { font-size: 28px; }
 .cs-foot { font-size: 12.5px; line-height: 1.45; }
 .cs-hi { color: var(--amber); }
+.stale { background: #fff4d6; border: 1px solid #f2c94c; color: #5c4300; border-radius: 10px; padding: 8px 11px; margin: 0 0 10px; font-size: 12.5px; }

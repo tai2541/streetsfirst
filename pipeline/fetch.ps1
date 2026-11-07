@@ -75,7 +75,42 @@ Write-Host "capital budget rows: $($counts['budget'])"
 # ---- 4. Street context, SDOT's own safety layers, and safety treatments already installed ----
 Get-ArcGISLayer "$gis/Seattle_Streets_1/FeatureServer/0" `
   'COMPKEY,UNITDESC,STNAME_ORD,ARTCLASS,ARTDESCRIPT,SPEEDLIMIT,SURFACEWIDTH,PVMTCONDINDX1,PVMTCATEGORY,STREETTYPE,SLOPE_PCT,INTKEYLO,INTKEYHI,SEGLENGTH' 'streets'
-Get-ArcGISLayer "$gis/2024_Arterial_Traffic_Volumes/FeatureServer/0" 'FLOWSEGID,STNAME_ORD,AWDT,ADT,DATAQUALIT,START_DATE' 'volumes'
+# SDOT publishes a new layer each year (2024_Arterial_Traffic_Volumes, ...): use the newest one.
+$volLayer = (Invoke-RestMethod "$($gis)?f=json" -TimeoutSec 60).services |
+  Where-Object { $_.name -match '^\d{4}_Arterial_Traffic_Volumes$' } | Sort-Object name | Select-Object -Last 1 -ExpandProperty name
+if (-not $volLayer) { throw 'No *_Arterial_Traffic_Volumes layer found' }
+Write-Host "traffic volumes layer: $volLayer"
+Get-ArcGISLayer "$gis/$volLayer/FeatureServer/0" 'FLOWSEGID,STNAME_ORD,AWDT,ADT,DATAQUALIT,START_DATE' 'volumes'
+Get-ArcGISLayer "$gis/Vision_Zero_High_Injury_Network_Score/FeatureServer/2" 'SEGMENT_NAME,FROM_,TO_,LENGTH_MI,HIN_SCORE,PRIORITY' 'hin'
+Get-ArcGISLayer "$gis/Vision_Zero_High_Collision_Locations/FeatureServer/0" 'HCL_YEAR,LOCATION,INTKEY,TYPE' 'hcl'
+Get-ArcGISLayer "$gis/Vision_Zero_-_Leading_Pedestrian_Intervals_ACTIVE/FeatureServer/8" 'LOCATION,LPI_Status,LPI_Install_Date,LPI_Planned_Year' 'lpi'
+Get-ArcGISLayer "$gis/nma_nhoods_main/FeatureServer/0" 'L_HOOD' 'hoods_main'          # 20 areas (Ballard, West Seattle...)
+Get-ArcGISLayer "$gis/nma_nhoods_sub/FeatureServer/0" 'L_HOOD,S_HOOD' 'hoods_sub'        # 94 neighborhoods
+Get-ArcGISLayer "$gis/Seattle_City_Council_Districts/FeatureServer/0" 'C_DISTRICT,DISPLAY_NAME' 'districts'   # city outline + districts
+Get-ArcGISLayer "$gis/Traffic_Signal_Assemblies_(Active)/FeatureServer/0" `
+  'INTKEY,UNITDESC,INSTALL_DATE,PEDSIGNALYN,PEDAUDIODEVICEYN,LTPROTECTEDYN,LTFIRSTINSTALLDT,LASTSIGNALOPTDT' 'signals'
+
+# ---- 5. Sanity checks, then swap into data/raw ----
+$minimum = @{ collisions = 20000; requests = 50000; budget = 10000; streets = 20000; volumes = 1000
+              hin = 50; hcl = 100; lpi = 500; signals = 800; districts = 7; hoods_main = 15; hoods_sub = 80 }
+$prev = @{}
+$prevFile = Join-Path $raw 'counts.json'
+if (Test-Path $prevFile) { (Get-Content $prevFile -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $prev[$_.Name] = [int]$_.Value } }
+foreach ($k in $minimum.Keys) {
+  if (-not $counts.ContainsKey($k) -or $counts[$k] -lt $minimum[$k]) { throw "Fetch check failed: $k has $($counts[$k]) rows (minimum $($minimum[$k])). Keeping the previous data." }
+  if ($prev.ContainsKey($k) -and $prev[$k] -gt 0 -and [math]::Abs($counts[$k] - $prev[$k]) / $prev[$k] -gt 0.25) {
+    throw "Fetch check failed: $k changed from $($prev[$k]) to $($counts[$k]) rows (>25%). Keeping the previous data. Delete data\raw\counts.json to accept it."
+  }
+}
+$counts | ConvertTo-Json | Set-Content (Join-Path $tmp 'counts.json')
+Set-Content (Join-Path $tmp 'fetched_at.txt') (Get-Date).ToString('yyyy-MM-dd HH:mm')
+Remove-Item $raw -Recurse -Force -ErrorAction SilentlyContinue
+Rename-Item $tmp 'raw'
+Write-Host 'Fetch OK.'
+ } | Sort-Object name | Select-Object -Last 1).name
+if (-not $volLayer) { throw 'No *_Arterial_Traffic_Volumes layer found' }
+Write-Host "traffic volumes layer: $volLayer"
+Get-ArcGISLayer "$gis/$volLayer/FeatureServer/0" 'FLOWSEGID,STNAME_ORD,AWDT,ADT,DATAQUALIT,START_DATE' 'volumes'
 Get-ArcGISLayer "$gis/Vision_Zero_High_Injury_Network_Score/FeatureServer/2" 'SEGMENT_NAME,FROM_,TO_,LENGTH_MI,HIN_SCORE,PRIORITY' 'hin'
 Get-ArcGISLayer "$gis/Vision_Zero_High_Collision_Locations/FeatureServer/0" 'HCL_YEAR,LOCATION,INTKEY,TYPE' 'hcl'
 Get-ArcGISLayer "$gis/Vision_Zero_-_Leading_Pedestrian_Intervals_ACTIVE/FeatureServer/8" 'LOCATION,LPI_Status,LPI_Install_Date,LPI_Planned_Year' 'lpi'

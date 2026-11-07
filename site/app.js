@@ -495,7 +495,7 @@
     const start = meta.window_from.slice(0, 7);               // first full month of the scoring window
     const mIdx = d => (+d.slice(0, 4) - +start.slice(0, 4)) * 12 + (+d.slice(5, 7) - +start.slice(5, 7));
     const complete = mIdx(meta.window_to) + 1;               // months with complete crash reports
-    const n = Math.ceil((Math.max(mIdx(meta.collisions_to), mIdx(new Date().toISOString().slice(0, 10))) + 1) / 6);
+    const n = Math.ceil((Math.max(mIdx(meta.collisions_to), mIdx((D.fetchedAt || meta.collisions_to).slice(0, 10))) + 1) / 6);
     const per = Array.from({ length: n }, (_, i) => {
       const m0 = new Date(+start.slice(0, 4), +start.slice(5, 7) - 1 + 6 * i, 1), m1 = new Date(m0.getFullYear(), m0.getMonth() + 5, 1);
       const name = m0.toLocaleDateString('en-US', { month: 'short' }) + '–' + m1.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
@@ -1125,6 +1125,20 @@
       </ul>`;
   }
   renderAbout();
+
+  // If nobody has refreshed the data for a while, say so plainly at the top.
+  (function staleNotice() {
+    const fetched = D.fetchedAt && new Date(D.fetchedAt.replace(' ', 'T'));
+    if (!fetched || isNaN(fetched)) return;
+    const days = Math.floor((Date.now() - fetched) / 864e5);
+    if (days < 45) return;
+    const age = days < 60 ? `${days} days` : `${Math.round(days / 30.4)} months`;
+    const el = document.createElement('p');
+    el.className = 'stale'; el.setAttribute('role', 'status');
+    el.innerHTML = `<b>Data last updated ${fetched.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</b> (${age} ago).
+      Newer crashes, repair reports and SDOT fixes aren't included yet.`;
+    document.getElementById('tab-priorities').prepend(el);
+  })();
 
   // Citywide summary at the top of the list: what's at stake, in people. Numbers count up once on load.
   (function citySummary() {
