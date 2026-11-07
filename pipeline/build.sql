@@ -183,7 +183,8 @@ select f.properties.INTKEY as intkey,
        f.properties.PEDAUDIODEVICEYN = 'Y' as ped_audio,
        f.properties.LTPROTECTEDYN = 'Y' as lt_protected,
        make_timestamp(f.properties.LTFIRSTINSTALLDT::bigint * 1000)::date as lt_installed,
-       make_timestamp(f.properties.INSTALL_DATE::bigint * 1000)::date as installed
+       make_timestamp(f.properties.INSTALL_DATE::bigint * 1000)::date as installed,
+       case when f.geometry is not null then gj_geom(f.geometry) end as geom
 from (select unnest(features) f from read_json('data/raw/signals_*.json', maximum_object_size = 500000000));
 
 -- Intersections look 60 ft around the point (all approaching streets); blocks 40 ft (the block itself).
@@ -241,7 +242,10 @@ lp as (select p.location,
 sg as (select a.location, bool_or(ped_signal) ped_signal, bool_or(ped_audio) ped_audio,
               bool_or(lt_protected) lt_protected, min(lt_installed) filter (where lt_protected) lt_installed,
               min(installed) signal_installed
-       from locations_all a join signals g on g.intkey = a.intkey group by a.location)
+       -- matched by SDOT's intersection key, or by place (within 80 ft) when the key differs, e.g. merged split roadways
+       from locations_all a join loc_pts p using (location)
+       join signals g on g.intkey = a.intkey or (a.addr_type = 'I' and g.geom is not null and ST_DWithin(p.geom, g.geom, 80))
+       group by a.location)
 select a.location, a.addr_type, a.intkey, s.speed_limit, s.art_class, s.pavement_min,
        case when a.addr_type <> 'I' then len.block_ft end as block_ft,
        v.volume, v.volume_streets, v.volume_year, v.volume_estimated,
@@ -281,7 +285,7 @@ left join (select location,
 -- ---------------------------------------------------------------- crash harm (any date range)
 create or replace macro harm_in(d0, d1) as table
 with c as (
-  select location, date, id, severity, peds, cyclists, road_cond, light_cond, speeding, fatalities, serious_injuries,
+  select location, date, id, severity, peds, cyclists, road_cond, light_cond, speeding, fatalities, serious_injuries, coll_type,
     severity in ('Fatal Collision', 'Serious Injury Collision') as is_ksi,
     (case severity
        when 'Fatal Collision'                then wt('ksi')
@@ -324,6 +328,10 @@ select location,
   count(*) filter (where road_cond is not null and road_cond not in ('Unknown', 'Other'))   as road_known,
   count(*) filter (where light_cond is not null and light_cond not in ('Unknown', 'Other')) as light_known,
   count(*) filter (where speeding)                                as speeding_crashes,
+  -- crash patterns with well-known fixes (shown as context, not scored)
+  count(*) filter (where coll_type = 'From opposite direction - one left turn - one straight') as left_turn_crashes,
+  count(*) filter (where coll_type ilike 'Vehicle turning % hits pedestrian')               as ped_turn_crashes,
+  count(*) filter (where coll_type = 'Entering at angle')                                    as angle_crashes,
   min(date) as first_crash, max(date) as last_crash,
   sum(pts)       as harm,
   sum(pts) filter (where is_ksi) as ksi_harm_raw,
@@ -513,7 +521,7 @@ copy (
          sdot_hin, sdot_hcl_years, ksi_after_hcl,
          lpi_status, lpi_installed, lpi_planned, ped_after_lpi, signalized, ped_signal, ped_audio, lt_protected, lt_installed,
          confidence, crashes, unknown_sev, fatal, serious, injury, ksi, ksi_years, killed, seriously_injured,
-         pb_crashes, ped_crashes, bike_crashes, speeding_crashes, ped_turn_after_lpi,
+         pb_crashes, ped_crashes, bike_crashes, speeding_crashes, ped_turn_after_lpi, left_turn_crashes, ped_turn_crashes, angle_crashes,
          wet_crashes, dark_crashes, unlit_crashes, road_known, light_known,
          first_crash, last_crash, requests, request_types,
          fixes, vol_history, bus_trips, bus_routes, bus_stretch_id

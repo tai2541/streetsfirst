@@ -498,3 +498,5 @@ header nav { margin-left: 0; }
 .pin-near li .muted { white-space: nowrap; flex: none; }
 
 .city-summary .cs-note { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.14); font-size: 11.5px; color: #b9c5dc; line-height: 1.45; }
+
+.chip.fixable { background: #e8f1ff; color: #1d3f8f; border: 1px dashed #8fb0e8; }

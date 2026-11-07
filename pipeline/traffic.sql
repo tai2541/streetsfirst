@@ -206,6 +206,12 @@ near as (select m.id, v.yr, arg_min(v.awdt, ST_Distance(m.mid, v.geom)) as v
          group by all)
 select id, list({'y': yr, 'v': v::int} order by yr) as history from near group by id;
 
+-- Neighborhood at the middle of each counted segment, so two segments of the same street can be told apart.
+create or replace table count_seg_hood as
+select c.id, arg_min(h.neighborhood, ST_Distance(ST_PointOnSurface(c.geom), h.geom)) as hood
+from count_segments c join hoods h on ST_DWithin(ST_PointOnSurface(c.geom), h.geom, 300)
+group by c.id;
+
 -- ---------------------------------------------------------------- add to locations
 create or replace table locations as
 select l.*, f.fixes, h.vol_history, b.bus_trips, b.bus_routes, bs.bus_stretch_id
@@ -224,9 +230,9 @@ copy (
         'pts': [[round(ST_Y(x.geom), 5), round(ST_X(x.geom), 5)] for x in ST_Dump(ST_Points(ST_SimplifyPreserveTopology(line_ll, 0.00005)))]
       } order by id) from bus_stretch where lost_per_mile is not null),
     'segments': (select list({
-        'id': c.id, 'street': c.street, 'awdt': c.awdt, 'yr': c.count_year, 'est': c.estimated, 'hist': h.history,
+        'id': c.id, 'street': c.street, 'awdt': c.awdt, 'yr': c.count_year, 'est': c.estimated, 'hist': h.history, 'hood': nh.hood,
         'pts': [[[round(ST_Y(x.geom), 5), round(ST_X(x.geom), 5)] for x in ST_Dump(ST_Points(part.geom))]
                 for part in ST_Dump(ST_LineMerge(ST_SimplifyPreserveTopology(ST_Transform(c.geom, 'EPSG:2926', 'EPSG:4326'), 0.00005)))]
-      } order by c.id) from count_segments c left join count_seg_history h using (id))
+      } order by c.id) from count_segments c left join count_seg_history h using (id) left join count_seg_hood nh using (id))
   } as traffic
 ) to 'site/data/traffic.json' (format json, array false);

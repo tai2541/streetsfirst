@@ -122,6 +122,7 @@
     if (pb.length) out.push({ cls: 'ped', text: pb.join(', ') });
     const still = stillDangerous(p);
     if (still) out.push({ cls: 'still', text: still.short });
+    patterns(p).forEach(t => out.push({ cls: 'fixable', text: t }));
     if (p.ksi_years >= 3) out.push({ cls: 'still', text: `killed or seriously hurt in ${p.ksi_years} different years` });
     if (p.injury) out.push({ cls: '', text: `${p.injury} injury crashes` });
     const wet = pct(p.wet_crashes, p.road_known), cityWet = Math.round(100 * meta.city_wet_share);
@@ -134,6 +135,20 @@
     if (p.state_route) out.push({ cls: 'state', text: `${p.state_route}: state highway` });
     if (p.confidence !== 'high')
       out.push({ cls: 'conf', text: `only ${plural(p.crashes, 'crash', 'crashes')}, so less certain` });
+    return out;
+  }
+
+  // Crash patterns that match a well-known fix this spot doesn't have yet (from SDOT's signal and Vision Zero data).
+  // Stated as facts side by side; whether the fix fits is for engineers to judge.
+  function patterns(p) {
+    const out = [];
+    if (p.addr_type !== 'I') return out;
+    if (p.signalized && p.lt_protected === false && p.left_turn_crashes >= 3)
+      out.push(`${p.left_turn_crashes} left-turn crashes; no protected left-turn arrow in SDOT signal data`);
+    if (p.signalized && p.lpi_status !== 'Existing' && p.ped_turn_crashes >= 2)
+      out.push(`${p.ped_turn_crashes} people walking hit by turning drivers; no head-start walk signal (SDOT data)`);
+    if (!p.signalized && p.angle_crashes >= 5)
+      out.push(`${p.angle_crashes} angle crashes; no traffic signal in SDOT's inventory`);
     return out;
   }
 
@@ -1248,11 +1263,11 @@
         { cls: 'state', text: `Buses lose ${(s.lost / 60).toFixed(1)} hours a day here` }]
     },
     busy: {
-      hint: 'Streets with the most vehicles on an average weekday, from SDOT traffic counts. Busy isn\'t always slow, ' +
-        'and one-direction counts (bridges, ramps) are marked. Busy isn\'t the same as slow or dangerous.',
+      hint: 'Streets with the most vehicles on an average weekday, from SDOT traffic counts. Bridge and ramp counts are ' +
+        'often one direction only (marked). Busy isn\'t the same as slow or dangerous.',
       items: () => T.segments.slice().sort((a, b) => a.id - b.id),
       rank: s => s.id, name: s => niceName(s.street),
-      sub: s => s.est || !s.yr ? `SDOT estimate${s.yr ? ' from ' + s.yr : ''}, not a measured count` : `SDOT count from ${s.yr}`,
+      sub: s => (s.hood ? s.hood + ' · ' : '') + (s.est || !s.yr ? `SDOT estimate${s.yr ? ' from ' + s.yr : ''}, not a measured count` : `SDOT count from ${s.yr}`),
       score: s => `${fmt(Math.round(s.awdt / 1000))}k <small>a day</small>`,
       chips: s => [{ cls: 'ped', text: `${fmt(s.awdt)} vehicles a weekday` }]
         .concat(trendText(s.hist) ? [{ cls: 'state', text: trendText(s.hist) }] : [])
@@ -1552,6 +1567,10 @@
         site, not SDOT), head-start walk signals and protected left turns. Shown for context; not part of the score.
         Aurora Ave N and the Aurora Bridge (SR 99), Lake City Way NE (SR 522), N/NE 145th St east of Aurora (SR 523) and the 1st Ave S
         Bridge (SR 509) are state highways: WSDOT shares responsibility.</p>
+      <p class="note"><b>Crash patterns with a known fix</b> (blue dashed tags): left-turn crashes at a signal with no protected
+        left-turn arrow, people walking hit by turning drivers where there's no head-start walk signal, and angle crashes at a corner
+        with no signal, all according to SDOT's signal and Vision Zero data. They put a pattern next to a common fix; whether that
+        fix suits the place is an engineering call.</p>
       <p class="note">Encampment, parking, graffiti and similar report types are left out on purpose. This map is about
         fixing infrastructure, not policing.</p>
       <h3>The Traffic tab</h3>
