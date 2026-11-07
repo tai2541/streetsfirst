@@ -545,3 +545,32 @@ body.proj-on .map-legend .lg-proj { display: flex; }
 .pinlist-x { color: #8a1c1c !important; }
 .pinlist-note { margin: 6px 0 0; color: #5b6576; font-size: 11.5px; }
 .pinlist-panel .linkbtn { margin: 0; }
+
+/* ---- Detail sections: each in its own tinted box with a colored edge and heading, so they're easy to scan ---- */
+.dsec { --c: #5b6576; --bg: #f6f7f9; background: var(--bg); border: 1px solid color-mix(in srgb, var(--c) 18%, transparent);
+  border-left: 4px solid var(--c); border-radius: 12px; padding: 4px 14px 10px; margin: 14px 0; }
+.dsec.collapsed { padding-bottom: 4px; }
+#detail .dsec > h3 { margin: 6px 0 6px; font-size: 14.5px; font-weight: 700; text-transform: none; letter-spacing: 0; color: var(--c); }
+.dsec > h3 .dsec-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; }
+.dsec > h3 .dsec-h::before { content: none; }
+.dsec > h3 .dsec-h::after { content: '▾'; font-size: 13px; color: var(--c); opacity: .8; transition: transform .15s; }
+.dsec.collapsed > h3 .dsec-h::after { transform: rotate(-90deg); }
+.dsec > h3 .dsec-h:hover { color: var(--c); filter: brightness(.8); }
+.dsec .dsec-b { color: #1d2430; }
+.dsec .dsec-b > :first-child { margin-top: 0; }
+.dsec .dsec-b table, .dsec .kv, .dsec .dtable { background: #fff; border-radius: 8px; }
+.dsec-done     { --c: #5b3fd1; --bg: #f6f3ff; }   /* what SDOT has done: purple, like the SDOT project lines */
+.dsec-street   { --c: #2f55c7; --bg: #f2f6fe; }
+.dsec-traffic  { --c: #0e7c86; --bg: #eef8f9; }
+.dsec-walk     { --c: #2e7d32; --bg: #f1f8f1; }
+.dsec-types    { --c: #b3141b; --bg: #fdf3f3; }
+.dsec-crashes  { --c: #b3141b; --bg: #fdf3f3; }
+.dsec-reqtypes { --c: #a35f00; --bg: #fdf6ea; }
+.dsec-reqs     { --c: #a35f00; --bg: #fdf6ea; }
+.dsec-math     { --c: #5b6576; --bg: #f4f5f7; }
+/* the two charts get the same box treatment */
+.graphs { border-top: 0; padding: 0; }
+.graphs .gcol { --c: #1f4fa8; background: #f3f7fd; border: 1px solid color-mix(in srgb, var(--c) 18%, transparent);
+  border-left: 4px solid var(--c); border-radius: 12px; padding: 8px 14px 10px; margin: 14px 0; }
+.graphs .gcol + .gcol { margin-top: 14px; }
+#detail .graphs .gh { font-size: 14.5px; font-weight: 700; text-transform: none; letter-spacing: 0; color: var(--c); margin: 4px 0 6px; }

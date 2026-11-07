@@ -470,7 +470,11 @@
     get(k, d) { try { const v = JSON.parse(localStorage.getItem('ipm.' + k)); return v ?? d; } catch { return d; } },
     set(k, v) { try { localStorage.setItem('ipm.' + k, JSON.stringify(v)); } catch { /* storage unavailable */ } }
   };
-  const collapsed = store.get('collapsed', { math: true });
+  // Detail sections open fully for each new spot, except the score math (at the bottom, folded). Folding a section
+  // lasts while you stay on that spot; it isn't remembered for the next one.
+  const DEFAULT_COLLAPSED = { math: true };
+  let collapsed = { ...DEFAULT_COLLAPSED }, collapsedFor = null;
+  try { localStorage.removeItem('ipm.collapsed'); } catch { /* ignore */ }
   const widths = store.get('widths', { normal: 440, expanded: null });
   let expanded = store.get('expanded', false);
   let renderGraphs = () => {};
@@ -958,8 +962,9 @@
     const types = countBy(det.crashes.filter(c => c.t), c => crashType(c.t)).slice(0, 6);
     const untyped = det.crashes.filter(c => !c.t).length;
     const R = ft(weight('request_radius_m'));
+    if (collapsedFor !== p.location) { collapsed = { ...DEFAULT_COLLAPSED }; collapsedFor = p.location; }
     const sec = (id, title, html) =>
-      `<section class="dsec ${collapsed[id] ? 'collapsed' : ''}" data-sec="${id}">
+      `<section class="dsec dsec-${id} ${collapsed[id] ? 'collapsed' : ''}" data-sec="${id}">
          <h3><button type="button" class="dsec-h" aria-expanded="${!collapsed[id]}" aria-controls="sec-${id}">${title}</button></h3>
          <div class="dsec-b" id="sec-${id}">${html}</div></section>`;
     const chips = reasons(p);
@@ -997,13 +1002,13 @@
             <div class="legend"><span><i class="sq" style="background:${REQ_COLOR}"></i>Request location (on map)</span>
               <span><i class="ring"></i>Dashed circle: ${R} ft search area</span></div>
             ${hbars(countBy(det.requests, r => r.t), REQ_COLOR, 'requests') || '<div class="note">None in Find It Fix It data.</div>'}`)}
-          ${sec('math', 'How this score is calculated', mathBox(p))}
         </div>
         <div class="dcol">
           ${sec('crashes', 'Every crash', `
             <div class="legend">${['F', 'S', 'I', 'P'].map(k => `<span><i style="background:${SEV[k].color}"></i>${SEV[k].label}</span>`).join('')}</div>
             <div id="crashTable">${crashTable(det.crashes)}</div>`)}
           ${sec('reqs', 'Every repair request', `<div id="reqTable">${reqTable(det.requests)}</div>`)}
+          ${sec('math', 'How this score is calculated', mathBox(p))}
         </div>
       </div>`;
     const wasHidden = detailEl.hidden;
@@ -1026,7 +1031,7 @@
       const h = e.target.closest('.dsec-h');
       if (h) {
         const s = h.closest('.dsec'), id = s.dataset.sec;
-        collapsed[id] = !collapsed[id]; store.set('collapsed', collapsed);
+        collapsed[id] = !collapsed[id];
         s.classList.toggle('collapsed', collapsed[id]); h.setAttribute('aria-expanded', String(!collapsed[id]));
         return;
       }
