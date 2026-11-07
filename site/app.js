@@ -297,10 +297,34 @@
   const maxW = () => Math.max(340, mapW() - 90);
   const defaultExpanded = () => Math.max(800, Math.round(mapW() * 0.66));
 
+  // Left list panel: widen (half the screen) or drag to resize. With both panels expanded they meet in the middle.
+  const mainEl = document.querySelector('main'), panelEl = document.getElementById('panel');
+  let leftExpanded = store.get('leftExpanded', false);
+  const leftWidths = store.get('leftWidths', { normal: 400, expanded: null });
+  const clampLeft = w => Math.min(Math.max(300, w), mainEl.offsetWidth - 200);
+  function applyPanel() {
+    if (isNarrow()) { panelEl.style.width = ''; return; }
+    const w = leftExpanded ? (leftWidths.expanded || Math.round(mainEl.offsetWidth / 2)) : leftWidths.normal;
+    panelEl.style.width = clampLeft(w) + 'px';
+    mainEl.style.setProperty('--panel-w', panelEl.offsetWidth + 'px');
+    const b = document.getElementById('expandPanel');
+    b.textContent = leftExpanded ? '‹' : '›';
+    b.title = b.ariaLabel = leftExpanded ? 'Narrow the list' : 'Widen the list';
+    b.setAttribute('aria-label', b.title); b.setAttribute('aria-pressed', String(leftExpanded));
+    map.invalidateSize();
+  }
+  function toggleLeft() {
+    leftExpanded = !leftExpanded; store.set('leftExpanded', leftExpanded);
+    applyPanel(); applyLayout();
+  }
+
   function applyLayout() {
-    if (isNarrow()) { detailEl.style.width = ''; detailEl.classList.remove('expanded'); return; }
-    const w = expanded ? (widths.expanded || defaultExpanded()) : widths.normal;
-    detailEl.style.width = Math.min(Math.max(340, w), maxW()) + 'px';
+    if (isNarrow()) { detailEl.style.width = ''; detailEl.classList.remove('expanded', 'split'); return; }
+    // Both expanded: the detail panel fills everything right of the list (the two meet in the middle).
+    const split = expanded && leftExpanded;
+    detailEl.classList.toggle('split', split);
+    const w = split ? mapW() : expanded ? (widths.expanded || defaultExpanded()) : widths.normal;
+    detailEl.style.width = (split ? w : Math.min(Math.max(340, w), maxW())) + 'px';
     detailEl.classList.toggle('expanded', expanded);
     const b = document.getElementById('expandDetail');
     b.textContent = expanded ? '⤡' : '⤢';
@@ -312,8 +336,30 @@
     if (current) { select(current, false, null, true); flyVisible([current.lat, current.lon], map.getZoom()); }
   }
   document.getElementById('expandDetail').onclick = toggleExpand;
-  window.addEventListener('resize', applyLayout);
+  document.getElementById('expandPanel').onclick = toggleLeft;
+  window.addEventListener('resize', () => { applyPanel(); applyLayout(); });
+  applyPanel();
   applyLayout();
+
+  (function leftResizer() {
+    const h = document.getElementById('panelHandle');
+    let startX = 0, startW = 0;
+    h.addEventListener('pointerdown', e => {
+      startX = e.clientX; startW = panelEl.offsetWidth; h.setPointerCapture(e.pointerId);
+      document.body.classList.add('resizing');
+    });
+    h.addEventListener('pointermove', e => {
+      if (!h.hasPointerCapture(e.pointerId)) return;
+      panelEl.style.width = clampLeft(startW + (e.clientX - startX)) + 'px';
+      mainEl.style.setProperty('--panel-w', panelEl.offsetWidth + 'px');
+      applyLayout();
+    });
+    h.addEventListener('pointerup', e => {
+      h.releasePointerCapture(e.pointerId); document.body.classList.remove('resizing');
+      leftWidths[leftExpanded ? 'expanded' : 'normal'] = panelEl.offsetWidth; store.set('leftWidths', leftWidths);
+      applyPanel(); applyLayout();
+    });
+  })();
 
   // Phone: the panel is a bottom sheet with a short "peek" height and a full height.
   const sheetBtn = document.getElementById('sheetDetail');
