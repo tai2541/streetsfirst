@@ -38,7 +38,7 @@ budget by program) and are the main roadmap.*
 **Long-term goal:** `condition x usage x consequence of failure x area vulnerability`,
 reduced when repair work is already scheduled.
 
-**Current (crashes + repair requests)**, "Recommended" ranking, over 60 full months ending 3 months
+**Current (crashes + repair requests)**, "Most likely to hurt people" ranking (the default), over 60 full months ending 3 months
 before the newest crash (recent police reports arrive late):
 1. **Crash harm:** fatal or serious injury 30 (KSI), injury 5, property damage 1, unknown 0,
    x1.5 when a pedestrian or cyclist was hurt.

@@ -27,7 +27,7 @@
 
   // ---------- ranking modes ----------
   const MODES = {
-    ksi: { label: 'Recommended', hint: 'Where people are most likely to keep getting killed or seriously hurt, from 5 years of crashes.', unit: 'pts' },
+    ksi: { label: 'Most likely to hurt people', hint: 'Where people are most likely to keep getting killed or seriously hurt, based on 5 years of crashes. Start here.', unit: 'pts' },
     risk: { label: 'Risk for its traffic', hint: 'Dangerous for how busy it is: the same harm per vehicle. Often quieter streets.', unit: 'per 10k vehicles' }
   };
   let mode = (() => { try { return JSON.parse(localStorage.getItem('ipm.mode')) || 'ksi'; } catch { return 'ksi'; } })();
@@ -597,7 +597,7 @@
       ? `<p><b>Risk ${Math.round(p.score_risk)}</b> = expected harm ${fmt(Math.round(p.expected_harm))} ÷
           (${fmt(Math.max(p.volume, weight('risk_vol_floor')))} vehicles ÷ 10,000).</p>`
       : `<p class="note">Not ranked for risk: ${p.volume ? `fewer than ${weight('risk_min_crashes')} crashes` : 'no SDOT traffic count'}.</p>`;
-    const ranks = `<p class="note">Ranks: #${p.rank_ksi} recommended · ${p.rank_risk ? '#' + p.rank_risk : 'unranked'} for its traffic.</p>`;
+    const ranks = `<p class="note">Ranks: #${p.rank_ksi} most likely to hurt people · ${p.rank_risk ? '#' + p.rank_risk : 'unranked'} for its traffic.</p>`;
     return (mode === 'risk' ? riskLine + ksiLine : ksiLine + riskLine) + ranks;
   }
   const groupName = g => {
@@ -856,7 +856,7 @@
         </ol>
       </div>` : '';
     const ksi = `
-      <h3>Recommended ranking, in full</h3>
+      <h3>"Most likely to hurt people" ranking, in full</h3>
       <ol>
         <li><b>Crash harm.</b> Points per crash: killed or seriously injured ${k}, other injury ${weight('injury')},
           property damage only ${weight('pdo')}, × ${weight('ped_bike_mult')} when someone walking or biking was hurt.
@@ -905,7 +905,7 @@
       <p>SDOT's High Injury Network and High Collision Locations come from overlapping crash data, so this is a
         consistency check, not independent proof. Top 50 of each ranking:</p>
       <table class="vtable"><thead><tr><th scope="col"></th><th scope="col">High Injury Network</th><th scope="col">of those "High"</th><th scope="col">High Collision list ${meta.window_from.slice(0, 4)}+</th></tr></thead><tbody>
-        ${agRow('ksi', 'Recommended')}${agRow('risk', 'Risk for its traffic')}
+        ${agRow('ksi', 'Most likely to hurt people')}${agRow('risk', 'Risk for its traffic')}
         ${agRow('baseline_crash_count', 'Baseline: 50 spots with most crashes')}
       </tbody></table>
       <p class="note">For scale: ${Math.round(100 * meta.busy_share_on_hin)}% of the ${fmt(meta.busy_locations)} spots with 10+ crashes are on the High Injury Network.</p>`;
