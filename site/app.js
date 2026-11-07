@@ -271,11 +271,11 @@
     });
 
     const list = document.getElementById('list');
-    const card = (p, isExtra) => {
+    const card = (p, isExtra, i) => {
       const chips = reasons(p).slice(0, 3);
       const rk = p.rank != null ? '#' + fmt(p.rank) : '—';
       return `
-      <li data-id="${p.rank_ksi}" class="${isExtra ? 'extra' : p.rank <= 10 ? 'top10' : ''}">
+      <li data-id="${p.rank_ksi}" class="${isExtra ? 'extra' : (p.rank <= 10 ? 'top10 ' : '') + 't' + tier(p.rank)}" style="--i:${Math.min(i || 0, 15)}">
         <button type="button" class="card" aria-label="${rk} ${esc(p.name)}${isExtra ? ', ' + p.fatal + ' deaths' : ''}">
           <span class="row1"><span class="rank">${rk}</span><span class="loc">${esc(p.name)}${p.area ? `<span class="hood">${esc(p.area)}</span>` : ''}</span>
             <span class="score">${p.score != null ? scoreText(p) : ''}</span></span>
@@ -284,7 +284,7 @@
         </button>
       </li>`;
     };
-    list.innerHTML = (rows.length ? rows.map(p => card(p, false)).join('') : '<li class="empty">No spots match these filters.</li>') +
+    list.innerHTML = (rows.length ? rows.map((p, i) => card(p, false, i)).join('') : '<li class="empty">No spots match these filters.</li>') +
       (extra.length ? `<li class="extra-head" role="presentation"><b>Repeated deaths</b>: 2 or more people died at each of these
           spots. They rank lower because they have few other crashes, but they're always listed.</li>` +
         extra.map(p => card(p, true)).join('') : '');
@@ -1125,6 +1125,28 @@
       </ul>`;
   }
   renderAbout();
+
+  // Citywide summary at the top of the list: what's at stake, in people. Numbers count up once on load.
+  (function citySummary() {
+    const el = document.getElementById('citySummary'); if (!el || meta.city_killed == null) return;
+    const share = Math.round(1000 * meta.top50_ksi_share) / 10, spots = (100 * 50 / meta.locations_scored).toFixed(1);
+    el.innerHTML = `
+      <div class="cs-head">Seattle streets, ${monthYear(meta.window_from)} – ${monthYear(meta.window_to)}</div>
+      <div class="cs-nums">
+        <div><b data-n="${meta.city_killed}">${fmt(meta.city_killed)}</b><span>people killed</span></div>
+        <div><b data-n="${meta.city_serious}">${fmt(meta.city_serious)}</b><span>seriously injured</span></div>
+        <div><b data-n="${share}" data-pct>${share}%</b><span>of those crashes were at the top 50 spots, just ${spots}% of places</span></div>
+      </div>
+      <div class="cs-foot">Fixing the worst spots first reaches a lot of harm. Pick one below or on the map.</div>`;
+    if (reduceMotion) return;
+    el.querySelectorAll('b[data-n]').forEach(b => {
+      const to = +b.dataset.n, pct = b.hasAttribute('data-pct'), t0 = performance.now(), dur = 1100;
+      const step = t => { const k = Math.min(1, (t - t0) / dur), v = to * (1 - Math.pow(1 - k, 3));
+        b.textContent = pct ? v.toFixed(1) + '%' : fmt(Math.round(v)); if (k < 1) requestAnimationFrame(step); };
+      requestAnimationFrame(step);
+      setTimeout(() => (b.textContent = pct ? to.toFixed(1) + '%' : fmt(to)), dur + 300);   // always land on the true value
+    });
+  })();
 
   render();
 

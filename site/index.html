@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Seattle Infrastructure Priority Map (v1)</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -24,6 +26,7 @@
   <main>
     <aside id="panel">
       <section id="tab-priorities" class="tab active" role="tabpanel" aria-labelledby="tabbtn-priorities">
+        <div id="citySummary" class="city-summary"></div>
         <div class="searchbox">
           <input id="search" type="search" autocomplete="off" placeholder="Find any street or intersection"
                  aria-label="Find any street or intersection" aria-controls="searchResults" aria-expanded="false">

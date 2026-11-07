@@ -545,6 +545,12 @@ copy (
     (select list({'method': method, 'k50': future_ksi_50, 'k200': future_ksi_200} order by future_ksi_50 desc, method) from validation) as validation,
     (select count(*) filter (where severity in ('Fatal Collision', 'Serious Injury Collision')) from collisions
        where date >= (select test_start from scoring_window) and date < we()) as test_ksi_total,
+    -- citywide totals for the summary at the top of the list (people, not crashes)
+    (select sum(fatalities) from collisions where date >= ws() and date < we()) as city_killed,
+    (select sum(serious_injuries) from collisions where date >= ws() and date < we()) as city_serious,
+    (select count(*) from collisions where date >= ws() and date < we() and peds + cyclists > 0
+       and severity in ('Fatal Collision', 'Serious Injury Collision')) as city_ped_bike_ksi,
+    (select round(sum(ksi) filter (where rank <= 50) * 1.0 / sum(ksi), 3) from ranked) as top50_ksi_share,
     -- citywide shares, used to flag locations that are unusually wet/dark (Unknown/Other excluded)
     (select round(sum(wet_crashes)  / sum(road_known),  3) from locations) as city_wet_share,
     (select round(sum(dark_crashes) / sum(light_known), 3) from locations) as city_dark_share,
