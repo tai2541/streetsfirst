@@ -1337,6 +1337,8 @@
 
   // ---------- Sidewalks view: SDOT's missing-sidewalk priorities, and sidewalks rated poor ----------
   const SW = D.sidewalks || { missing: [], poor: [], counts: {} };
+  if (SW.counts.poor_assessed_median) document.getElementById('walkNote').querySelector('b').textContent =
+    `Condition ratings come from past inspections, typically around ${SW.counts.poor_assessed_median}`;
   const ftText = ft => (ft >= 1320 ? `${(ft / 5280).toFixed(1)} mi` : `${fmt(Math.round(ft / 10) * 10)} ft`);
   const blockName = b => niceName(b.replace(/ BETWEEN /, ' between ').replace(/ AND /, ' and '));
   const SMODES = {
@@ -1698,7 +1700,7 @@
           weren't recounted, so those repeats are left out.</li>
         <li>Each street lists the safety spots along it, and each safety spot shows its buses, bus slowdown and traffic counts.</li>
       </ul>
-      <h3>The Sidewalks tab</h3>
+      <h3>The Missing &amp; broken sidewalks tab</h3>
       <ul>
         <li><b>Missing sidewalks SDOT ranks first</b>: SDOT's own priorities from the Seattle Transportation Plan. SDOT scores each
           block without a sidewalk (safety, equity, schools, transit, parks, homes and shops nearby) and sorts them into Tier 1 to 5.

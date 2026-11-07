@@ -20,7 +20,7 @@
     <nav role="tablist" aria-label="Views">
       <button role="tab" id="tabbtn-priorities" data-tab="priorities" aria-controls="tab-priorities" aria-selected="true" class="active">Safety</button>
       <button role="tab" id="tabbtn-traffic" data-tab="traffic" aria-controls="tab-traffic" aria-selected="false" tabindex="-1" title="Slow buses &amp; busy streets: typical weekdays, not live traffic"><span class="tab-long tab-wide">Slow buses &amp; busy streets</span><span class="tab-short tab-mid">Slow buses</span></button>
-      <button role="tab" id="tabbtn-walk" data-tab="walk" aria-controls="tab-walk" aria-selected="false" tabindex="-1">Sidewalks</button>
+      <button role="tab" id="tabbtn-walk" data-tab="walk" aria-controls="tab-walk" aria-selected="false" tabindex="-1" title="Missing &amp; broken sidewalks, from SDOT records (not live)"><span class="tab-long tab-wide">Missing &amp; broken sidewalks</span><span class="tab-short tab-mid">Sidewalks</span></button>
       <button role="tab" id="tabbtn-spending" data-tab="spending" aria-controls="tab-spending" aria-selected="false" tabindex="-1"><span class="tab-long">SDOT capital budget</span><span class="tab-short">Budget</span></button>
       <button role="tab" id="tabbtn-about" data-tab="about" aria-controls="tab-about" aria-selected="false" tabindex="-1"><span class="tab-long">How it's scored</span><span class="tab-short">Method</span></button>
     </nav>
@@ -80,6 +80,7 @@
       </section>
 
       <section id="tab-walk" class="tab" role="tabpanel" aria-labelledby="tabbtn-walk">
+        <p class="not-live" id="walkNote">From SDOT's sidewalk records and its plan for where to build new sidewalks. <b>Condition ratings come from past inspections</b>, so some sidewalks may since have been fixed or gotten worse.</p>
         <div class="controls">
           <label>Show
             <select id="smode">
