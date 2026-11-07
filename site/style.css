@@ -167,7 +167,13 @@ ul.tight { margin-top: 8px; font-size: 12.5px; color: #52514e; }
 .muted { color: #5b6576; }
 .flag { font-size: 10.5px; background: #fdecdc; color: #8a3d05; padding: 0 5px; border-radius: 3px; }
 .linkbtn { border: 0; background: none; color: #2f55c7; cursor: pointer; padding: 0; font: inherit; font-size: 12.5px; margin-bottom: 8px; }
-.rowbtn { margin: 0; font-size: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.map-jump { border: 1px solid #c9d3ee; background: #f3f6fd; color: #24408f; border-radius: 6px; padding: 2px 7px; font: inherit;
+  font-size: 12px; white-space: nowrap; cursor: pointer; }
+.map-jump:hover { background: #e3eafb; border-color: #9fb1e3; }
+.map-jump:focus-visible { outline: 2px solid #2f55c7; outline-offset: 1px; }
+.reqmark.hit span { animation: req-hit 0.8s ease-out 4; }
+@keyframes req-hit { 0% { box-shadow: 0 0 0 2px #fff, 0 0 0 2px rgba(27,175,122,.9); } 100% { box-shadow: 0 0 0 2px #fff, 0 0 0 16px rgba(27,175,122,0); } }
+@media (prefers-reduced-motion: reduce) { .reqmark.hit span { animation: none; box-shadow: 0 0 0 2px #fff, 0 0 0 5px #0b0b0b; } }
 .reqmark span { display: flex; align-items: center; justify-content: center; border-radius: 3px; box-shadow: 0 0 0 2px #fff;
   font-size: 10px; font-weight: 700; color: #0b0b0b; }
 .tip { position: fixed; z-index: 2000; background: #0b0b0b; color: #f0efec; font-size: 12px; padding: 6px 8px;

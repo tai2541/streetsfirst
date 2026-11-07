@@ -830,14 +830,15 @@
       <div class="fbar"><select id="reqType" aria-label="Filter repair requests by type"><option value="">All types (${reqs.length})</option>
         ${types.map(t => `<option value="${esc(t.label)}" ${t.label === reqFilter ? 'selected' : ''}>${esc(t.label)} (${t.n})</option>`).join('')}
       </select></div>
-      <table class="dtable"><thead><tr><th>Date</th><th>Request</th><th>Status</th></tr></thead><tbody>
+      <table class="dtable"><thead><tr><th>Date</th><th>Request</th><th>Status</th><th><span class="sr-only">Map</span></th></tr></thead><tbody>
       ${shown.map(r => `<tr>
-          <td class="nowrap"><button type="button" class="linkbtn rowbtn" data-ri="${reqs.indexOf(r)}" aria-label="Show ${esc(r.t)} from ${r.d} on the map">${r.d}</button></td>
+          <td class="nowrap">${r.d}</td>
           <td>${esc(r.t)}<div class="sub2 muted">${esc(r.a || '')} · ${ft(r.m)} ft away</div></td>
-          <td>${esc(r.st || '')}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">None</td></tr>'}
+          <td>${esc(r.st || '')}</td>
+          <td><button type="button" class="map-jump" data-ri="${reqs.indexOf(r)}" title="Zoom the map to where this was reported" aria-label="Show ${esc(r.t)} from ${r.d} on the map">📍 Map</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">None</td></tr>'}
       </tbody></table>
       ${list.length > 20 && !expanded ? `<button type="button" class="linkbtn" data-more="reqs">${showAllReqs ? 'Show fewer' : `Show all ${list.length}`}</button>` : ''}
-      <div class="note">City status is unreliable: most requests stay "Reported" even after a fix. Click a date to see it on the map.</div>`;
+      <div class="note">City status is unreliable: most requests stay "Reported" even after a fix. Use 📍 Map to zoom to where a request was reported.</div>`;
   }
 
   // Center a point in the part of the map not covered by the detail panel.
@@ -849,6 +850,21 @@
     if (reduceMotion) map.setView(c, zoom, { animate: false }); else map.flyTo(c, zoom, { duration: 0.6 });
   }
 
+  const reqMarkers = new Map();
+  // From the request table: zoom to the request, then open its label and pulse its dot so it's obvious which one it is.
+  function showRequest(r) {
+    flyVisible([r.lat, r.lon], 19);
+    const m = reqMarkers.get(r.lat + ',' + r.lon);
+    if (!m) return;
+    const hit = () => {
+      m.openTooltip();
+      const el = m.getElement(); if (!el) return;
+      el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit');
+      setTimeout(() => el.classList.remove('hit'), 3200);
+    };
+    if (reduceMotion) hit(); else map.once('moveend', hit);
+    say(`Map zoomed to ${r.t} from ${r.d}${r.a ? ', ' + r.a : ''}.`);
+  }
   function drawFocus(p, det) {
     focus.clearLayers();
     // The search area, made obvious: shaded, dashed, and labelled with its size on the map itself.
@@ -859,6 +875,7 @@
     if (!markers[p.rank_ksi])  // spot not on the map in this view (found by search, or hidden by filters)
       L.circleMarker([p.lat, p.lon], { radius: 9, color: '#1d2430', weight: 3, fillColor: '#fff', fillOpacity: 0.9, interactive: false }).addTo(focus);
     const groups = new Map();
+    reqMarkers.clear();
     (det ? det.requests : []).filter(r => !reqFilter || r.t === reqFilter).forEach(r => {
       const k = r.lat + ',' + r.lon;
       (groups.get(k) || groups.set(k, []).get(k)).push(r);
@@ -867,11 +884,12 @@
       const n = rs.length, size = n > 1 ? 18 : 12;
       const lines = countBy(rs, r => r.t).map(t => `${esc(t.label)}: ${t.n}`).join('<br>');
       // Not keyboard-focusable: the request table is the accessible version of this layer.
-      L.marker([rs[0].lat, rs[0].lon], {
+      const rm = L.marker([rs[0].lat, rs[0].lon], {
         keyboard: false,
         icon: L.divIcon({ className: 'reqmark', iconSize: [size, size],
           html: `<span style="background:${REQ_COLOR};width:${size - 2}px;height:${size - 2}px">${n > 1 ? n : ''}</span>` })
       }).bindTooltip(`<b>${n} request${n > 1 ? 's' : ''} here</b><br>${lines}<br><span style="color:#c8c6bf">${esc(rs[0].a || '')}</span>`).addTo(focus);
+      reqMarkers.set(rs[0].lat + ',' + rs[0].lon, rm);
     });
     Object.entries(markers).forEach(([id, m]) => dim(m, +id !== p.rank_ksi));
     const sel = markers[p.rank_ksi];
@@ -1054,7 +1072,7 @@
       if (more && more.dataset.more === 'crashes') { showAllCrashes = !showAllCrashes; document.getElementById('crashTable').innerHTML = crashTable(det.crashes); return; }
       if (more && more.dataset.more === 'reqs') { showAllReqs = !showAllReqs; document.getElementById('reqTable').innerHTML = reqTable(det.requests); return; }
       const row = e.target.closest('[data-ri]');
-      if (row) { const r = det.requests[+row.dataset.ri]; flyVisible([r.lat, r.lon], 19); }
+      if (row) showRequest(det.requests[+row.dataset.ri]);
     };
     body.onchange = e => {
       if (e.target.id === 'reqType') { reqFilter = e.target.value; showAllReqs = false;
