@@ -36,10 +36,11 @@
     ['Streetlight out', CWI + 'CLSTLT', 'Seattle City Light · (206) 684-7056'],
     ['Clogged storm drain', CWI + 'PUCLOGDR', 'Seattle Public Utilities'],
     ['Plants blocking a sidewalk, sign or view', CWI + 'OVERVEGI', 'Overgrown vegetation'],
-    ['Illegal dumping or needles', CWI + 'PUILDUMP', 'Seattle Public Utilities'],
+    ['Illegal dumping', CWI + 'PUILDUMP', 'Seattle Public Utilities (also discarded needles)'],
     ['Curb ramp or accessibility barrier', 'https://www.seattle.gov/transportation/projects-and-programs/programs/ada-program/make-an-ada-request', 'SDOT ADA request'],
     ['Something else', 'https://seattle-cwiprod.motorolasolutions.com/cwi/select', 'Full list of City request types']
   ];
+  const resItem = ([t, u, w]) => `<li><a class="res-link" href="${u}" target="_blank" rel="noopener">${t} ↗</a><span>${w}</span></li>`;
   const resourceList = () => `<ul class="res-list">${RESOURCES.map(([t, u, w]) =>
     `<li><a class="res-link" href="${u}" target="_blank" rel="noopener">${t} ↗</a><span>${w}</span></li>`).join('')}</ul>
     <p class="res-more"><b>Street flooding or a sewer backup right now?</b> Call Seattle Public Utilities, 24/7: <a href="tel:+12063861800">(206) 386-1800</a>.
@@ -48,9 +49,10 @@
       or see <a href="${REPORT_URL}" target="_blank" rel="noopener">all popular services ↗</a>.</p>`;
   // The City's forms can't be pre-filled from a link (they only read the request type), so opening one copies the spot instead.
   const reportBox = place => `<div class="report" data-loc="${esc(place)}">
-      <div><b>See a problem here?</b> Reports are how problems get on the City's repair list. Pick what it is:</div>
-      ${resourceList()}
-      <p class="res-tip">Opening a form copies this location (${esc(place)}), so you can paste it into the form's location box.</p></div>`;
+      <div><b>See a problem here?</b> Reports are how problems get on the City's repair list. Opening a form also copies
+        this location (<b>${esc(place)}</b>) so you can paste it in.</div>
+      <ul class="res-list">${RESOURCES.slice(0, 3).map(resItem).join('')}</ul>
+      <details class="res-fold"><summary>More problem types</summary><ul class="res-list">${RESOURCES.slice(3).map(resItem).join('')}</ul></details></div>`;
   const toast = msg => {
     let t = document.getElementById('toast');
     if (!t) { t = document.createElement('div'); t.id = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
@@ -128,10 +130,10 @@
     if (p.light_known >= 5 && dark >= cityDark + 15) out.push({ cls: 'cond', text: `${dark}% in the dark (city ${cityDark}%)` });
     if (p.unlit_crashes) out.push({ cls: 'cond', text: `${p.unlit_crashes} with streetlights off/none` });
     if (p.speeding_crashes >= 2 && pct(p.speeding_crashes, p.crashes) >= 15)
-      out.push({ cls: 'cond', text: `speeding in ${p.speeding_crashes} of ${p.crashes}` });
+      out.push({ cls: 'cond', text: `speed-related: ${p.speeding_crashes} of ${p.crashes}` });
     if (p.state_route) out.push({ cls: 'state', text: `${p.state_route}: state highway` });
     if (p.confidence !== 'high')
-      out.push({ cls: 'conf', text: `${p.confidence} confidence: ${plural(p.crashes, 'crash', 'crashes')}` });
+      out.push({ cls: 'conf', text: `only ${plural(p.crashes, 'crash', 'crashes')}, so less certain` });
     return out;
   }
 
@@ -281,7 +283,11 @@
       return d;
     }
   });
-  new Legend().addTo(map);
+  const legendCtl = new Legend().addTo(map);
+  map.on('dragstart', () => {
+    if (!matchMedia('(max-width: 760px)').matches) return;
+    const d = legendCtl.getContainer(); d.classList.add('collapsed'); d.querySelector('.lg-toggle').setAttribute('aria-expanded', 'false');
+  });
   document.body.classList.toggle('paused', paused);
 
   function currentRows() {
@@ -338,7 +344,7 @@
       const rk = p.rank != null ? '#' + fmt(p.rank) : '—';
       return `
       <li data-id="${p.rank_ksi}" class="${isExtra ? 'extra' : (p.rank <= 10 ? 'top10 ' : '') + 't' + tier(p.rank)}" style="--i:${Math.min(i || 0, 15)}">
-        <button type="button" class="card" aria-label="${rk} ${esc(p.name)}${isExtra ? ', ' + p.fatal + ' deaths' : ''}">
+        <button type="button" class="card">
           <span class="row1"><span class="rank">${rk}</span><span class="loc">${esc(p.name)}${p.area ? `<span class="hood">${esc(p.area)}</span>` : ''}</span>
             <span class="score">${p.score != null ? scoreText(p) : ''}</span></span>
           <span class="chips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</span>
@@ -470,7 +476,7 @@
   const sheetBtn = document.getElementById('sheetDetail');
   function setSheet(full) {
     detailEl.classList.toggle('full', full);
-    sheetBtn.textContent = full ? '⌄' : '⌃';
+    sheetBtn.textContent = full ? 'Less' : 'More';
     sheetBtn.title = full ? 'Show less' : 'Show more';
     sheetBtn.setAttribute('aria-label', full ? 'Show less' : 'Show more');
     sheetBtn.setAttribute('aria-expanded', String(full));
@@ -501,7 +507,7 @@
     if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
     const inDetail = detailEl.contains(e.target);
     const inMap = document.getElementById('map').contains(e.target);
-    if ((e.key === 'h' || e.key === 'H') && (inMap || inDetail || e.target === document.body)) { showAll(); return; }
+    if ((e.key === 'h' || e.key === 'H') && (inMap || inDetail)) { showAll(); return; }
     if (detailEl.hidden) return;
     if (e.key === 'Escape') closeDetail(true);
     else if ((e.key === 'e' || e.key === 'E') && inDetail && !isNarrow()) toggleExpand();
@@ -706,7 +712,7 @@
       <div class="fbar" role="group" aria-label="Filter crashes">
         ${btn('all', 'All', crashes.length)}${btn('severe', 'Fatal/serious', crashes.filter(filters.severe).length)}
         ${btn('injury', 'Injury', crashes.filter(filters.injury).length)}${btn('ped', 'Ped/bike', crashes.filter(filters.ped).length)}
-        ${btn('speeding', 'Speeding', crashes.filter(filters.speeding).length)}
+        ${btn('speeding', 'Speed-related', crashes.filter(filters.speeding).length)}
       </div>
       <table class="dtable"><thead><tr><th>Date</th><th>Severity</th><th>What happened</th></tr></thead><tbody>
       ${shown.map(c => {
@@ -806,13 +812,14 @@
     s += p.ksi ? `; ${p.ksi === 1 ? '1 killed or seriously injured someone' : `${p.ksi} killed or seriously injured someone`}` +
       (p.fatal ? ` (${plural(p.fatal, 'death')})` : '') : '; none killed or seriously injured anyone';
     parts.push(s + '.');
-    const pb = [p.ped_crashes ? `${p.ped_crashes} involved people walking` : '', p.bike_crashes ? `${p.bike_crashes} people biking` : ''].filter(Boolean);
+    const who = (n, verb) => `${n} involved ${n === 1 ? 'a person' : 'people'} ${verb}`;
+    const pb = [p.ped_crashes ? who(p.ped_crashes, 'walking') : '', p.bike_crashes ? who(p.bike_crashes, 'biking') : ''].filter(Boolean);
     if (pb.length) parts.push(pb.join(' and ') + '.');
     const st = [p.speed_limit ? `${p.speed_limit} mph` : '', (p.street_type || '').toLowerCase(), p.volume ? `${fmt(p.volume)} vehicles a weekday` : ''].filter(Boolean);
     if (st.length) parts.push(st.join(', ').replace(/^./, c => c.toUpperCase()) + '.');
     const rk = p.rank_ksi;
     const line2 = `Ranks <b>#${rk}</b> of ${fmt(N)} crash locations (${topShare(rk)})` +
-      (p.rank_risk ? `, #${p.rank_risk} for its traffic` : '') + '.';
+      (p.rank_risk ? `, and #${p.rank_risk} once you account for how busy it is` : '') + '.';
     const why = p.fatal >= 2 && rk > 50
       ? `<p class="callout">${p.fatal} people died here. It ranks #${fmt(rk)} because the ranking estimates where people are most
           likely to be hurt next, and this spot has few other crashes (${p.crashes} in total), so the model treats much of its
@@ -1009,29 +1016,38 @@
 
   // ---------- search: every scored location ----------
   const searchIdx = (D.search || []).map(r => ({ name: r[0], lat: +r[1], lon: +r[2], rank: +r[3], crashes: +r[4], ksi: +r[5], pb: +r[6], type: r[7], hood: r[8] || '', area: r[9] || '' }));
-  searchIdx.forEach(s => (s.key = (niceName(s.name) + ' ' + s.hood + ' ' + s.area).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ')));
+  const normQ = t => t.toLowerCase().replace(/&/g, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ');
+  searchIdx.forEach(s => { s.nkey = ' ' + normQ(niceName(s.name)) + ' '; s.key = s.nkey + ' ' + normQ(s.hood + ' ' + s.area); });
   const sInput = document.getElementById('search'), sList = document.getElementById('searchResults');
   let sHits = [], sActive = -1;
+  const sStatus = document.getElementById('searchStatus');
+  const say = t => { sStatus.textContent = ''; setTimeout(() => (sStatus.textContent = t), 50); };
+  const closeList = () => { sList.hidden = true; sInput.setAttribute('aria-expanded', 'false'); sInput.removeAttribute('aria-activedescendant'); };
   function runSearch() {
     const q = sInput.value.toLowerCase().replace(/&/g, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
     if (q.length < 2) { sList.hidden = true; sInput.setAttribute('aria-expanded', 'false'); return; }
     const words = q.split(' ');
-    sHits = searchIdx.filter(s => words.every(w => s.key.includes(w))).slice(0, 8);   // index is in rank order
-    // Any text can also be pinned as an address: first when it starts with a house number, otherwise last.
+    // Index is in rank order. Places whose street names hold every word come before neighborhood-only matches.
+    const all = searchIdx.filter(s => words.every(w => s.key.includes(w)));
+    const inName = s => words.every(w => s.nkey.includes(' ' + w));
+    sHits = all.filter(inName).concat(all.filter(s => !inName(s))).slice(0, 8);
+    const nPlaces = sHits.length;
+    // Text can also be pinned as an address: offered when it has a number in it or matches no scored place.
     const addr = { addr: true, text: sInput.value.trim() };
-    if (/^\d/.test(addr.text)) sHits.unshift(addr); else sHits.push(addr);
-    sActive = -1;
+    if (/^\d/.test(addr.text)) sHits.unshift(addr); else if (/\d/.test(addr.text) || !nPlaces) sHits.push(addr);
+    sActive = -1; sInput.removeAttribute('aria-activedescendant');
+    say(nPlaces ? `${nPlaces === 8 ? '8 or more' : nPlaces} matching places` : 'No matching crash location. You can pin it as an address.');
     sList.innerHTML = sHits.map((s, i) => s.addr
-      ? `<li role="option" id="sr-${i}" data-i="${i}" class="addr-opt"><span>📍 Pin this address on the map: <b>${esc(s.text)}</b></span></li>`
+      ? `<li role="option" id="sr-${i}" data-i="${i}" class="addr-opt"><span>📍 Pin this address on the map: <b>${esc(s.text)}</b><small class="pin-privacy">Looked up with Esri’s address search. The pin is saved only on this device.</small></span></li>`
       : `<li role="option" id="sr-${i}" data-i="${i}">
         <span>${esc(niceName(s.name))}${s.area ? `<small class="hood">${esc(s.area)}</small>` : ''}</span><small>#${fmt(s.rank)} · ${plural(s.crashes, 'crash', 'crashes')}</small></li>`).join('') +
-      (sHits.length === 1 ? '<li class="none">No crash location matches. Only places with a reported crash are scored.</li>' : '');
+      (!nPlaces ? '<li class="none">No crash location matches. Only places with a reported crash are scored.</li>' : '');
     sList.hidden = false; sInput.setAttribute('aria-expanded', 'true');
   }
   function pick(i) {
     const s = sHits[i]; if (!s) return;
-    if (s.addr) { sList.hidden = true; sInput.setAttribute('aria-expanded', 'false'); pinAddress(s.text); return; }
-    sList.hidden = true; sInput.setAttribute('aria-expanded', 'false'); sInput.value = niceName(s.name);
+    if (s.addr) { closeList(); pinAddress(s.text); return; }
+    closeList(); sInput.value = niceName(s.name);
     const p = byId.get(s.rank);
     if (p) select(p, true, sInput); else selectLite(s);
   }
@@ -1044,10 +1060,10 @@
       sList.querySelectorAll('li').forEach((li, i) => li.classList.toggle('active', i === sActive));
       sInput.setAttribute('aria-activedescendant', 'sr-' + sActive);
     } else if (e.key === 'Enter') { e.preventDefault(); pick(sActive < 0 ? 0 : sActive); }
-    else if (e.key === 'Escape') { sList.hidden = true; sInput.setAttribute('aria-expanded', 'false'); }
+    else if (e.key === 'Escape') closeList();
   });
   sList.addEventListener('mousedown', e => { const li = e.target.closest('li[data-i]'); if (li) { e.preventDefault(); pick(+li.dataset.i); } });
-  sInput.addEventListener('blur', () => setTimeout(() => { sList.hidden = true; sInput.setAttribute('aria-expanded', 'false'); }, 150));
+  sInput.addEventListener('blur', () => setTimeout(closeList, 150));
 
   // ---------- address pin: a personal reference point (home, work, a kid's school) ----------
   // The typed address goes to Esri's geocoder (OpenStreetMap's if Esri fails) only when someone asks to pin it.
@@ -1070,44 +1086,49 @@
     } catch { /* not found */ }
     return null;
   }
-  function searchMsg(html) { sList.innerHTML = `<li class="none">${html}</li>`; sList.hidden = false; sInput.setAttribute('aria-expanded', 'true'); }
+  function searchMsg(html) { sList.innerHTML = `<li class="none">${html}</li>`; sList.hidden = false; sInput.setAttribute('aria-expanded', 'true'); say(sList.textContent); }
   async function pinAddress(text) {
     if (!text) return;
     searchMsg('Finding that address…');
     const g = await geocode(text);
     if (!g) return searchMsg(`Couldn't find “${esc(text)}”. Try a street address like “600 4th Ave”.`);
     if (!inSeattle(g.lat, g.lon)) return searchMsg(`“${esc(g.label)}” is outside Seattle. This map covers Seattle only.`);
-    sList.hidden = true; sInput.setAttribute('aria-expanded', 'false');
+    closeList();
     setPin(g, true);
   }
+  // Everything within a quarter mile (402 m): crash totals plus the highest-ranked places.
   function nearbySpots(lat, lon) {
     const k = Math.cos(lat * Math.PI / 180) * 111320;
-    return D.priorities.filter(p => p.rank != null && p.rank <= 200)
-      .map(p => ({ p, m: Math.hypot((p.lon - lon) * k, (p.lat - lat) * 111320) }))
-      .filter(x => x.m <= 800).sort((a, b) => a.m - b.m).slice(0, 4);
+    const near = searchIdx.map(x => ({ x, m: Math.hypot((x.lon - lon) * k, (x.lat - lat) * 111320) })).filter(n => n.m <= 402);
+    const sum = f => near.reduce((t, n) => t + n.x[f], 0);
+    return { crashes: sum('crashes'), ksi: sum('ksi'), pb: sum('pb'), places: near.length,
+      worst: near.slice().sort((a, b) => a.x.rank - b.x.rank).slice(0, 4) };
   }
+  const small = () => matchMedia('(max-width: 760px)').matches;
   const distText = m => (m < 160 ? `${Math.round(m * 3.28084 / 10) * 10} ft` : `${(m / 1609.34).toFixed(1)} mi`);
   function setPin(g, fly) {
     pinLayer.clearLayers();
     try { localStorage.setItem('ipm.pin', JSON.stringify(g)); } catch { /* storage unavailable */ }
-    const near = nearbySpots(g.lat, g.lon);
+    const nb = nearbySpots(g.lat, g.lon);
     const html = `<div class="pin-pop"><div class="pin-title">📍 ${esc(g.label)}</div>
-      <div class="pin-near">${near.length
-        ? `Ranked safety spots within half a mile:<ul>${near.map(x => `<li><button type="button" class="linkbtn" data-open="${x.p.rank_ksi}">#${x.p.rank} ${esc(x.p.name)}</button>
-            <span class="muted">${distText(x.m)}</span></li>`).join('')}</ul>`
-        : 'None of the top 200 safety spots are within half a mile.'}</div>
+      <div class="pin-near">${nb.crashes
+        ? `<p>Within a quarter mile, ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}: <b>${plural(nb.crashes, 'crash', 'crashes')}</b>${nb.ksi ? `, <b>${nb.ksi} killed or seriously hurt someone</b>` : ', none killed or seriously hurt anyone'}${nb.pb ? `, ${nb.pb} with people walking or biking` : ''}.</p>
+          Highest-ranked places nearby:<ul>${nb.worst.map(n => `<li><button type="button" class="linkbtn" data-open="${n.x.rank}">#${fmt(n.x.rank)} ${esc(niceName(n.x.name))}</button>
+            <span class="muted">${distText(n.m)}</span></li>`).join('')}</ul>`
+        : 'No reported crashes within a quarter mile in the last five years.'}</div>
       <details class="pin-res" data-loc="${esc(g.label)}"><summary>Report a problem here</summary>${resourceList()}</details>
       <div class="pin-actions"><button type="button" class="linkbtn pin-copy">Copy address</button>
         <button type="button" class="linkbtn pin-remove">Remove pin</button></div></div>`;
     const m = L.marker([g.lat, g.lon], {
       pane: 'pin', keyboard: true, title: g.label, alt: 'Your pin: ' + g.label,
       icon: L.divIcon({ className: 'addr-pin', iconSize: [30, 42], iconAnchor: [15, 40], popupAnchor: [0, -36], html: '<span></span>' })
-    }).bindPopup(html, { maxWidth: 320 }).addTo(pinLayer);
+    }).bindPopup(html, { maxWidth: 320, maxHeight: small() ? 150 : 420, autoPanPaddingTopLeft: [12, 12], autoPanPaddingBottomRight: [12, 12] }).addTo(pinLayer);
     m.on('popupopen', e => {     // popups stop clicks from bubbling, so wire their buttons here
       const el = e.popup.getElement();
       el.querySelectorAll('[data-open]').forEach(b => (b.onclick = () => {
-        const p = byId.get(+b.dataset.open); if (!p) return;
-        m.closePopup(); showTab(document.getElementById('tabbtn-priorities')); select(p, true, null);
+        const id = +b.dataset.open, p = byId.get(id), lite = searchIdx.find(x => x.rank === id);
+        m.closePopup(); showTab(document.getElementById('tabbtn-priorities'));
+        if (p) select(p, true, null); else if (lite) selectLite(lite);
       }));
       el.querySelector('.pin-copy').onclick = ev => {
         const b = ev.target; const done = () => { b.textContent = 'Address copied'; setTimeout(() => (b.textContent = 'Copy address'), 1800); };
@@ -1118,10 +1139,14 @@
       el.querySelector('.pin-remove').onclick = () => { pinLayer.clearLayers(); try { localStorage.removeItem('ipm.pin'); } catch { /* ignore */ } };
     });
     if (fly) {
+      say(`Address pinned: ${g.label}. ${nb.crashes ? plural(nb.crashes, 'crash', 'crashes') + ' within a quarter mile.' : 'No crashes within a quarter mile.'}`);
       if (!detailEl.hidden) closeDetail(false);
       const go = () => { m.openPopup(); };
-      if (reduceMotion) { map.setView([g.lat, g.lon], 16, { animate: false }); go(); }
-      else { map.once('moveend', go); map.flyTo([g.lat, g.lon], 16, { duration: 0.8 }); }
+      // On phones the map is short: put the pin low so its pop-up fits above it.
+      let c = L.latLng(g.lat, g.lon);
+      if (small()) c = map.unproject(map.project(c, 16).subtract([0, map.getSize().y * 0.38]), 16);
+      if (reduceMotion) { map.setView(c, 16, { animate: false }); go(); }
+      else { map.once('moveend', go); map.flyTo(c, 16, { duration: 0.8 }); }
     }
   }
   try { const g = JSON.parse(localStorage.getItem('ipm.pin')); if (g && inSeattle(g.lat, g.lon)) setPin(g, false); } catch { /* none saved */ }
@@ -1195,13 +1220,13 @@
   const TMODES = {
     bus: {
       hint: `Stretches of bus route where buses lose the most time at rush hour, per mile, counting every bus that runs
-        there on a weekday. From King County Metro's timetable${T.weekday ? ' for ' + longDate(T.weekday) : ''}.`,
+        there on a weekday. Ranked by bus time lost per mile, so short, badly jammed stretches rank high. From King County Metro's current weekday timetable${T.weekday ? ' (the schedule in effect on ' + longDate(T.weekday) + ')' : ''}.`,
       items: () => T.stretches.filter(s => s.rank).sort((a, b) => a.rank - b.rank),
       rank: s => s.rank, name: stretchName,
       sub: s => `Routes ${s.routes.slice(0, 8).join(', ')}${s.routes.length > 8 ? '…' : ''}`,
-      score: s => `+${(s.peak - s.base).toFixed(1)} <small>min</small>`,
+      score: s => `${Math.round(s.lpm / 60)} h <small>lost per mile</small>`,
       chips: s => [
-        { cls: 'serious', text: `${Math.round(100 * s.slower)}% slower at ${hourName(s.hr)}` },
+        { cls: 'serious', text: `+${(s.peak - s.base).toFixed(1)} min a bus at ${hourName(s.hr)} (${Math.round(100 * s.slower)}% slower)` },
         { cls: 'ped', text: `${fmt(s.trips)} buses a weekday` },
         { cls: 'state', text: `Buses lose ${(s.lost / 60).toFixed(1)} hours a day here` }]
     },
@@ -1237,7 +1262,7 @@
     document.getElementById('tlist').innerHTML = rows.map((s, i) => {
       const r = M.rank(s), t = tier(r);
       return `<li data-k="${tKey(s)}" class="${r <= 10 ? 'top10 ' : ''}t${t}${tSel === s ? ' selected' : ''}" style="--i:${Math.min(i, 15)}">
-        <button type="button" class="card" aria-label="#${r} ${esc(M.name(s))}">
+        <button type="button" class="card">
           <span class="row1"><span class="rank">#${r}</span><span class="loc">${esc(M.name(s))}<span class="hood">${esc(M.sub(s))}</span></span>
             <span class="score">${M.score(s)}</span></span>
           <span class="chips">${M.chips(s).map(c => `<span class="chip ${c.cls}">${esc(c.text)}</span>`).join('')}</span>
@@ -1317,7 +1342,7 @@
       <h3>About this measure</h3>
       <div class="note">From ${stopShort(s.from)} to ${stopShort(s.to)}. Metro sets scheduled times from how long buses really take
         at each hour, so the rush-hour time includes traffic and extra boarding time. The slowdown could be anywhere along the
-        stretch. Timetable for ${T.weekday ? longDate(T.weekday) : 'a weekday'}.</div>` : `
+        stretch. Weekday timetable in effect on ${T.weekday ? longDate(T.weekday) : 'a weekday'}.</div>` : `
       <div class="dhead">
         <div class="where">${esc(M.sub(s))} · ${copyLoc(M.name(s))}</div>
         <p class="verdict"><b>${fmt(s.awdt)} vehicles</b> on an average weekday${s.est ? ' (an SDOT estimate, not a count)' : ''}.
@@ -1516,7 +1541,7 @@
       </ul>
       <h3>Driver behavior</h3>
       <p class="note">Crashes involving speeding stay in the score. Repeated speeding at one spot usually points to road design
-        (wide, straight streets invite speed), so it's flagged as context ("speeding in 8 of 30") rather than excluded.</p>
+        (wide, straight streets invite speed), so it's flagged as context ("speed-related: 8 of 30") rather than excluded.</p>
       <h3>Known limits</h3>
       <ul>
         <li>The latest 3 months of crashes aren't scored: police reports arrive late, so those months look safer than they were.</li>

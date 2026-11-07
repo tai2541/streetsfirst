@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <a class="skip" href="#map">Skip to the map</a>
   <header>
     <div>
       <h1>Seattle Infrastructure Priority Map <span class="tag">v1</span></h1>
@@ -19,8 +20,8 @@
     <nav role="tablist" aria-label="Views">
       <button role="tab" id="tabbtn-priorities" data-tab="priorities" aria-controls="tab-priorities" aria-selected="true" class="active">Safety</button>
       <button role="tab" id="tabbtn-traffic" data-tab="traffic" aria-controls="tab-traffic" aria-selected="false" tabindex="-1">Traffic</button>
-      <button role="tab" id="tabbtn-spending" data-tab="spending" aria-controls="tab-spending" aria-selected="false" tabindex="-1">SDOT capital budget</button>
-      <button role="tab" id="tabbtn-about" data-tab="about" aria-controls="tab-about" aria-selected="false" tabindex="-1">How it's scored</button>
+      <button role="tab" id="tabbtn-spending" data-tab="spending" aria-controls="tab-spending" aria-selected="false" tabindex="-1"><span class="tab-long">SDOT capital budget</span><span class="tab-short">Budget</span></button>
+      <button role="tab" id="tabbtn-about" data-tab="about" aria-controls="tab-about" aria-selected="false" tabindex="-1"><span class="tab-long">How it's scored</span><span class="tab-short">Method</span></button>
     </nav>
   </header>
 
@@ -30,8 +31,9 @@
         <div id="citySummary" class="city-summary"></div>
         <div class="searchbox">
           <input id="search" type="search" autocomplete="off" placeholder="Find a street, intersection or address"
-                 aria-label="Find a street, intersection or address" aria-controls="searchResults" aria-expanded="false">
+                 role="combobox" aria-autocomplete="list" aria-label="Find a street, intersection or address" aria-controls="searchResults" aria-expanded="false">
           <ul id="searchResults" role="listbox" aria-label="Matching locations" hidden></ul>
+          <div id="searchStatus" class="sr-only" role="status" aria-live="polite"></div>
         </div>
         <div class="controls">
           <label>Ranking
@@ -94,14 +96,14 @@
       <div class="dtop">
         <h2 id="detailTitle" tabindex="-1"></h2>
         <div class="dbtns">
-          <button id="sheetDetail" title="Show more" aria-label="Show more" aria-expanded="false">⌃</button>
+          <button id="sheetDetail" title="Show more" aria-label="Show more" aria-expanded="false">More</button>
           <button id="closeDetail" title="Close (Esc)" aria-label="Close">×</button>
         </div>
       </div>
       <div id="detailBody"></div>
     </div>
 
-    <div id="map" aria-label="Map of ranked locations"></div>
+    <div id="map" role="region" aria-label="Map of ranked locations"></div>
     <div id="mapNote" hidden>The budget isn't on the map: the city's budget data has no locations.</div>
   </main>
 

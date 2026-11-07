@@ -473,3 +473,26 @@ header nav { margin-left: 0; }
 .map-legend .lg-body { display: block; }
 .map-legend.collapsed .lg-body { display: none; }
 .lg-toggle:focus-visible { outline: 2px solid #f2b632; outline-offset: 2px; }
+
+/* ---- tester round 2: phone + accessibility ---- */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.skip { position: absolute; left: 8px; top: -60px; z-index: 5000; background: #f2b632; color: #101b33; font-weight: 700; padding: 8px 14px; border-radius: 8px; text-decoration: none; }
+.skip:focus { top: 8px; }
+.pin-privacy { display: block; color: #5b6b66; font-size: 11.5px; margin-top: 2px; }
+.pin-near p { margin: 0 0 6px; }
+.res-fold summary { cursor: pointer; font-weight: 700; color: #0f7a54; margin: 6px 0 2px; font-size: 13px; }
+.hlabel { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.25; }
+.tab-short { display: none; }
+@media (max-width: 760px) {
+  header .sub { display: none; }
+  .tab-long { display: none; }
+  .tab-short { display: inline; }
+  nav[role=tablist] button { white-space: nowrap; }
+  .dbtns button { min-width: 44px; height: 44px; font-size: 14px; font-weight: 700; }
+  #closeDetail { font-size: 24px; }
+  .lg-toggle { min-height: 32px; }
+}
+.pin-near ul { list-style: none; padding: 0; margin: 4px 0 8px; display: grid; gap: 4px; }
+.pin-near li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.pin-near li .linkbtn { text-align: left; display: inline; width: auto; padding: 0; }
+.pin-near li .muted { white-space: nowrap; flex: none; }
