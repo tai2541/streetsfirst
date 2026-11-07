@@ -399,7 +399,7 @@
     extra.forEach(p => {
       const m = L.circleMarker([p.lat, p.lon], EXTRA_STYLE);
       m.bindTooltip(`${p.rank ? '#' + fmt(p.rank) + ' ' : ''}${esc(p.name)}: ${p.killed} people killed`, { direction: 'top', offset: [0, -4] })
-        .on('click', () => pickSpot(p, false, null));
+        .on('click', () => pickSpot(p, true, null));
       m._p = p; m.addTo(layer); markers[p.rank_ksi] = m;
     });
     // Draw lower ranks first so higher ranks sit on top.
@@ -419,7 +419,7 @@
             fillColor: t.color, fillOpacity: 0.85
           });
       m.bindTooltip(`#${p.rank} ${esc(p.name)}`, { direction: 'top', offset: [0, p.rank <= 10 ? -14 : -4] })
-        .on('click', () => pickSpot(p, false, m.getElement && m.getElement()));
+        .on('click', () => pickSpot(p, true, m.getElement && m.getElement()));
       m._p = p; m.addTo(layer); markers[p.rank_ksi] = m;
     });
 
@@ -609,7 +609,9 @@
     const inMap = document.getElementById('map').contains(e.target);
     if ((e.key === 'h' || e.key === 'H') && (inMap || inDetail)) { showAll(); return; }
     if (!spotOpen()) {
-      if (e.key === 'Escape' && placeG && (inMap || inDetail) && detailEl.classList.contains('place')) hidePlace(placeG);
+      if (e.key === 'Escape' && placeG && (inMap || inDetail) && detailEl.classList.contains('place')) {
+        const pm = pinMarkerOf(placeG); if (pm) deselectPin(placeG, pm); else hidePlace(placeG);
+      }
       return;
     }
     if (e.key === 'Escape') closeDetail(true);
@@ -1319,7 +1321,19 @@
   // (only the ranked list is drawn by default). On desktop the right panel shows the summary. Cleared when the pop-up closes.
   const nearLayer = L.layerGroup().addTo(map);
   let placeG = null;
-  const openNear = x => { const p = byId.get(x.rank); if (p) select(p, true, null); else selectLite(x); };
+  const openNear = x => {
+    if (spotOpen() && current && current.rank_ksi === x.rank) { closeDetail(true); return; }   // second click: back out
+    const p = byId.get(x.rank); if (p) select(p, true, null); else selectLite(x);
+  };
+  // Pins: a click zooms in and shows the pin; a second click (or Esc) deselects it and zooms back to where you were.
+  let pinView = null;
+  const pinMarkerOf = g => (g.preview ? previewMarker : pinMarkers.get(g.id));
+  function selectPin(g, m) { flyToMarker(m, g); }
+  function deselectPin(g, m) {
+    const back = pinView;
+    m.closePopup(); hidePlace(g); pinView = null;
+    if (back) { if (reduceMotion) map.setView(back.c, back.z, { animate: false }); else map.flyTo(back.c, back.z, { duration: 0.6 }); }
+  }
   function drawNearby(g, nb) {
     nearLayer.clearLayers();
     L.circle([g.lat, g.lon], { radius: 402, color: '#2f55c7', weight: 1.5, dashArray: '5 6', fillColor: '#2f55c7', fillOpacity: 0.04, interactive: false }).addTo(nearLayer);
@@ -1416,6 +1430,7 @@
     return flyToMarker(m, g);
   }
   function flyToMarker(m, g) {
+    if (!pinView) pinView = viewBefore || { c: map.getCenter(), z: map.getZoom() };
     if (spotOpen()) closeDetail(false);
     const go = () => { m.openPopup(); };
     // On phones the map is short: put the pin low so its pop-up fits above it.
@@ -1449,13 +1464,16 @@
     const P = L.Marker.prototype, inPanel = () => !small() && !!placeG && placeG.id === g.id && detailEl.classList.contains('place');
     m.openPopup = ll => {
       if (small()) return P.openPopup.call(m, ll);
-      if (ll && inPanel()) { hidePlace(g); return m; }   // a click (Leaflet passes where) on the open pin: deselect
       if (spotOpen()) { mainEl.classList.remove('split'); clearFocus(); viewBefore = null; history.replaceState(null, '', location.pathname + location.search); }
       showPlace(g, true); m.fire('panelopen');
       return m;
     };
     m.closePopup = () => { if (!small()) hidePlace(g); return P.closePopup.call(m); };
     m.isPopupOpen = () => (small() ? P.isPopupOpen.call(m) : inPanel());
+    const toggle = () => (m.isPopupOpen() ? deselectPin(g, m) : selectPin(g, m));
+    m.off('click', m._openPopup, m).off('keypress', m._onKeyPress, m);
+    m.on('click', e => { L.DomEvent.stop(e); toggle(); });
+    m.on('keypress', e => { if (e.originalEvent.key === 'Enter') toggle(); });
     m.on('popupclose', () => hidePlace(g));
     m.on('popupopen', e => {     // popups stop clicks from bubbling, so wire their buttons here
       showPlace(g);
@@ -1842,7 +1860,7 @@
       const casing = L.polyline(s.pts, { color: '#fff', weight: lineStyle(t).weight + 4, opacity: 0.9, interactive: false }).addTo(tLayer);
       const line = L.polyline(s.pts, lineStyle(t, tSel === s)).addTo(tLayer)
         .bindTooltip(`#${M.rank(s)} ${esc(M.name(s))}`, { sticky: true })
-        .on('click', () => pickLine(s));
+        .on('click', () => pickLine(s, true));
       line._casing = casing; line._t = t; tLines.set(tKey(s), line);
     });
     document.getElementById(V().list).innerHTML = rows.map((s, i) => {
