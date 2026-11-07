@@ -125,3 +125,16 @@ the weather analysis.
 - **Traffic volumes**: `DATAQUALIT` and `START_DATE` are now used. The "2024" layer is a compilation:
   about 30% are 2024 counts; others are 2013-2023 counts or undated estimates (e.g. 36,000 on Aurora).
 - **Crash reporting lag**: the newest 2-3 months are far below normal (e.g. Oct 2026: 47 vs ~480 a month).
+
+## Added for the Traffic view and more SDOT fixes (2026-11)
+All read by `pipeline/fetch.ps1`, joined in `pipeline/traffic.sql`. Context only: none of these change the safety score.
+
+| Data | Source | Used for | Notes |
+|---|---|---|---|
+| Arterial traffic volumes, 2015–newest | ArcGIS `YYYY_Arterial_Traffic_Volumes` (one service per year; layer id and field names vary) | Busiest streets; traffic history per spot and street | Yearly layers re-publish old counts for streets not recounted (2022: ~125 of 1,930 new). History uses each count's own date (`START_DATE` / `COUNTSTART`); undated records dropped; repeated identical values hidden. Most streets have only ~2 real counts in 10 years, so there is no "fastest-growing" ranking. |
+| King County Metro GTFS timetable | https://metro.kingcounty.gov/GTFS/google_transit.zip | Where buses lose time at rush hour | Typical Wednesday in the next 90 days. Stretches between timed stops (~1.5 mi). Hourly average run time; baseline = mean of 2 quickest hours; peak = slowest of 7–9 am, 3–6 pm. Includes boarding time. Inside Seattle; stretches under 0.25 mi not ranked (minute-rounded times). |
+| Seattle Bus Volumes | ArcGIS `Seattle_Bus_Volumes` | Buses a weekday at each spot | Metro trips per street link. |
+| Speed humps, speed cushions | ArcGIS `Speed_Humps_(Active)`, `Speed_Cushions_(Active)` | "What SDOT has done here" | No install dates, so no before/after. Linked by street segment key. |
+| Radar speed signs | ArcGIS `Radar_Speed_Signs_CDL` | Same | No dates. |
+| Protected bike lanes | ArcGIS `ProtectedBikeLanes` | Same, plus fix line on the timeline | `DATE_COMPLETED`; status CONST = under construction. |
+| Transit (bus) lanes | ArcGIS `Transit_Lanes` layer 1 | Same | `InstallationDate` (175 of 1,174 dated); removed lanes skipped. |

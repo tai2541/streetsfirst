@@ -390,6 +390,9 @@ select a.location, a.requests, a.request_types, coalesce(s.request_points, 0) re
        coalesce(s.scored_requests, 0) scored_requests
 from all_types a left join scored s using (location);
 
+-- fixes SDOT has built, traffic over the years, buses and rush-hour bus slowdown (context only, not scored)
+.read pipeline/traffic.sql
+
 -- ---------------------------------------------------------------- final ranking
 create or replace table priorities as
 with b as (
@@ -473,7 +476,8 @@ copy (
          confidence, crashes, unknown_sev, fatal, serious, injury, ksi, ksi_years,
          ped_crashes, bike_crashes, speeding_crashes,
          wet_crashes, dark_crashes, unlit_crashes, road_known, light_known,
-         first_crash, last_crash, requests, request_types
+         first_crash, last_crash, requests, request_types,
+         fixes, vol_history, bus_trips, bus_routes, bus_stretch_id
   from export_set() order by rank
 ) to 'site/data/priorities.json' (format json, array true);
 

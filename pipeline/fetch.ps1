@@ -110,10 +110,23 @@ Get-ArcGISLayer "$gis/Seattle_City_Council_Districts/FeatureServer/0" 'C_DISTRIC
 Get-ArcGISLayer "$gis/Traffic_Signal_Assemblies_(Active)/FeatureServer/0" `
   'INTKEY,UNITDESC,INSTALL_DATE,PEDSIGNALYN,PEDAUDIODEVICEYN,LTPROTECTEDYN,LTFIRSTINSTALLDT,LASTSIGNALOPTDT' 'signals'
 
+# ---- 4c. King County Metro timetable (GTFS). Metro sets scheduled run times from how long buses actually
+# take at each time of day, so peak vs early-morning run times between stops show where traffic slows buses. ----
+$gtfsZip = Join-Path $tmp 'gtfs.zip'
+Get-WithRetry 'https://metro.kingcounty.gov/GTFS/google_transit.zip' $gtfsZip 300
+$gtfsDir = Join-Path $tmp 'gtfs'
+Expand-Archive $gtfsZip $gtfsDir -Force
+Remove-Item $gtfsZip
+foreach ($f in 'stops.txt', 'stop_times.txt', 'trips.txt', 'calendar.txt', 'routes.txt') {
+  if (-not (Test-Path (Join-Path $gtfsDir $f))) { throw "GTFS is missing $f" }
+}
+$counts['gtfs_stops'] = (Get-Content (Join-Path $gtfsDir 'stops.txt')).Count - 1
+Write-Host "gtfs stops: $($counts['gtfs_stops'])"
+
 # ---- 5. Sanity checks, then swap into data/raw ----
 $minimum = @{ collisions = 20000; requests = 50000; budget = 10000; streets = 20000; volumes = 1000
               hin = 50; hcl = 100; lpi = 500; signals = 800; districts = 7; hoods_main = 15; hoods_sub = 80
-              volhist_years = 8; humps = 50; cushions = 30; radar = 30; bikelanes = 200; buslanes = 500; busvol = 2000 }
+              volhist_years = 8; humps = 50; cushions = 30; radar = 30; bikelanes = 200; buslanes = 500; busvol = 2000; gtfs_stops = 3000 }
 $prev = @{}
 $prevFile = Join-Path $raw 'counts.json'
 if (Test-Path $prevFile) { (Get-Content $prevFile -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $prev[$_.Name] = [int]$_.Value } }
