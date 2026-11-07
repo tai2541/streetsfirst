@@ -340,7 +340,8 @@ from c group by location;
 
 
 -- ---------------------------------------------------------------- expected harm (empirical Bayes on severity)
--- Whether a crash kills or seriously injures someone is partly chance (speed, age, vehicle, ambulance time).
+-- Whether a crash kills or seriously injures someone also depends on things beyond the street (speed, age, vehicle,
+-- how fast help arrives).
 -- So a spot's fatal/serious harm is estimated by blending its own record with the typical fatal/serious
 -- share on similar streets (same kind of location and street class), weighted by how many crashes it has:
 --   own-record weight  w = crashes / (crashes + A)              (A = ksi_prior_crashes)
@@ -472,14 +473,13 @@ select row_number() over (order by score_ksi desc, crashes desc, location)      
 from priorities;
 
 -- ---------------------------------------------------------------- validation
--- 1) Out of sample: rank on the first 3 years of the window, then count the fatal/serious crashes that
---    happened in the last 2 years at each method's top 50. A ranking that finds lasting danger (not luck)
---    should catch more future KSI crashes.
-create or replace table validation as
-with train as (select * from eb_in(ws(), (select test_start from scoring_window))),
-test as (select location, count(*) filter (where severity in ('Fatal Collision', 'Serious Injury Collision')) ksi,
-                count(*) crashes
-         from collisions where date >= (select test_start from scoring_window) and date < we() group by location),
+-- 1) Out of sample: rank on earlier years only, then count the fatal/serious crashes that happened afterwards at each
+--    method's top 50. A ranking that finds lasting danger should catch more of them. Two splits, so one unusual split
+--    can't carry the result: (a) rank on the first 3 years, test the last 2; (b) rank on the first 2, test the next 2.
+create or replace macro val_split(t0, t1, v0, v1) as table
+with train as (select * from eb_in(t0, t1)),
+test as (select location, count(*) filter (where severity in ('Fatal Collision', 'Serious Injury Collision')) ksi
+         from collisions where date >= v0 and date < v1 group by location),
 methods as (
   select 'expected' m, location, row_number() over (order by expected_harm desc, crashes desc, location) rk from train
   union all select 'raw_harm', location, row_number() over (order by harm desc, crashes desc, location) from train
@@ -491,6 +491,15 @@ select m as method,
   coalesce(sum(t.ksi) filter (where rk <= 50), 0)::int  as future_ksi_50,
   coalesce(sum(t.ksi) filter (where rk <= 200), 0)::int as future_ksi_200
 from methods left join test t using (location) group by m;
+
+create or replace table validation_splits as
+select (select test_start from scoring_window) as a_test0, ws() + interval 24 month as b_mid, ws() + interval 48 month as b_end;
+
+create or replace table validation as
+select a.method, a.future_ksi_50, a.future_ksi_200, b.future_ksi_50 as b_ksi_50, b.future_ksi_200 as b_ksi_200
+from val_split(ws(), (select a_test0 from validation_splits), (select a_test0 from validation_splits), we()) a
+join val_split(ws(), (select b_mid::date from validation_splits), (select b_mid::date from validation_splits),
+               (select b_end::date from validation_splits)) b using (method);
 
 -- 2) Consistency with SDOT's own lists (built from overlapping crash data, so not independent),
 --    with fair baselines: busy crash locations are on the High Injury Network anyway.
@@ -605,7 +614,11 @@ copy (
      from sdot_agreement)                                   as sdot_agreement,
     (select round(count(*) filter (where sdot_hin is not null) * 1.0 / count(*), 3) from locations where crashes >= 10) as busy_share_on_hin,
     (select count(*) from locations where crashes >= 10)    as busy_locations,
-    (select list({'method': method, 'k50': future_ksi_50, 'k200': future_ksi_200} order by future_ksi_50 desc, method) from validation) as validation,
+    (select list({'method': method, 'k50': future_ksi_50, 'k200': future_ksi_200, 'b50': b_ksi_50, 'b200': b_ksi_200} order by future_ksi_50 desc, method) from validation) as validation,
+    (select b_mid::date from validation_splits)            as test2_from,
+    ((select b_end from validation_splits) - interval 1 day)::date as test2_to,
+    (select count(*) filter (where severity in ('Fatal Collision', 'Serious Injury Collision')) from collisions
+       where date >= (select b_mid from validation_splits) and date < (select b_end from validation_splits)) as test2_ksi_total,
     (select count(*) filter (where severity in ('Fatal Collision', 'Serious Injury Collision')) from collisions
        where date >= (select test_start from scoring_window) and date < we()) as test_ksi_total,
     -- citywide totals for the summary at the top of the list (people, not crashes)

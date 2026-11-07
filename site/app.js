@@ -1961,18 +1961,31 @@
     const V = (meta.validation || []).reduce((o, a) => (o[a.method] = a, o), {});
     const vname = { expected: 'This site (expected harm)', old_reliability: 'Previous version of this site', crash_count: 'Most crashes',
                     raw_harm: 'Crash harm, no blending', ksi_count: 'Most fatal/serious crashes' };
+    const dayBefore = d => new Date(new Date(d + 'T12:00:00') - 864e5).toISOString().slice(0, 10);
+    const span = (x, y) => `${monthYear(x)}–${monthYear(y)}`;
+    const two = !!meta.test2_from;
+    const ex2 = V.expected || {}, cc = V.crash_count || {};
     const validation = `
       <h3>Does it predict anything?</h3>
-      <p>The test: rank spots using only ${monthYear(meta.window_from)}–${monthYear(new Date(new Date(meta.test_from + 'T12:00:00') - 864e5).toISOString().slice(0, 10))},
-        then count the fatal and serious crashes that happened at each method's top 50 afterwards
-        (${monthYear(meta.test_from)}–${monthYear(meta.window_to)}; ${fmt(meta.test_ksi_total)} citywide).</p>
-      <table class="vtable"><thead><tr><th scope="col">Method</th><th scope="col">Top 50</th><th scope="col">Top 200</th></tr></thead><tbody>
-        ${(meta.validation || []).map(v => `<tr class="${v.method === 'expected' ? 'total' : ''}"><td>${vname[v.method] || v.method}</td><td>${v.k50}</td><td>${v.k200}</td></tr>`).join('')}
+      <p>The test: rank spots using only earlier years, then count the fatal and serious crashes that happened afterwards at
+        each method's top 50 and top 200. It's run twice on different years, so one unusual stretch can't carry the result.</p>
+      <ul class="tight">
+        <li><b>Test 1:</b> ranked on ${span(meta.window_from, dayBefore(meta.test_from))}, counted ${span(meta.test_from, meta.window_to)}
+          (${fmt(meta.test_ksi_total)} fatal or serious crashes citywide).</li>
+        ${two ? `<li><b>Test 2:</b> ranked on ${span(meta.window_from, dayBefore(meta.test2_from))}, counted ${span(meta.test2_from, meta.test2_to)}
+          (${fmt(meta.test2_ksi_total)} citywide).</li>` : ''}
+      </ul>
+      <table class="vtable"><thead>
+        <tr><th scope="col" rowspan="2">Method</th><th scope="colgroup" colspan="2">Test 1</th>${two ? '<th scope="colgroup" colspan="2">Test 2</th>' : ''}</tr>
+        <tr><th scope="col">Top 50</th><th scope="col">Top 200</th>${two ? '<th scope="col">Top 50</th><th scope="col">Top 200</th>' : ''}</tr></thead><tbody>
+        ${(meta.validation || []).map(v => `<tr class="${v.method === 'expected' ? 'total' : ''}"><td>${vname[v.method] || v.method}</td><td>${v.k50}</td><td>${v.k200}</td>${two ? `<td>${v.b50}</td><td>${v.b200}</td>` : ''}</tr>`).join('')}
       </tbody></table>
-      <p class="note">Ranking on fatal/serious crashes alone predicts worst: they're rare enough that a place's count swings a lot from year to year, so past counts alone say little about what comes next.
-        Blending them with crash counts did a little better in this one test (a few crashes more), which is why the method uses it.</p>
-      <p class="note">This test was also used to choose the method, so a fresh test would likely do somewhat worse. The repair-request
-        boost isn't included in it. Spots that rank high after a bad stretch usually improve somewhat on their own (regression to
+      <p class="note">Ranking on fatal/serious crashes alone does worst: they're rare enough that a place's count swings a lot from year to year, so past counts alone say little about what comes next.
+        Blending them with crash counts came out ahead in ${two ? 'both tests' : 'this test'}, but narrowly: ${two
+          ? `${ex2.k50} and ${ex2.b50} in the top 50, against ${cc.k50} and ${cc.b50} for simply counting crashes`
+          : `${ex2.k50} in the top 50, against ${cc.k50} for simply counting crashes`}. Read the ranking as a strong guide, not a precise forecast.</p>
+      <p class="note">Test 1 was also used to choose the method, so it flatters it a little${two ? '; Test 2 was added afterwards as a check' : ''}. The repair-request
+        boost isn't included in either. Spots that rank high after a bad stretch usually improve somewhat on their own (regression to
         the mean): the blending evens out the fatal/serious share where numbers are small, but not the crash count itself.</p>`;
     const ag = (meta.sdot_agreement || []).reduce((o, a) => (o[a.mode] = a, o), {});
     const agRow = (m, label) => ag[m] ? `<tr><td>${label}</td><td>${ag[m].on_hin}</td><td>${ag[m].on_hin_high}</td><td>${ag[m].sdot_hcl_recent}</td></tr>` : '';
