@@ -290,3 +290,31 @@ main.split #expandDetail { transform: translateY(calc(-50% + 34px)); }
 .where { color: #3f4a5c; font-size: 14px; margin: 0 0 4px; }
 .zoomed-out .hood-label.lvl1 span { font-size: 10.5px; letter-spacing: .03em; }
 .hood-label.clash { visibility: hidden; }
+
+/* "Show graphs": a tall edge tab with vertical text, just above the widen tab */
+.edgebtn.graphtab { height: auto; min-height: 112px; padding: 10px 0; font: 700 13px/1 system-ui, sans-serif; letter-spacing: .02em;
+  transform: translateY(calc(-100% - 36px)); }
+.graphtab span { writing-mode: vertical-rl; transform: rotate(180deg); display: inline-block; }
+#graphTab { left: -13px; }
+main.split #graphTab { transform: translateY(calc(-100% - 70px)); }
+.graphtab.bounce { animation: tabBounce 0.9s ease-in-out 0.4s 3; }
+@keyframes tabBounce { 0%, 100% { translate: 0 0; } 30% { translate: -8px 0; } 55% { translate: 0 0; } 75% { translate: -4px 0; } }
+/* the graphs area in the detail panel */
+.graphs { border-top: 1px solid #e4e2db; padding: 12px 16px 4px; scroll-margin-top: 8px; }
+.graphs .gh { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #3f4a5c; margin: 4px 0 6px; }
+.graphs .gcol + .gcol { margin-top: 18px; }
+.tc-wrap { overflow-x: auto; }
+.tchart { display: block; }
+.tchart .tc-ax { font-size: 11px; fill: #5b6576; }
+.tchart .tc-t { font-size: 12px; font-weight: 600; fill: #3f4a5c; }
+.tchart .tc-fix { font-size: 12px; font-weight: 700; fill: #1d2430; paint-order: stroke; stroke: #fff; stroke-width: 3px; }
+.tchart .tc-hit { fill: transparent; }
+.tchart .tc-hit:hover { fill: rgba(47,85,199,.07); }
+.legend i.dash { width: 14px; height: 0; border-radius: 0; border-top: 2px dashed #1d2430; vertical-align: 3px; }
+.tc-ba { font-size: 13px; background: #f6f5f1; border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.dbtns #graphTab { position: static; transform: none; width: auto; min-height: 0; height: 30px; padding: 0 10px; border: 0; border-radius: 15px; box-shadow: none; font-size: 13px; }
+.dbtns #graphTab.bounce { animation-name: pillBounce; }
+@keyframes pillBounce { 0%, 100% { translate: 0 0; } 30% { translate: 0 -6px; } 55% { translate: 0 0; } 75% { translate: 0 -3px; } }
+.dbtns #graphTab span { writing-mode: horizontal-tb; transform: none; white-space: nowrap; }
+
+#graphTab[hidden] { display: none; }

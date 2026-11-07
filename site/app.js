@@ -329,6 +329,9 @@
   const collapsed = store.get('collapsed', { math: true });
   const widths = store.get('widths', { normal: 440, expanded: null });
   let expanded = store.get('expanded', false);
+  let showGraphs = store.get('graphs', false), renderGraphs = () => {};
+  // Redraw the graphs to fit when the detail panel is resized or widened.
+  if (window.ResizeObserver) new ResizeObserver(() => renderGraphs()).observe(document.getElementById('detail'));
   const detailEl = document.getElementById('detail');
   const mapW = () => document.getElementById('map').offsetWidth || window.innerWidth;
   const maxW = () => Math.max(340, mapW() - 90);
@@ -377,6 +380,25 @@
   }
   document.getElementById('expandDetail').onclick = toggleExpand;
   document.getElementById('expandPanel').onclick = toggleLeft;
+  // "Show graphs" tab above the widen tab. It bounces when a spot opens (until graphs are shown once)
+  // so it's noticed, but stops by itself and never moves for people who turn off motion.
+  const graphTab = document.getElementById('graphTab');
+  function syncGraphTab(bounce) {
+    graphTab.firstElementChild.textContent = showGraphs ? 'Hide graphs' : 'Show graphs';
+    graphTab.setAttribute('aria-expanded', String(showGraphs));
+    graphTab.classList.remove('bounce');
+    if (bounce && !showGraphs && !reduceMotion) { void graphTab.offsetWidth; graphTab.classList.add('bounce'); }
+  }
+  // On phones the edge tabs are hidden, so the graphs button moves into the detail header.
+  const narrowMq = window.matchMedia('(max-width: 760px)');
+  const placeGraphTab = () => { if (narrowMq.matches) document.querySelector('#detail .dbtns').prepend(graphTab); else detailEl.insertBefore(graphTab, document.getElementById('expandDetail')); };
+  narrowMq.addEventListener('change', placeGraphTab); placeGraphTab();
+  graphTab.onclick = () => {
+    showGraphs = !showGraphs; store.set('graphs', showGraphs); syncGraphTab(false);
+    const g = document.getElementById('graphs'); if (!g) return;
+    g.hidden = !showGraphs; g._w = 0; renderGraphs();
+    if (showGraphs) { const b = document.getElementById('detailBody'); b.scrollTo({ top: b.scrollTop + g.getBoundingClientRect().top - b.getBoundingClientRect().top - 8, behavior: reduceMotion ? 'auto' : 'smooth' }); }
+  };
   window.addEventListener('resize', () => { applyPanel(); applyLayout(); });
   applyPanel();
   applyLayout();
@@ -484,6 +506,90 @@
       <div class="note">Top number: all crashes; dark number: fatal or serious. Scored: ${monthYear(meta.window_from)}–${monthYear(meta.window_to)}.
         Later crashes are shown but not scored yet, because police reports arrive months late
         (${y1} is incomplete). ${y0} starts in ${monthYear(meta.collisions_from)}.</div>`;
+  }
+
+  // Crashes and repair reports every six months, on one shared timeline, with SDOT's fixes drawn as
+  // vertical lines through both panels. Two panels, not two y-axes: the counts have different scales.
+  function timeChart(det, p, width) {
+    const start = meta.window_from.slice(0, 7);               // first full month of the scoring window
+    const mIdx = d => (+d.slice(0, 4) - +start.slice(0, 4)) * 12 + (+d.slice(5, 7) - +start.slice(5, 7));
+    const complete = mIdx(meta.window_to) + 1;               // months with complete crash reports
+    const n = Math.ceil((Math.max(mIdx(meta.collisions_to), mIdx(new Date().toISOString().slice(0, 10))) + 1) / 6);
+    const per = Array.from({ length: n }, (_, i) => {
+      const m0 = new Date(+start.slice(0, 4), +start.slice(5, 7) - 1 + 6 * i, 1), m1 = new Date(m0.getFullYear(), m0.getMonth() + 5, 1);
+      const name = m0.toLocaleDateString('en-US', { month: 'short' }) + '–' + m1.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      return { i, name, crashes: 0, severe: 0, reports: 0, done: 6 * (i + 1) <= complete, jan: m0.getMonth() === 0, year: m0.getFullYear() };
+    });
+    const bucket = d => { const k = Math.floor(mIdx(d) / 6); return k >= 0 && k < n ? per[k] : null; };
+    det.crashes.forEach(c => { const b = bucket(c.d); if (b) { b.crashes++; if (c.s === 'F' || c.s === 'S') b.severe++; } });
+    det.requests.forEach(r => { const b = bucket(r.d); if (b) b.reports++; });
+
+    const fixes = [];
+    if (p.lpi_status === 'Existing' && p.lpi_installed) fixes.push({ d: p.lpi_installed, label: 'Head-start walk signal' });
+    if (p.lt_protected && p.lt_installed) fixes.push({ d: p.lt_installed, label: 'Protected left turn' });
+    const inRange = fixes.filter(x => mIdx(x.d) >= 0).sort((a, b) => a.d.localeCompare(b.d));
+    const before = fixes.filter(x => mIdx(x.d) < 0);
+
+    const W = Math.max(300, Math.round(width)), L = 34, R = 14, top = 22 + 16 * inRange.length;
+    const H1 = 110, H2 = 80, gap = 34, xb = top + H1 + gap + H2;
+    const X = m => L + (W - L - R) * m / (6 * n), mid = i => X(6 * i + 3);
+    const nice = v => v <= 4 ? 4 : v <= 6 ? 6 : v <= 10 ? 10 : Math.ceil(v / 5) * 5;
+    const maxC = nice(Math.max(...per.map(b => b.crashes))), maxR = nice(Math.max(...per.map(b => b.reports)));
+    const Y1 = v => top + H1 - H1 * v / maxC, Y2 = v => top + H1 + gap + H2 - H2 * v / maxR;
+    // solid line through complete periods, dashed into the incomplete ones
+    const line = (key, Y, color) => {
+      const pts = per.map(b => [mid(b.i), Y(b[key])]), last = per.filter(b => b.done).length;
+      const d = a => a.map((q, j) => (j ? 'L' : 'M') + q[0].toFixed(1) + ' ' + q[1].toFixed(1)).join(' ');
+      return '<path d="' + d(pts.slice(0, last)) + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linejoin="round"/>' +
+        (last < n ? '<path d="' + d(pts.slice(Math.max(0, last - 1))) + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-dasharray="4 4"/>' : '');
+    };
+    const dots = (key, Y, color) => per.map(b => '<circle cx="' + mid(b.i) + '" cy="' + Y(b[key]) + '" r="4" fill="' + (b.done ? color : '#fff') +
+      '" stroke="' + (b.done ? '#fff' : color) + '" stroke-width="2"/>').join('');
+    const squares = per.map(b => '<rect x="' + (mid(b.i) - 4) + '" y="' + (Y2(b.reports) - 4) + '" width="8" height="8" rx="1.5" fill="' +
+      (b.done ? REQ_COLOR : '#fff') + '" stroke="' + (b.done ? '#fff' : REQ_COLOR) + '" stroke-width="2"/>').join('');
+    const axis = (y0, h, max) => [0, max / 2, max].map(v => { const y = y0 + h - h * v / max;
+      return '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y + '" y2="' + y + '" stroke="' + (v ? '#eceae4' : '#c3c2b7') + '"/>' +
+        '<text x="' + (L - 6) + '" y="' + (y + 4) + '" text-anchor="end" class="tc-ax">' + v + '</text>'; }).join('');
+    const years = per.filter(b => b.jan).map(b => '<line x1="' + X(6 * b.i) + '" x2="' + X(6 * b.i) + '" y1="' + top + '" y2="' + xb + '" stroke="#e4e2db"/>' +
+      '<text x="' + (X(6 * b.i) + 3) + '" y="' + (xb + 14) + '" class="tc-ax">' + b.year + '</text>').join('');
+    const fixLines = inRange.map((x, j) => { const fx = X(mIdx(x.d) + (+x.d.slice(8, 10) - 1) / 30), ly = 12 + 16 * j, tw = 7 * (x.label.length + 11), tx = Math.max(2, Math.min(fx + 5, W - 4 - tw));
+      return '<line x1="' + fx + '" x2="' + fx + '" y1="' + (ly + 3) + '" y2="' + xb + '" stroke="#1d2430" stroke-width="2" stroke-dasharray="6 4"/>' +
+        '<text x="' + tx + '" y="' + ly + '" class="tc-fix">' + esc(x.label) + ', ' + monthYear(x.d) + '</text>'; }).join('');
+    const hits = per.map(b => '<rect class="tc-hit" x="' + X(6 * b.i) + '" y="' + top + '" width="' + (X(6) - X(0)) + '" height="' + (xb - top) + '" data-tip="' + esc(
+      '<b>' + b.name + '</b>' + (b.done ? '' : ' (incomplete)') + '<br>' + plural(b.crashes, 'crash', 'crashes') + ', ' + b.severe + ' fatal or serious<br>' + plural(b.reports, 'repair report')) + '"/>').join('');
+    const summary = 'Crashes and repair reports every six months. ' + per.map(b => b.name + ': ' + b.crashes + ' crashes, ' + b.severe + ' fatal or serious, ' + b.reports + ' repair reports').join('; ') +
+      (inRange.length ? '. ' + inRange.map(x => x.label + ' installed ' + monthYear(x.d)).join('; ') : '');
+    const svg = '<svg class="tchart" width="' + W + '" height="' + (xb + 22) + '" viewBox="0 0 ' + W + ' ' + (xb + 22) + '" role="img" aria-label="' + esc(summary) + '">' +
+      years + axis(top, H1, maxC) + axis(top + H1 + gap, H2, maxR) +
+      '<text x="' + L + '" y="' + (top - 6) + '" class="tc-t">Crashes</text>' +
+      '<text x="' + L + '" y="' + (top + H1 + gap - 8) + '" class="tc-t">Repair reports within ' + ft(weight('request_radius_m')) + ' ft</text>' +
+      line('crashes', Y1, SEV.I.color) + line('severe', Y1, SEV.F.color) + line('reports', Y2, REQ_COLOR) +
+      dots('crashes', Y1, SEV.I.color) + dots('severe', Y1, SEV.F.color) + squares + fixLines + hits + '</svg>';
+
+    // Before/after for the first fix in range, using complete crash data only.
+    let ba = '';
+    const fx = inRange[0];
+    if (fx) {
+      const endC = meta.window_to, yrs = (a, b) => Math.max(0, (new Date(b) - new Date(a)) / 3.15576e10);
+      const inC = (a, b) => det.crashes.filter(c => c.d >= a && c.d < b && c.d <= endC);
+      const b0 = inC(meta.window_from, fx.d), a0 = inC(fx.d, '9999'), yb = yrs(meta.window_from, fx.d), ya = yrs(fx.d, endC);
+      const rate = (arr, y) => y >= 0.5 ? (arr.length / y).toFixed(1) : null;
+      const sev = arr => arr.filter(c => c.s === 'F' || c.s === 'S').length;
+      const what = fx.label.toLowerCase();
+      if (rate(b0, yb) && rate(a0, ya)) ba = '<p class="tc-ba"><b>Before the ' + esc(what) + ':</b> ' + rate(b0, yb) + ' crashes a year (' + sev(b0) + ' fatal or serious in ' + yb.toFixed(1) + ' years). ' +
+        '<b>After:</b> ' + rate(a0, ya) + ' a year (' + sev(a0) + ' fatal or serious in ' + ya.toFixed(1) + ' years). ' +
+        (ya < 2 ? "That's under 2 years, so a change could easily be luck." : 'Crash counts swing from year to year, so treat a small change as a hint, not proof.') + '</p>';
+      else ba = '<p class="tc-ba">Not enough time on one side of the ' + esc(what) + ' to compare before and after.</p>';
+    }
+    return '<div class="legend"><span><i style="background:' + SEV.I.color + '"></i>All crashes</span>' +
+      '<span><i style="background:' + SEV.F.color + '"></i>Fatal or serious</span>' +
+      '<span><i class="sq" style="background:' + REQ_COLOR + '"></i>Repair reports</span>' +
+      (inRange.length ? '<span><i class="dash"></i>SDOT fix</span>' : '') + '</div>' +
+      '<div class="tc-wrap">' + svg + '</div>' + ba +
+      '<div class="note">Every 6 months. Hollow points and dashed lines: not complete yet, because police reports arrive months late. ' +
+      (!fixes.length ? "No signal fixes recorded here in SDOT data, so there's no fix line (repaving, sidewalks and redesigns aren't linked yet). " : '') +
+      before.map(x => esc(x.label) + ' installed ' + monthYear(x.d) + ', before this chart starts. ').join('') +
+      'Repair reports count every repair type nearby. More people use Find It Fix It each year, so a rise can mean more reporting, not a worse street.</div>';
   }
 
   function hbars(items, color, unit) {
@@ -727,11 +833,11 @@
         </div>
         <div class="chips dchips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</div>
       </div>
+      <div id="graphs" class="graphs" ${showGraphs ? '' : 'hidden'}></div>
       <div class="dcols">
         <div class="dcol">
           ${sec('done', 'What SDOT has done here', treatments(p))}
           ${sec('street', 'The street', streetInfo(p))}
-          ${sec('years', 'Crashes by year', yearChart(det.crashes))}
           ${sec('types', 'What kind of crashes', `
             ${hbars(types, '#2a78d6', 'crashes')}
             ${untyped ? `<div class="note">${untyped} crash${untyped > 1 ? 'es have' : ' has'} no type recorded.</div>` : ''}
@@ -758,6 +864,13 @@
     applyLayout();
     if (fly) flyVisible([p.lat, p.lon], 17);
     drawFocus(p, det);
+    renderGraphs = () => {
+      const g = document.getElementById('graphs'); if (!g || g.hidden) return;
+      const w = g.clientWidth; if (Math.abs(w - (g._w || 0)) < 8 && g.innerHTML) return; g._w = w;
+      g.innerHTML = '<div class="gcol"><h3 class="gh">Crashes and repair reports over time</h3>' + timeChart(det, p, Math.min(w - 34, 760)) + '</div>' +
+        '<div class="gcol"><h3 class="gh">Crashes by year</h3>' + yearChart(det.crashes) + '</div>';
+    };
+    renderGraphs(); graphTab.hidden = false; syncGraphTab(!keepFocus);
     if (!keepFocus) { document.getElementById('detailBody').scrollTop = 0; document.getElementById('detailTitle').focus({ preventScroll: true }); }
 
     const body = document.getElementById('detailBody');
@@ -792,6 +905,7 @@
 
   // Locations outside the exported top lists (found by search): a short summary, no crash list.
   function selectLite(s) {
+    graphTab.hidden = true;
     current = { rank_ksi: s.rank, rank: null, lat: s.lat, lon: s.lon };
     opener = document.getElementById('search');
     history.replaceState(null, '', '#loc=' + s.rank);
