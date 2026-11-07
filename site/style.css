@@ -459,3 +459,7 @@ header nav { margin-left: 0; }
 #resClose { border: 0; background: none; font-size: 26px; line-height: 1; cursor: pointer; color: #5b6b66; }
 .pin-res summary { cursor: pointer; font-weight: 700; color: #0f7a54; margin: 6px 0; }
 .pin-res .res-list li { padding: 4px 8px; }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none; z-index: 3000;
+  background: #101b33; color: #fff; padding: 10px 16px; border-radius: 10px; font: 600 13.5px/1.4 Inter, system-ui, sans-serif;
+  box-shadow: 0 8px 24px rgba(0,0,0,.3); transition: opacity .2s, transform .2s; max-width: calc(100% - 32px); }
+#toast.show { opacity: 1; transform: translate(-50%, 0); }

@@ -41,15 +41,27 @@
     ['Something else', 'https://seattle-cwiprod.motorolasolutions.com/cwi/select', 'Full list of City request types']
   ];
   const resourceList = () => `<ul class="res-list">${RESOURCES.map(([t, u, w]) =>
-    `<li><a href="${u}" target="_blank" rel="noopener">${t} ↗</a><span>${w}</span></li>`).join('')}</ul>
+    `<li><a class="res-link" href="${u}" target="_blank" rel="noopener">${t} ↗</a><span>${w}</span></li>`).join('')}</ul>
     <p class="res-more"><b>Street flooding or a sewer backup right now?</b> Call Seattle Public Utilities, 24/7: <a href="tel:+12063861800">(206) 386-1800</a>.
       Danger to life: call 911.<br>Not sure? Call the City at <a href="tel:+12066842489">(206) 684-2489</a> (weekdays 8 to 5),
       use the <a href="https://www.seattle.gov/customer-service-bureau/find-it-fix-it-mobile-app" target="_blank" rel="noopener">Find It, Fix It app ↗</a>,
       or see <a href="${REPORT_URL}" target="_blank" rel="noopener">all popular services ↗</a>.</p>`;
-  const reportBox = () => `<div class="report">
+  // The City's forms can't be pre-filled from a link (they only read the request type), so opening one copies the spot instead.
+  const reportBox = place => `<div class="report" data-loc="${esc(place)}">
       <div><b>See a problem here?</b> Reports are how problems get on the City's repair list. Pick what it is:</div>
       ${resourceList()}
-      <p class="res-tip">Tip: use “Copy this location” at the top to paste the spot into the form.</p></div>`;
+      <p class="res-tip">Opening a form copies this location (${esc(place)}), so you can paste it into the form's location box.</p></div>`;
+  const toast = msg => {
+    let t = document.getElementById('toast');
+    if (!t) { t = document.createElement('div'); t.id = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
+    t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 4000);
+  };
+  document.addEventListener('click', e => {
+    const a = e.target.closest && e.target.closest('.res-link'); if (!a) return;
+    const box = a.closest('[data-loc]'); if (!box || !navigator.clipboard) return;
+    const loc = /seattle/i.test(box.dataset.loc) ? box.dataset.loc : box.dataset.loc + ', Seattle, WA';
+    navigator.clipboard.writeText(loc).then(() => toast('Location copied: ' + loc + '. Paste it into the form.'), () => {});
+  });
   const copyLoc = place => `<button type="button" class="linkbtn copyloc" data-loc="${esc(place)}">Copy this location</button>`;
   document.addEventListener('click', e => {
     const b = e.target.closest && e.target.closest('.copyloc'); if (!b) return;
@@ -862,7 +874,7 @@
           <div class="stat"><b>${p.requests}</b><span>repair requests nearby</span></div>
         </div>
         <div class="chips dchips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</div>
-        ${reportBox()}
+        ${reportBox(p.name)}
       </div>
       <div id="graphs" class="graphs"></div>
       <div class="dcols">
@@ -954,7 +966,7 @@
         ${s.hood ? `<div class="where">${esc(s.hood)}${s.area && s.area !== s.hood ? ` <span class="muted">· ${esc(s.area)}</span>` : ''}</div>` : ''}
         <div class="note">${{ I: 'Intersection', B: 'Street block', A: 'Alley' }[s.type] || 'Location'} ·
           <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${s.lat},${s.lon}" target="_blank" rel="noopener">Street View ↗</a> · ${copyLoc(niceName(s.name))}</div>
-        ${reportBox()}
+        ${reportBox(niceName(s.name))}
         <p class="verdict">${plural(s.crashes, 'crash', 'crashes')} from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}${s.ksi ? `; ${s.ksi} killed or seriously injured someone` : ''}${s.pb ? `; ${s.pb} involved people walking or biking` : ''}.</p>
         <p class="verdict2">Ranks <b>#${fmt(s.rank)}</b> of ${fmt(N)} crash locations (${topShare(s.rank)}).</p>
         <p class="note">Full crash and request details are included for the top-ranked spots only.
@@ -1075,7 +1087,7 @@
         ? `Ranked safety spots within half a mile:<ul>${near.map(x => `<li><button type="button" class="linkbtn" data-open="${x.p.rank_ksi}">#${x.p.rank} ${esc(x.p.name)}</button>
             <span class="muted">${distText(x.m)}</span></li>`).join('')}</ul>`
         : 'None of the top 200 safety spots are within half a mile.'}</div>
-      <details class="pin-res"><summary>Report a problem here</summary>${resourceList()}</details>
+      <details class="pin-res" data-loc="${esc(g.label)}"><summary>Report a problem here</summary>${resourceList()}</details>
       <div class="pin-actions"><button type="button" class="linkbtn pin-copy">Copy address</button>
         <button type="button" class="linkbtn pin-remove">Remove pin</button></div></div>`;
     const m = L.marker([g.lat, g.lon], {
@@ -1092,6 +1104,8 @@
         const b = ev.target; const done = () => { b.textContent = 'Address copied'; setTimeout(() => (b.textContent = 'Copy address'), 1800); };
         if (navigator.clipboard) navigator.clipboard.writeText(g.label).then(done, () => prompt('Copy this address:', g.label)); else prompt('Copy this address:', g.label);
       };
+      el.querySelectorAll('.res-link').forEach(l => (l.onclick = () => navigator.clipboard &&
+        navigator.clipboard.writeText(g.label).then(() => toast('Address copied: ' + g.label + '. Paste it into the form.'), () => {})));
       el.querySelector('.pin-remove').onclick = () => { pinLayer.clearLayers(); try { localStorage.removeItem('ipm.pin'); } catch { /* ignore */ } };
     });
     if (fly) {
@@ -1289,7 +1303,7 @@
           ${stat(fmt(s.trips), 'buses a weekday')}${stat((s.lost / 60).toFixed(1) + ' h', 'bus time lost a day')}
         </div>
       </div>
-      ${reportBox()}
+      ${reportBox(M.name(s))}
       <h3>Safety spots along this stretch</h3>${safetyList(along)}
       <h3>About this measure</h3>
       <div class="note">From ${stopShort(s.from)} to ${stopShort(s.to)}. Metro sets scheduled times from how long buses really take
@@ -1302,7 +1316,7 @@
       </div>
       ${trafficHistChart(s.hist) ? `<h3>Traffic counts over the years</h3>${trafficHistChart(s.hist)}
         <div class="note">Each dot is a real SDOT count. Streets are recounted every few years.</div>` : ''}
-      ${reportBox()}
+      ${reportBox(M.name(s))}
       <h3>Safety spots along this street</h3>${safetyList(along)}`;
     const wasHidden = detailEl.hidden;
     detailEl.hidden = false;
