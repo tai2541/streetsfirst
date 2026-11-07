@@ -667,5 +667,18 @@ body.sheet-open #expandPanel, body.sheet-open #expandDetail, body.sheet-open #pa
 .tag:hover { border-color: #9fb1e3; background: #f5f7fd; }
 .tag:has(input:checked) { background: #1d2430; border-color: #1d2430; color: #fff; }
 .tag:has(input:checked)::before { content: "\2713"; font-weight: 700; }
-.tag:has(input:focus-visible) { box-shadow: 0 0 0 3px rgba(47,85,199,.3); }
+.tag:has(input:focus-visible) { outline: 2px solid #2f55c7; outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .tag { transition: none; } }
+
+/* phones: the tab row scrolls on its own instead of widening the page */
+@media (max-width: 760px) {
+  header nav { flex: 1 1 100%; min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  header nav::-webkit-scrollbar { display: none; }
+}
+/* overview pins: long text wraps instead of widening the panel */
+.home-pin { flex-wrap: wrap; }
+.hp-name { flex: 1 1 160px; }
+.hp-sub { flex: 0 1 auto; white-space: normal; }
+/* address search: the privacy note wraps */
+#searchResults li.addr-opt span { min-width: 0; white-space: normal; }
+#searchResults .pin-privacy { white-space: normal; overflow-wrap: anywhere; }

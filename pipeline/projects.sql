@@ -11,7 +11,7 @@
 
 create or replace table proj_raw_sidewalk as
 select f.properties.UNITDESC as unitdesc,
-       trim(regexp_replace(f.properties.UNITDESC, ',\s*[A-Z]+ SIDE\s*$', '')) as block,
+       trim(regexp_replace(f.properties.UNITDESC, ',?\s*\b[A-Z]+ SIDE\s*$', '')) as block,
        f.properties.Year::int as year, f.properties.Planning as planning, f.properties.Scope as scope,
        gj_geom(f.geometry) as geom
 from (select unnest(features) f from read_json('data/raw/proj_sidewalk_*.json', maximum_object_size = 500000000))
@@ -48,22 +48,33 @@ from (
   from lpi where status = 'Planned'
 );
 
--- Projects at each scored location: within about 100 ft of an intersection, 80 ft of a block's midpoint.
+-- Projects at each scored location: within about 100 ft of an intersection, or 40 ft of anywhere along a block
+-- (the block's own street line, so a long block isn't judged from its midpoint; falls back to the point).
+create or replace table loc_shape as
+select p.location, p.r, coalesce(b.geom, p.geom) as geom
+from loc_pts p
+left join (select unitdesc, ST_Union_Agg(geom) as geom from streets group by unitdesc) b
+  on p.r = 40 and b.unitdesc = p.location;
+
 create or replace table loc_proj as
 select p.location, list(j.id order by j.stage = 'done', j.year nulls last, j.id) as proj_ids,
        bool_or(j.stage <> 'done') as proj_planned
-from loc_pts p join proj j on ST_DWithin(p.geom, j.geom, p.r + 40)
+from loc_shape p join proj j on ST_DWithin(p.geom, j.geom, case when p.r = 40 then 40 else p.r + 40 end)
 group by p.location;
 
 create or replace table locations as
 select l.*, coalesce(j.proj_ids, []::bigint[]) as proj_ids, coalesce(j.proj_planned, false) as proj_planned
 from locations l left join loc_proj j using (location);
 
--- Missing-sidewalk blocks SDOT already has a sidewalk project for, matched on SDOT's own block name
--- (both layers come from SDOT's sidewalk inventory and use the same block descriptions).
+-- Missing-sidewalk blocks SDOT already has a sidewalk project for: the project's line runs along most of the block
+-- (three quarters of the block within 30 ft of it), or SDOT's block name matches exactly. Names alone miss projects with
+-- typos or multi-block "FROM ... TO" names, so the shape is the main test.
 create or replace table sw_block_proj as
 select b.id as block_id, arg_min(j.id, j.stage = 'done') as proj_id
-from sw_missing_blocks b join proj j on j.kind = 'sidewalk' and j.name = b.block
+from sw_missing_blocks b join proj j on j.kind = 'sidewalk'
+  and (j.name = b.block
+       or (ST_DWithin(b.geom, j.geom, 30)
+           and ST_Length(ST_Intersection(b.geom, ST_Buffer(j.geom, 30))) > 0.75 * ST_Length(b.geom)))
 group by b.id;
 
 -- ---------------------------------------------------------------- export for the map

@@ -157,7 +157,7 @@ Sidewalks tab, and next to the matching budget programs. Never scored. Built in 
 
 | Source | Layer | Used for | Notes |
 |---|---|---|---|
-| SDOT New Sidewalks map | `All_Sidewalk_Projects/FeatureServer/53` | New sidewalk blocks: moving into design (`Planning = 'Y'`), completed (`Planning` empty, year ≤ this year) | Same filters as SDOT's own "New Sidewalks Map". Rows outside them aren't on SDOT's map and are left out. Matched to the missing-sidewalk list by SDOT's block name. |
+| SDOT New Sidewalks map | `All_Sidewalk_Projects/FeatureServer/53` | New sidewalk blocks: moving into design (`Planning = 'Y'`), completed (`Planning` empty, year ≤ this year) | Same filters as SDOT's own "New Sidewalks Map". Rows outside them aren't on SDOT's map and are left out. Matched to the missing-sidewalk list where the project line runs along at least 3/4 of the block (within 30 ft), or the block name matches exactly; names alone miss typos and multi-block "FROM ... TO" projects. Crash spots: within 100 ft of an intersection or 40 ft of a block's street line. |
 | SDOT Neighborhood-Initiated Safety Partnership Program map | `NISPP_Projects_draft/FeatureServer/0` | Small safety projects, Planned / Completed, with planned year | Names lose SDOT's internal area prefix ("S - ") and program suffix ("- NISPP"); "TBD" shown as not yet named. |
 | Leading Pedestrian Intervals (already fetched) | `Vision_Zero_-_Leading_Pedestrian_Intervals_ACTIVE` | Head-start walk signals with status Planned | |
 

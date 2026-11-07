@@ -141,14 +141,23 @@
   // Crash patterns that match a well-known fix this spot doesn't have yet (from SDOT's signal and Vision Zero data).
   // Stated as facts side by side; whether the fix fits is for engineers to judge.
   function patterns(p) {
-    const out = [];
-    if (p.addr_type !== 'I') return out;
-    if (p.signalized && p.lt_protected === false && p.left_turn_crashes >= 3)
-      out.push(`${p.left_turn_crashes} left-turn crashes; no protected left-turn arrow in SDOT signal data`);
-    if (p.signalized && p.lpi_status !== 'Existing' && p.ped_turn_crashes >= 2)
-      out.push(`${p.ped_turn_crashes} people walking hit by turning drivers; no head-start walk signal (SDOT data)`);
-    if (!p.signalized && p.angle_crashes >= 5)
-      out.push(`${p.angle_crashes} angle crashes; no traffic signal in SDOT's inventory`);
+    const out = [], n = p.crashes || 1, lt = p.left_turn_crashes || 0;
+    // Left turns: enough of them, and a real share of this spot's crashes, before pointing at the signal phasing.
+    const manyLeft = lt >= 5 && lt / n >= 0.15;
+    if (p.addr_type === 'I') {
+      if (p.signalized && p.lt_protected === false && manyLeft)
+        out.push(`${lt} left-turn crashes; no protected left-turn arrow in SDOT signal data`);
+      if (p.signalized && p.lpi_status !== 'Existing' && p.ped_turn_crashes >= 2)
+        out.push(`${p.ped_turn_crashes} people walking hit by turning drivers; ${p.lpi_status === 'Planned'
+          ? `head-start walk signal planned${p.lpi_planned ? ' for ' + p.lpi_planned : ''}` : 'no head-start walk signal'} (SDOT data)`);
+      if (p.signalized && p.angle_crashes >= 10 && p.angle_crashes / n >= 0.4)
+        out.push(`${p.angle_crashes} of ${n} crashes are angle crashes at this signal: signal timing and sight lines worth a review`);
+      if (!p.signalized && p.angle_crashes >= 5)
+        out.push(`${p.angle_crashes} angle crashes and no traffic signal (SDOT data): worth an intersection control review`);
+    } else {
+      if (p.ped_crashes >= 3) out.push(`${p.ped_crashes} crashes with people walking, away from the corners: crossings, lighting and speed worth a look`);
+      if (manyLeft) out.push(`${lt} left-turn crashes along this stretch, often at driveways or mid-block turns`);
+    }
     return out;
   }
 
@@ -181,7 +190,7 @@
   }
 
   // ---------- map ----------
-  const map = L.map('map', { zoomControl: true, zoomSnap: 0.25 }).setView([47.61, -122.33], 12);
+  const map = L.map('map', { zoomControl: true, zoomSnap: 0.25, zoomAnimation: !reduceMotion }).setView([47.61, -122.33], 12);
   const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
   const esriAttr = 'Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors · Data: City of Seattle';
   const tile = (path, opts = {}) => L.tileLayer(esri + path + '/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, maxNativeZoom: 16, attribution: esriAttr, ...opts });
@@ -227,12 +236,12 @@
   const PJ = D.projects || { list: [], missing_blocks: [], counts: {} };
   const PE = D.projEdited || {};
   const projById = new Map(PJ.list.map(j => [j.id, j]));
-  // Projects within about 100 ft of an intersection or 80 ft of a block (matched in pipeline/projects.sql).
+  // Projects within about 100 ft of an intersection or 40 ft of a block's street line (matched in pipeline/projects.sql).
   function projectsAt(p) { return (p.proj_ids || []).map(i => projById.get(i)).filter(Boolean); }
   const dateText = d => (d ? new Date(d + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
   const PROJ_SRC = {
     sidewalk: () => `SDOT's New Sidewalks map${PE.proj_sidewalk ? ` (last updated ${dateText(PE.proj_sidewalk)})` : ''}`,
-    safety: () => `SDOT's Neighborhood-Initiated Safety Partnership Program map${PE.proj_nispp ? ` (last updated ${dateText(PE.proj_nispp)})` : ''}`,
+    safety: () => `SDOT's Neighborhood-Initiated Safety Partnership Program map (a layer SDOT labels draft)${PE.proj_nispp ? ` (last updated ${dateText(PE.proj_nispp)})` : ''}`,
     lpi: () => `SDOT's head-start walk signal (Leading Pedestrian Interval) list`
   };
   const projTitle = j => j.kind === 'sidewalk' ? `New sidewalk: ${niceName(j.name.replace(/ BETWEEN /, ' between ').replace(/ AND /, ' and '))}`
@@ -297,7 +306,7 @@
     options: { position: 'topright' },
     onAdd() {
       const a = L.DomUtil.create('button', 'zoomout-btn');
-      a.type = 'button'; a.title = 'Zoom out to see everything on this list (H)';
+      a.type = 'button'; a.title = 'Zoom out to see everything on this list (H)'; a.setAttribute('aria-label', 'Zoom out to see the whole list');
       a.innerHTML = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="6.5" cy="6.5" r="4.8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 10l4.2 4.2M4.3 6.5h4.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Zoom out';
       L.DomEvent.disableClickPropagation(a);
       L.DomEvent.on(a, 'click', e => { L.DomEvent.preventDefault(e); showAll(); });
@@ -372,7 +381,7 @@
     const ongoing = document.getElementById('onlyOngoing').checked;
     const noPlan = document.getElementById('noPlan').checked;
     const keep = p => (!type || p.addr_type === type || (type === 'B' && p.addr_type === 'A'))
-        && (!onlyFatal || p.killed > 0) && (!ongoing || p.ksi_years >= 3) && (!noPlan || !p.proj_planned);
+        && (!onlyFatal || p.killed > 0) && (!ongoing || p.ksi_years >= 3) && (!noPlan || !(p.proj_ids && p.proj_ids.length));
     const rows = D.priorities.filter(p => p.rank != null && p.rank <= 200).filter(keep).slice(0, n);
     // Spots where 2+ people died are never left off, even when their predicted-harm rank is low.
     const inRows = new Set(rows.map(p => p.rank_ksi));
@@ -783,14 +792,17 @@
     if (p.addr_type === 'I' && !p.signalized) items.push('No traffic signal in SDOT\'s signal data.');
     const still = stillDangerous(p);
     // Planned and recent projects from SDOT's published project maps (the planned walk signal is already listed above).
-    const projs = projectsAt(p).filter(j => j.kind !== 'lpi');
+    const projs = projectsAt(p).filter(j => j.kind !== 'lpi'), lpiPlanned = projectsAt(p).some(j => j.kind === 'lpi');
     const kinds = [...new Set(projs.map(j => j.kind))];
     return `${still ? `<p class="callout">${esc(still.long)}</p>` : ''}
       ${items.length ? `<ul>${items.map(i => `<li>${i}</li>`).join('')}</ul>` : '<div class="note">Nothing recorded in the SDOT layers this site reads.</div>'}
       <h4 class="proj-h">SDOT projects published nearby</h4>
       ${projs.length ? `<ul class="proj-list">${projs.map(j => `<li>${projHtml(j)}</li>`).join('')}</ul>
         <div class="note">From ${kinds.map(k => esc(PROJ_SRC[k]())).join(' and ')}. "Nearby" means within about
-          ${p.addr_type === 'I' ? '100' : '80'} ft. A project nearby isn't necessarily aimed at these crashes; check what it is.</div>`
+          ${p.addr_type === 'I' ? '100 ft' : '40 ft of the block'}. A project nearby isn't necessarily aimed at these crashes; check what it is.</div>`
+      : lpiPlanned ? `<div class="note">Besides the planned head-start walk signal above, nothing else on SDOT's published
+          project maps (new sidewalks, neighborhood safety projects). SDOT may have other plans here, such as paving or corridor
+          projects, that it doesn't publish on a map.</div>`
       : `<div class="note">None on SDOT's published project maps (new sidewalks, neighborhood safety projects, head-start walk
           signals). SDOT may have other plans here, such as paving or corridor projects, that it doesn't publish on a map.</div>`}
       ${projToggleBtn()}
@@ -911,7 +923,7 @@
   function verdict(p) {
     const parts = [];
     let s = `${plural(p.crashes, 'crash', 'crashes')} from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}`;
-    s += p.ksi ? `; ${p.ksi === 1 ? '1 killed or seriously injured someone' : `${p.ksi} killed or seriously injured someone`}` +
+    s += p.ksi ? `; ${p.ksi === 1 ? '1 of them killed or seriously injured someone' : `${p.ksi} of them killed or seriously injured someone`}` +
       (p.killed ? ` (${p.killed} ${p.killed === 1 ? 'person' : 'people'} killed)` : '') : '; none killed or seriously injured anyone';
     parts.push(s + '.');
     const who = (n, verb) => `${n} involved ${n === 1 ? 'a person' : 'people'} ${verb}`;
@@ -1110,12 +1122,14 @@
     viewBefore = null;
     if (tSel) { tSel = null; tLines.forEach(line => line.setStyle(lineStyle(line._t, false))); document.querySelectorAll('.tlist li.selected').forEach(li => li.classList.remove('selected')); }
     history.replaceState(null, '', location.pathname + location.search);
+    const hc = homeFocus != null && document.querySelector(`#detailBody [data-home="${homeFocus}"]`); homeFocus = null;
     if (restoreFocus && opener && document.contains(opener)) opener.focus();
+    else if (restoreFocus && hc) hc.focus();
     else if (restoreFocus) document.getElementById('list').querySelector('button')?.focus();
     opener = null;
   }
   document.getElementById('closeDetail').onclick = () => closeDetail(true);
-  ['topN', 'addrFilter', 'onlyFatal', 'onlyOngoing', 'noPlan'].forEach(id => (document.getElementById(id).onchange = render));
+  ['topN', 'addrFilter', 'onlyFatal', 'onlyOngoing', 'noPlan'].forEach(id => (document.getElementById(id).onchange = () => { render(); refreshHome(); }));
 
   function weight(k) { const w = meta.weights.find(x => x.k === k); return w ? w.v : '?'; }
 
@@ -1146,7 +1160,7 @@
       ? `<li role="option" id="sr-${i}" data-i="${i}" class="addr-opt"><span>📍 Find this address on the map: <b>${esc(s.text)}</b><small class="pin-privacy">Looked up with Esri’s address search. You can then add it to your pins, which are saved only on this device.</small></span></li>`
       : `<li role="option" id="sr-${i}" data-i="${i}">
         <span>${esc(niceName(s.name))}${s.area ? `<small class="hood">${esc(s.area)}</small>` : ''}</span><small>#${fmt(s.rank)} · ${plural(s.crashes, 'crash', 'crashes')}</small></li>`).join('') +
-      (!nPlaces ? '<li class="none">No crash location matches. Only places with a reported crash are scored.</li>' : '');
+      (!nPlaces ? `<li class="none">No scored crash spot by that name.${sHits.some(x => x.addr) ? ' Use the address option above to see crashes nearby.' : ' Only places with a reported crash are scored.'}</li>` : '');
     sList.hidden = false; sInput.setAttribute('aria-expanded', 'true');
   }
   function pick(i) {
@@ -1248,6 +1262,12 @@
   // A searched address is shown (with its own marker) but only saved if you choose "Add to my pins".
   let previewMarker = null;
   function clearPreview() { if (previewMarker) { pinLayer.removeLayer(previewMarker); previewMarker = null; } }
+  // Focus a button in a marker's pop-up once it's open (after the map has moved there).
+  function focusPop(m, sel) {
+    if (!m) return;
+    const f = () => { const el = m.getPopup() && m.getPopup().getElement(); const b = el && el.querySelector(sel); if (b) b.focus({ preventScroll: true }); };
+    if (m.isPopupOpen()) f(); else m.once('popupopen', () => setTimeout(f, 0));
+  }
   function showAddress(g) {
     const same = samePin(g);
     if (same) { clearPreview(); openPin(same, true); return; }
@@ -1257,6 +1277,7 @@
     const nb = nearbySpots(g.lat, g.lon);
     say(`Found ${g.label}. ${nb.crashes ? plural(nb.crashes, 'crash', 'crashes') + ' within a quarter mile.' : 'No crashes within a quarter mile.'} Choose Add to my pins to keep it.`);
     flyToMarker(m, pv);
+    focusPop(m, '.pin-add');
   }
   // Right-click (long-press on a phone) anywhere on the map: add a pin there.
   map.on('contextmenu', e => {
@@ -1277,6 +1298,8 @@
     const m = pinMarkers.get(g.id); if (m) { m.closePopup(); pinLayer.removeLayer(m); }
     pinMarkers.delete(g.id); pins = pins.filter(p => p.id !== g.id); savePins();
     say(`Pin removed: ${pinTitle(g)}.`);
+    const pb = document.querySelector('.pinlist-btn');
+    if (pins.length && pb) pb.focus(); else sInput.focus();
   }
   function openPin(g, fly, isNew) {
     const m = pinMarkers.get(g.id) || drawPin(g);
@@ -1291,6 +1314,7 @@
     // On phones the map is short: put the pin low so its pop-up fits above it.
     let c = L.latLng(g.lat, g.lon);
     if (small()) c = map.unproject(map.project(c, 16).subtract([0, map.getSize().y * 0.38]), 16);
+    else if (!detailEl.hidden) c = map.unproject(map.project(c, 16).add([detailEl.offsetWidth / 2, 0]), 16);
     if (reduceMotion) { map.setView(c, 16, { animate: false }); go(); }
     else { map.once('moveend', go); map.flyTo(c, 16, { duration: 0.8 }); }
     return m;
@@ -1333,8 +1357,11 @@
       el.querySelectorAll('.res-link').forEach(l => (l.onclick = () => navigator.clipboard &&
         navigator.clipboard.writeText(g.label).then(() => toast('Address copied: ' + g.label + '. Paste it into the form.'), () => {})));
       if (g.preview) {
-        el.querySelector('.pin-add').onclick = () => { const k = { lat: g.lat, lon: g.lon, label: g.label }; clearPreview(); addPin(k, true); };
-        el.querySelector('.pin-dismiss').onclick = () => { clearPreview(); say('Cleared.'); };
+        el.querySelector('.pin-add').onclick = () => {
+          const k = { lat: g.lat, lon: g.lon, label: g.label }; clearPreview(); addPin(k, true);
+          const p = samePin(k); if (p) focusPop(pinMarkers.get(p.id), '.pin-copy');
+        };
+        el.querySelector('.pin-dismiss').onclick = () => { clearPreview(); say('Cleared.'); sInput.focus(); };
         return;
       }
       el.querySelector('.pin-remove').onclick = () => removePin(g);
@@ -1352,7 +1379,7 @@
       <small class="pin-privacy">Leave it empty to show the address. Saved only on this device.</small></form>`;
     const inp = head.querySelector('input'); inp.value = g.name || '';
     inp.focus(); inp.select();
-    const reopen = () => drawPin(g).openPopup();
+    const reopen = () => { const m = drawPin(g); m.openPopup(); focusPop(m, '.pin-rename'); };
     head.querySelector('form').onsubmit = ev => {
       ev.preventDefault();
       const v = inp.value.trim().replace(/\s+/g, ' ').slice(0, 40);
@@ -1384,6 +1411,7 @@
         setOpen(false);
         if (act === 'rename') pendingRename = g.id;
         openPin(g, true);
+        if (act !== 'rename') focusPop(pinMarkers.get(g.id), '.pin-copy');
       });
       pinBox.addEventListener('keydown', e => { if (e.key === 'Escape' && !panel.hidden) { setOpen(false); btn.focus(); } });
       document.addEventListener('click', e => { if (!pinBox.contains(e.target)) setOpen(false); });
@@ -1429,12 +1457,14 @@
     if (!cur) void el.offsetWidth;   // first one: start the slide from below
     el.classList.add('open'); el.querySelector('.bs-body').scrollTop = 0;
     document.body.classList.add('sheet-open');
+    if (isNarrow()) [panelEl, detailEl, document.getElementById('map')].forEach(x => (x.inert = true));
     el.querySelector('h2').focus({ preventScroll: true });
   }
   function hideSheets() {
     const cur = openSheet();
     if (!cur) return;
     cur.classList.remove('open'); document.body.classList.remove('sheet-open');
+    [panelEl, detailEl, document.getElementById('map')].forEach(x => (x.inert = false));
     setTimeout(() => { if (!cur.classList.contains('open')) cur.hidden = true; }, reduceMotion ? 0 : 360);
     if (unwidened) {
       leftExpanded = unwidened.left; expanded = unwidened.right; unwidened = null; applyPanel(); applyLayout();
@@ -1443,6 +1473,7 @@
   }
   function showTab(b) {
     setTabState(b);
+    if (isNarrow() && b.scrollIntoView) b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     const sh = sheets.find(x => x.dataset.tab === b.dataset.tab);
     if (sh) { showSheet(sh); return; }
     hideSheets(); lastTab = b;
@@ -1532,11 +1563,11 @@
   const TMODES = {
     bus: {
       hint: `Stretches of bus route where the timetable gives buses the most extra time per mile, compared with the quickest
-        hours (usually late night or early morning), added up over every weekday bus. Ranked by bus time lost per mile, so short, badly jammed stretches rank high. From King County Metro's current weekday timetable${T.weekday ? ' (the schedule in effect on ' + longDate(T.weekday) + ')' : ''}.`,
+        hours (usually late night or early morning), added up over every weekday bus. Ranked by bus time lost per mile, so short, badly jammed stretches rank high. From King County Metro's published weekday timetable${T.weekday ? ' (the schedule for ' + longDate(T.weekday) + ', a typical weekday)' : ''}.`,
       items: () => T.stretches.filter(s => s.rank).sort((a, b) => a.rank - b.rank),
       rank: s => s.rank, name: stretchName,
       sub: s => `Routes ${s.routes.slice(0, 8).join(', ')}${s.routes.length > 8 ? '…' : ''}`,
-      score: s => `${Math.round(s.lpm / 60)} h <small>lost per mile</small>`,
+      score: s => `${Math.round(s.lpm / 60)} h <small>a day, per mile</small>`,
       chips: s => [
         { cls: 'serious', text: `+${(s.peak - s.base).toFixed(1)} min a bus at ${hourName(s.hr)} (${Math.round(100 * s.slower)}% slower)` },
         { cls: 'ped', text: `${fmt(s.trips)} buses a weekday` },
@@ -1549,7 +1580,7 @@
       <div class="dhead">
         <div class="where">${esc(TMODES.bus.sub(s))} · ${copyLoc(stretchName(s))}</div>
         <p class="verdict">At ${hourName(s.hr)} on a weekday, Metro gives buses <b>${s.peak} minutes</b> for this
-          ${s.mi}-mile stretch, compared with ${s.base} minutes in the quickest (late-night) hours: <b>${Math.round(100 * s.slower)}% slower</b>.
+          ${s.mi}-mile stretch, compared with ${s.base} minutes in the quickest (usually late-night) hours: <b>${Math.round(100 * s.slower)}% slower</b>.
           ${fmt(s.trips)} buses run it each weekday; together they lose about <b>${(s.lost / 60).toFixed(1)} hours a day</b> here.</p>
         <div class="stat-grid">
           ${stat(s.base + ' min', 'quickest hours (late night)')}${stat(s.peak + ' min', 'at ' + hourName(s.hr))}
@@ -1610,7 +1641,7 @@
         ...(swProj.get(s.id) ? [{ cls: 'proj', text: `SDOT project: ${projStage(swProj.get(s.id))}` }] : [])],
       note: `From the Pedestrian Element of the Seattle Transportation Plan. Scores and tiers are SDOT's; this site only puts
         them on a map with the crash ranking. Within a tier, blocks are ordered by SDOT's score, then length.
-        "SDOT project" tags come from ${PROJ_SRC.sidewalk()}, matched by SDOT's block name; ${fmt((PJ.missing_blocks || []).length)}
+        "SDOT project" tags come from ${PROJ_SRC.sidewalk()}, matched where SDOT's project line runs along the block (or its block name matches); ${fmt((PJ.missing_blocks || []).length)}
         blocks on this list have one.`,
       detail: s => `
       <div class="dhead">
@@ -1622,7 +1653,7 @@
           ? `SDOT's project map lists a new sidewalk on this block as <b>${esc(projStage(swProj.get(s.id)))}</b>, so it may no
              longer be missing. The missing-sidewalk list comes from an older SDOT plan layer.`
           : `SDOT has a new sidewalk project on this block: <b>${esc(projStage(swProj.get(s.id)))}</b>.`}
-          <span class="muted">From ${esc(PROJ_SRC.sidewalk())}, matched by SDOT's own block name.</span></p>` : ''}
+          <span class="muted">From ${esc(PROJ_SRC.sidewalk())}: SDOT's project line runs along this block.</span></p>` : ''}
         <div class="stat-grid">
           ${stat(s.safety ?? 0, 'safety score')}${stat(s.equity ?? 0, 'equity score')}
           ${stat(s.school ?? 0, 'school score')}${stat(s.transit ?? 0, 'transit score')}
@@ -1777,7 +1808,7 @@
     const st = p.bus_stretch_id && T.stretches.find(x => x.id === p.bus_stretch_id);
     if (p.bus_trips) out.push(`<p><b>${fmt(p.bus_trips)} buses</b> a weekday${p.bus_routes && p.bus_routes.length ? ` <span class="muted">(routes ${esc(p.bus_routes.slice(0, 10).join(', '))}${p.bus_routes.length > 10 ? '…' : ''})</span>` : ''}.</p>`);
     if (st) out.push(`<p>On the bus stretch through here (${esc(stretchName(st))}), buses are <b>${Math.round(100 * st.slower)}% slower at
-        ${hourName(st.hr)}</b>: ${st.base} minutes in the quickest (late-night) hours, ${st.peak} at its slowest.
+        ${hourName(st.hr)}</b>: ${st.base} minutes in the quickest (usually late-night) hours, ${st.peak} at its slowest.
         <button type="button" class="linkbtn" data-traffic="${st.id}">See this bus stretch on the map</button></p>`);
     const by = {};
     (p.vol_history || []).forEach(x => (by[x.s] = by[x.s] || []).push({ y: x.y, v: x.v }));
@@ -1824,7 +1855,7 @@
       const line = re => { const ys = {}; D.budget.filter(b => re.test(b.project)).forEach(b => (ys[b.year] = (ys[b.year] || 0) + b.amount)); return ys; };
       const progs = [
         { name: 'New sidewalks', budget: 'PMP – New Sidewalk Program (MC-TR-C058)', ys: line(/MC-TR-C058\b/),
-          mapped: `${fmt(PJ.counts.sidewalk_design || 0)} blocks moving into design, ${fmt(PJ.counts.sidewalk_done || 0)} completed`, src: PROJ_SRC.sidewalk() },
+          mapped: `${fmt(PJ.counts.sidewalk_design || 0)} projects moving into design, ${fmt(PJ.counts.sidewalk_done || 0)} completed`, src: PROJ_SRC.sidewalk() },
         { name: 'Neighborhood safety projects', budget: 'Neighborhood-Initiated Safety Partnership Program (MC-TR-C154)', ys: line(/MC-TR-C154\b/),
           mapped: `${fmt(PJ.counts.safety_planned || 0)} planned, ${fmt(PJ.counts.safety_done || 0)} completed`, src: PROJ_SRC.safety() }
       ];
@@ -1898,7 +1929,7 @@
       <h3>"Most likely to hurt people" ranking, in full</h3>
       <ol>
         <li><b>Crash harm.</b> Points per crash: killed or seriously injured ${k}, other injury ${weight('injury')},
-          property damage only ${weight('pdo')}, × ${weight('ped_bike_mult')} when someone walking or biking was hurt.
+          property damage only ${weight('pdo')}, × ${weight('ped_bike_mult')} when someone walking or biking was involved and someone was hurt.
           Fatal and serious count alike because whether a serious crash turns fatal often depends on things beyond the street
           itself, like the person's age, the vehicle, or how quickly help arrives. Vision Zero programs use the same "KSI" grouping. Since January 2026 about 1 in 10 reports has no severity; those
           aren't treated as harmless: each gets the typical non-fatal/serious harm for similar streets.</li>
@@ -1908,7 +1939,7 @@
           died are also listed separately, whatever their rank.</li>
         <li><b>Expected harm.</b> With only a few crashes, a spot's record can make it look much more or much less dangerous than it really is. So its fatal/serious harm is blended
           with the typical rate for similar spots (same kind of location and street class), weighted by its crash count:
-          own record × crashes ÷ (crashes + ${A}). A spot with 5 crashes leans ${Math.round(100 * A / (5 + A))}% on the typical
+          own record × crashes ÷ (crashes + ${A}) + typical rate × ${A} ÷ (crashes + ${A}). A spot with 5 crashes leans ${Math.round(100 * A / (5 + A))}% on the typical
           rate; one with 60 leans ${Math.round(100 * 60 / (60 + A))}% on its own record. Every crash, even a fender-bender,
           is evidence of how much conflict happens there. (Statisticians call this empirical Bayes.)</li>
         <li><b>Repair boost.</b> Safety-related requests (${scored.map(r => esc(r.type)).join(', ')}) within
@@ -1939,7 +1970,7 @@
         ${(meta.validation || []).map(v => `<tr class="${v.method === 'expected' ? 'total' : ''}"><td>${vname[v.method] || v.method}</td><td>${v.k50}</td><td>${v.k200}</td></tr>`).join('')}
       </tbody></table>
       <p class="note">Ranking on fatal/serious crashes alone predicts worst: they're rare enough that a place's count swings a lot from year to year, so past counts alone say little about what comes next.
-        Blending them with crash counts does best. That's why the method is what it is.</p>
+        Blending them with crash counts did a little better in this one test (a few crashes more), which is why the method uses it.</p>
       <p class="note">This test was also used to choose the method, so a fresh test would likely do somewhat worse. The repair-request
         boost isn't included in it. Spots that rank high after a bad stretch usually improve somewhat on their own (regression to
         the mean): the blending evens out the fatal/serious share where numbers are small, but not the crash count itself.</p>`;
@@ -2004,7 +2035,7 @@
           and recently completed ones), its <b>Neighborhood-Initiated Safety Partnership Program</b> map (crossings, traffic
           calming, curb ramps and more, planned or completed), and the <b>head-start walk signals</b> it lists as planned. Stage
           names ("moving into design", "planned for 2027") are SDOT's; a year for a project in design is SDOT's target.</li>
-        <li>A project counts as "nearby" a crash spot within about 100 ft of an intersection or 80 ft of a block. Nearby doesn't
+        <li>A project counts as "nearby" a crash spot within about 100 ft of an intersection or 40 ft of anywhere along a block. Nearby doesn't
           mean it was designed for those crashes: pavement art at a school and a new crossing look the same to a map, so each
           project is listed with what it is.</li>
         <li>"No SDOT project published nearby" means none on these maps. SDOT may still have plans there, such as repaving,
@@ -2039,7 +2070,6 @@
         <li>Requests are counted within ${ft(weight('request_radius_m'))} ft of a point, which covers more of an intersection than of a long block.</li>
         <li>Traffic counts cover arterials only, and some are old or estimated.</li>
         <li>Find It Fix It status is unreliable (most requests stay "Reported"), so open and fixed requests count the same.</li>
-        <li>Planned projects aren't linked to locations yet.</li>
       </ul>`;
   }
   renderAbout();
@@ -2072,8 +2102,8 @@
       </div>
       <div class="cs-foot"><b class="cs-hi">About 1 in ${oneIn}</b> of the crashes that killed or seriously hurt someone
         (${fmt(meta.top50_ksi)} of ${fmt(ksiAll)}) happened at just <b class="cs-hi">50 spots</b>, out of
-        ${fmt(meta.locations_scored)} places with crashes. Those 50 are the top of this list.${pbShare ? ` <b class="cs-hi">${pbShare}%</b> of
-        those crashes involved someone walking or biking.` : ''}</div>
+        ${fmt(meta.locations_scored)} places with crashes. Those 50 are the top of the "Most likely to hurt people" ranking, picked using these same crashes.${pbShare ? `
+        Citywide, <b class="cs-hi">${pbShare}%</b> of these crashes involved someone walking or biking.` : ''}</div>
       ${meta.forward_top50_ksi ? `<div class="cs-note">Predicting is harder: ranked on the first 3 years, the top 50 had
         ${fmt(meta.forward_top50_ksi)} of the next 2 years' ${fmt(meta.test_ksi_total)} fatal or serious crashes
         (${Math.round(100 * meta.forward_top50_ksi / meta.test_ksi_total)}%). From police reports in SDOT's data; freeways not included.</div>` : ''}`;
@@ -2095,13 +2125,14 @@
     if (!m) return false;
     const id = +m[1];
     const p = byId.get(id);
-    if (p) { select(p, true, null); return true; }
+    if (p) { select(p, true, null); viewBefore = null; return true; }
     const s = searchIdx.find(x => x.rank === id);
-    if (s) { selectLite(s); return true; }
+    if (s) { selectLite(s); viewBefore = null; return true; }
     return false;
   }
   window.addEventListener('hashchange', openFromHash);
   // ---------- desktop overview: the details panel never closes; with nothing picked it shows where to start ----------
+  let homeFocus = null;   // the overview card a spot was opened from, to return focus to it
   function renderHome() {
     if (isNarrow()) { detailEl.hidden = true; detailEl.classList.remove('home'); return; }
     detailEl.classList.add('home'); detailEl.hidden = false;
@@ -2114,27 +2145,30 @@
         <span class="hc-val">${it.val}</span></button></li>`;
     let items, title, lead, middle = '';
     if (!view) {
-      const top = D.priorities.filter(p => p.rank != null).slice(0, 50), n = top.length;
+      const top = currentRows().rows, n = top.length;
       title = 'Crash hot spots: where to start';
       lead = 'Nothing picked yet. Click a dot on the map or a place in the list, or search an address, to see why it ranks.';
       items = top.slice(0, 3).map(p => ({
         rank: p.rank, name: p.name, sub: [p.area, plural(p.crashes, 'crash', 'crashes')].filter(Boolean).join(' · '),
         val: `<b>${(p.killed ?? 0) + (p.seriously_injured ?? 0)}</b>killed or seriously hurt`, open: () => select(p, true, null) }));
+      if (!n) middle = '<p class="note">No spots match these filters. Turn a filter off to see more.</p>';
       const arterial = top.filter(p => /arterial/i.test(p.street_type || '')).length;
-      const hin = top.filter(p => p.sdot_hin).length, planned = top.filter(p => p.proj_planned).length;
+      const hin = top.filter(p => p.sdot_hin).length, died = top.filter(p => p.killed > 0).length;
       // A spot on the line between two areas ("Beacon Hill / Central Area") counts in both.
       const ac = {};
       top.forEach(p => (p.area || '').split(' / ').filter(Boolean).forEach(a => (ac[a] = (ac[a] || 0) + 1)));
       const areas = Object.entries(ac).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 6);
       const max = areas.length ? areas[0][1] : 1;
-      middle = `
-        <section class="hsec hsec-common"><h3>What the top ${n} have in common</h3>
+      if (n) middle = `
+        <section class="hsec hsec-common"><h3>What the top ${n} on this list have in common</h3>
           <div class="stat-grid home-stats">
             ${stat(`${arterial} of ${n}`, 'on main streets (arterials)')}
             ${stat(`${hin} of ${n}`, "on SDOT's High Injury Network")}
-            ${stat(`${planned} of ${n}`, 'have an SDOT project published nearby')}
-          </div></section>
-        <section class="hsec hsec-where"><h3>Where the top ${n} are</h3>
+            ${stat(`${died} of ${n}`, 'where someone was killed')}
+          </div>
+          <div class="note">SDOT's High Injury Network is also drawn from crash history, so this mostly shows the two agree.
+            Arterials are the main streets that carry most traffic.</div></section>
+        <section class="hsec hsec-where"><h3>Where they are</h3>
           <div class="hbars" role="list">${areas.map(([a, c]) => `<div class="hbar" role="listitem" data-tip="${esc(`<b>${esc(a)}</b><br>${c} of the top ${n} spots`)}">
             <span class="hb-l">${esc(a)}</span><span class="hb-t" aria-hidden="true"><i style="width:${(100 * c / max).toFixed(1)}%"></i></span>
             <span class="hb-v">${c}<span class="sr-only"> spots</span></span></div>`).join('')}</div>
@@ -2157,7 +2191,7 @@
       ${middle}
       ${pinsHtml}
       <section class="hsec hsec-tips"><h3>Try this</h3><ul class="home-tips">
-        <li><b>Right-click the map</b> to pin a place you care about, like home or a school. Pins stay on this device.</li>
+        <li><b>Right-click (or long-press) the map</b> to pin a place you care about, like home or a school. Pins stay on this device.</li>
         <li>${projToggleBtn()} (purple lines, from SDOT's published project maps).</li>
         <li>Click a place a second time to zoom back out, or use <b>Zoom out</b> at the top right of the map.</li>
         ${view ? '' : '<li>The <b>Slow buses</b> and <b>Sidewalks</b> tabs show other problems on the same streets.</li>'}
@@ -2165,7 +2199,7 @@
     body.scrollTop = 0;
     body.onchange = null;
     body.onclick = e => {
-      const h = e.target.closest('[data-home]'); if (h) { items[+h.dataset.home].open(); return; }
+      const h = e.target.closest('[data-home]'); if (h) { items[+h.dataset.home].open(); homeFocus = +h.dataset.home; return; }
       const pb = e.target.closest('[data-pin]'); if (pb) { const g = pins.find(x => String(x.id) === pb.dataset.pin); if (g) openPin(g, true); }
     };
   }
