@@ -877,6 +877,7 @@
     if (reduceMotion) map.setView(c, zoom, { animate: false }); else map.flyTo(c, zoom, { duration: 0.6 });
   }
 
+  map.createPane('sel'); map.getPane('sel').style.zIndex = 640;   // above markers (600), below tooltips (650)
   function drawFocus(p, det) {
     focus.clearLayers();
     // The search area, made obvious: shaded, dashed, and labelled with its size on the map itself.
@@ -884,8 +885,6 @@
     L.circle([p.lat, p.lon], { radius: rm, color: '#1d2430', weight: 2, dashArray: '6 5', fillColor: REQ_COLOR, fillOpacity: 0.08, interactive: false }).addTo(focus);
     L.marker([p.lat + rm / 111320, p.lon], { keyboard: false, interactive: false,
       icon: L.divIcon({ className: 'radius-label', iconSize: null, html: `<span>Requests counted within ${ft(rm)} ft</span>` }) }).addTo(focus);
-    if (!markers[p.rank_ksi])  // spot not on the map in this view (found by search, or hidden by filters)
-      L.circleMarker([p.lat, p.lon], { radius: 9, color: '#1d2430', weight: 3, fillColor: '#fff', fillOpacity: 0.9, interactive: false }).addTo(focus);
     const groups = new Map();
     (det ? det.requests : []).filter(r => !reqFilter || r.t === reqFilter).forEach(r => {
       const k = r.lat + ',' + r.lon;
@@ -904,7 +903,15 @@
     Object.entries(markers).forEach(([id, m]) => dim(m, +id !== p.rank_ksi));
     const sel = markers[p.rank_ksi];
     if (sel && sel.bringToFront) sel.bringToFront();
-    if (sel && sel.setZIndexOffset) sel.setZIndexOffset(5000);
+    if (sel && sel.setZIndexOffset) sel.setZIndexOffset(5000);   // top-10 markers share the request markers' layer
+    // The picked spot drawn again above the request squares, so it can always be clicked to zoom back out.
+    // (A ranked dot is redrawn as itself; a spot not drawn in this view gets a white ring.)
+    if (!sel || sel.getRadius) {
+      L.circleMarker([p.lat, p.lon], sel ? { ...sel.options, pane: 'sel' }
+        : { pane: 'sel', radius: 9, color: '#1d2430', weight: 3, fillColor: '#fff', fillOpacity: 0.9 })
+        .bindTooltip(`${esc(p.name)}: click again to zoom back out`, { direction: 'top', offset: [0, -6] })
+        .on('click', () => pickSpot(p, true, null)).addTo(focus);
+    }
   }
 
   function clearFocus() {
