@@ -507,3 +507,6 @@ header nav { margin-left: 0; }
 .city-summary .cs-note { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.14); font-size: 11.5px; color: #b9c5dc; line-height: 1.45; }
 
 .chip.fixable { background: #e8f1ff; color: #1d3f8f; border: 1px dashed #8fb0e8; }
+.not-live { margin: 0 0 10px; padding: 7px 10px; background: #eef4f2; border-left: 3px solid #0f7a54; border-radius: 4px; font-size: 12.5px; color: #33443f; }
+/* the bus tab's full name only where the header has room for it on one row */
+@media (max-width: 1500px) { .tab-wide { display: none; } .tab-mid { display: inline; } }

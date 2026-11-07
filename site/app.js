@@ -1515,7 +1515,7 @@
     if (p.bus_trips) out.push(`<p><b>${fmt(p.bus_trips)} buses</b> a weekday${p.bus_routes && p.bus_routes.length ? ` <span class="muted">(routes ${esc(p.bus_routes.slice(0, 10).join(', '))}${p.bus_routes.length > 10 ? '…' : ''})</span>` : ''}.</p>`);
     if (st) out.push(`<p>On the bus stretch through here (${esc(stretchName(st))}), buses are <b>${Math.round(100 * st.slower)}% slower at
         ${hourName(st.hr)}</b>: ${st.base} minutes in the quickest (late-night) hours, ${st.peak} at its slowest.
-        <button type="button" class="linkbtn" data-traffic="${st.id}">See it on the Traffic map</button></p>`);
+        <button type="button" class="linkbtn" data-traffic="${st.id}">See this bus stretch on the map</button></p>`);
     const by = {};
     (p.vol_history || []).forEach(x => (by[x.s] = by[x.s] || []).push({ y: x.y, v: x.v }));
     Object.entries(by).forEach(([street, h]) => {
@@ -1684,7 +1684,7 @@
         fix suits the place is an engineering call.</p>
       <p class="note">Encampment, parking, graffiti and similar report types are left out on purpose. This map is about
         fixing infrastructure, not policing.</p>
-      <h3>The Traffic tab</h3>
+      <h3>The Slow buses &amp; busy streets tab</h3>
       <p>Shown next to the safety ranking so you can compare them, but it doesn't change the safety score.</p>
       <ul>
         <li><b>Where buses lose the most time</b>: from King County Metro's timetable for a typical weekday. Metro schedules each
