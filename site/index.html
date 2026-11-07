@@ -21,7 +21,7 @@
       <button role="tab" id="tabbtn-priorities" data-tab="priorities" aria-controls="tab-priorities" aria-selected="true" class="active" title="Crash hot spots: where traffic crashes hurt people, from 5 years of police crash reports"><span class="tab-long tab-wide">Crash hot spots</span><span class="tab-short tab-mid">Crashes</span></button>
       <button role="tab" id="tabbtn-traffic" data-tab="traffic" aria-controls="tab-traffic" aria-selected="false" tabindex="-1" title="Slow buses &amp; busy streets: typical weekdays, not live traffic"><span class="tab-long tab-wide">Slow buses &amp; busy streets</span><span class="tab-short tab-mid">Slow buses</span></button>
       <button role="tab" id="tabbtn-walk" data-tab="walk" aria-controls="tab-walk" aria-selected="false" tabindex="-1" title="Missing &amp; broken sidewalks, from SDOT records (not live)"><span class="tab-long tab-wide">Missing &amp; broken sidewalks</span><span class="tab-short tab-mid">Sidewalks</span></button>
-      <button role="tab" id="tabbtn-spending" data-tab="spending" aria-controls="tab-spending" aria-selected="false" tabindex="-1"><span class="tab-long">SDOT capital budget</span><span class="tab-short">Budget</span></button>
+      <button role="tab" id="tabbtn-spending" data-tab="spending" aria-controls="budgetSheet" aria-selected="false" tabindex="-1"><span class="tab-long">SDOT capital budget</span><span class="tab-short">Budget</span></button>
       <button role="tab" id="tabbtn-about" data-tab="about" aria-controls="tab-about" aria-selected="false" tabindex="-1"><span class="tab-long">How it's scored</span><span class="tab-short">Method</span></button>
     </nav>
   </header>
@@ -98,10 +98,6 @@
         <p class="note" id="sNote"></p>
       </section>
 
-      <section id="tab-spending" class="tab" role="tabpanel" aria-labelledby="tabbtn-spending">
-        <div id="budget"></div>
-      </section>
-
       <section id="tab-about" class="tab" role="tabpanel" aria-labelledby="tabbtn-about">
         <div id="about"></div>
       </section>
@@ -125,6 +121,15 @@
     </div>
 
     <div id="map" role="region" aria-label="Map of ranked locations"></div>
+
+    <!-- Slides up over the map; the list and the details panel stay where they are (on a phone it covers everything below the header). -->
+    <section id="budgetSheet" role="tabpanel" aria-labelledby="tabbtn-spending" hidden>
+      <div class="bs-top">
+        <h2 id="budgetTitle" tabindex="-1">SDOT capital budget</h2>
+        <button type="button" id="closeBudget" class="bs-close">Back to the map <span aria-hidden="true">↓</span></button>
+      </div>
+      <div class="bs-body"><div id="budget"></div></div>
+    </section>
   </main>
 
   <dialog id="resources" aria-labelledby="resTitle">

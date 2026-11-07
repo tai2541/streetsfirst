@@ -96,7 +96,6 @@ body.resizing { user-select: none; cursor: ew-resize; }
 .map-legend .lg-top .core { display: block; width: 16px; height: 16px; border-radius: 50%; background: #b3141b; color: #fff;
   font: 700 9px/16px system-ui, sans-serif; text-align: center; box-shadow: 0 0 6px 2px rgba(179,20,27,.5); }
 
-.leaflet-bar a.showall-btn { display: flex; align-items: center; justify-content: center; color: #1d2430; }
 
 /* collapsible sections */
 .dsec-h { user-select: none; }
@@ -209,9 +208,6 @@ label.check { display: inline-flex; align-items: center; gap: 4px; white-space: 
 .steps { padding-left: 20px; }
 .tablewrap { overflow-x: auto; }
 /* the budget has no locations, so its tab takes the whole width and the map steps aside */
-body.budget-view #map, body.budget-view #panelEdge, body.budget-view #detail, body.budget-view #resizeHandle { display: none !important; }
-body.budget-view #panel { width: 100% !important; flex: 1; border-right: 0; }
-body.budget-view #tab-spending { max-width: 1200px; margin: 0 auto; padding: 16px 24px; }
 
 /* ---- map: highlight from the list, pause control ---- */
 .top-mark.hl .core { box-shadow: 0 0 0 3px #1d2430, 0 0 18px 8px rgba(179, 20, 27, .7); }
@@ -585,3 +581,73 @@ body.proj-on .map-legend .lg-proj { display: flex; }
   border-radius: 7px; cursor: pointer; white-space: nowrap; }
 .ctx-add:hover, .ctx-add:focus-visible { background: #eef2fb; outline: 2px solid #2f55c7; outline-offset: 0; }
 .ctx-add:disabled { color: #5b6576; cursor: progress; }
+
+/* ---- budget: a sheet that slides up over the map (desktop keeps the list and the details panel beside it) ---- */
+#budgetSheet { position: absolute; top: 0; bottom: 0; left: var(--panel-w, 400px); right: 0; z-index: 1050;
+  display: flex; flex-direction: column; background: #f6f7fa; border-radius: 14px 14px 0 0;
+  box-shadow: 0 -10px 30px rgba(20,30,50,.18); padding-right: calc(var(--detail-w, 0px) + 32px);
+  transform: translateY(100%); transition: transform .34s cubic-bezier(.2,.8,.2,1); }
+#budgetSheet[hidden] { display: none; }
+body.budget-open #budgetSheet { transform: none; }
+main.split #budgetSheet { z-index: 1200; padding-right: 0; }
+.bs-top { display: flex; align-items: center; gap: 12px; padding: 14px 24px 12px; border-bottom: 1px solid #e1e5ec; }
+.bs-top h2 { margin: 0; font-size: 18px; outline: none; }
+.bs-close { margin-left: auto; border: 1px solid #c9d3ee; background: #fff; color: #24408f; border-radius: 999px;
+  padding: 6px 14px; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.bs-close:hover { background: #eef2fc; }
+.bs-close:focus-visible { outline: 2px solid #2f55c7; outline-offset: 2px; }
+.bs-body { flex: 1; overflow-y: auto; padding: 16px 24px 32px; container-type: inline-size; }
+#budget { max-width: 1100px; margin: 0 auto; }
+@media (max-width: 760px) {
+  #budgetSheet { left: 0; padding-right: 0; z-index: 1300; border-radius: 0; }
+  .bs-top { padding: 10px 14px; }
+  .bs-body { padding: 12px 14px 24px; }
+}
+@media (prefers-reduced-motion: reduce) { #budgetSheet { transition: none; } }
+
+/* ---- Zoom out: top right of the map, left of the details panel on desktop ---- */
+.leaflet-control.zoomout-btn { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px;
+  margin-right: calc(var(--detail-w, 0px) + 28px); background: #fff; color: #1d2430; border: 0; border-radius: 999px;
+  padding: 8px 14px 8px 12px; font-family: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
+  box-shadow: 0 2px 10px rgba(20,30,50,.25); }
+.leaflet-control.zoomout-btn:hover { background: #eef2fc; color: #24408f; }
+.leaflet-control.zoomout-btn:focus-visible { outline: 2px solid #2f55c7; outline-offset: 2px; }
+@media (max-width: 760px) { .leaflet-control.zoomout-btn { margin-right: 10px; margin-top: 10px; } }
+
+/* ---- desktop: the details panel stays open (no close button); the overview shows when nothing is picked ---- */
+@media (min-width: 761px) { #closeDetail { display: none; } }
+.home-wrap { padding: 4px 0 8px; }
+.home-lead { margin: 0 0 12px; padding: 10px 12px; background: #f3f6fd; border: 1px solid #dbe3f5; border-radius: 10px; color: #24304a; }
+.hsec { --c: #7a8597; border: 1px solid #e3e7ee; border-left: 4px solid var(--c); border-radius: 10px; background: #fff;
+  padding: 10px 12px 12px; margin-bottom: 12px; }
+.hsec h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #5b6576; }
+.hsec-top { --c: #b3141b; } .hsec-common { --c: #2f55c7; } .hsec-where { --c: #3a4f86; }
+.hsec-pins { --c: #d0457a; } .hsec-tips { --c: #1baf7a; }
+.home-top, .home-pins, .home-tips { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.home-card, .home-pin { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; font: inherit; color: inherit;
+  background: #fafbfc; border: 1px solid #e3e7ee; border-radius: 10px; padding: 8px 10px; cursor: pointer;
+  transition: transform .12s, box-shadow .12s, background .12s; }
+.home-card:hover, .home-pin:hover { background: #fff; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(20,30,50,.1); }
+.home-card:focus-visible, .home-pin:focus-visible { outline: 2px solid #2f55c7; outline-offset: 1px; }
+.hc-rank { flex: none; min-width: 36px; height: 26px; padding: 0 6px; border-radius: 13px; color: #fff; font-weight: 700; font-size: 13px;
+  display: inline-flex; align-items: center; justify-content: center; }
+.hc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.hc-name { font-weight: 600; line-height: 1.3; }
+.hc-sub, .hp-sub { font-size: 12px; color: #5b6576; }
+.hc-val { flex: none; max-width: 120px; text-align: right; font-size: 11.5px; line-height: 1.25; color: #5b6576; }
+.hc-val b { display: block; font-size: 18px; color: #1d2430; }
+.home-pin { justify-content: space-between; }
+.hp-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-sub { flex: none; }
+.home-stats { grid-template-columns: repeat(3, 1fr) !important; margin-top: 0; }
+.home-stats .stat b { font-size: 16px; }
+.hbars { display: grid; gap: 6px; }
+.hbar { display: grid; grid-template-columns: minmax(90px, 150px) 1fr 24px; align-items: center; gap: 8px; font-size: 12.5px; }
+.hb-l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hb-t { height: 12px; background: #eef1f6; border-radius: 6px; overflow: hidden; }
+.hb-t i { display: block; height: 100%; background: #3a4f86; border-radius: 0 4px 4px 0; }
+.hb-v { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.home-tips li { font-size: 13px; line-height: 1.45; }
+.home-tips .linkbtn { margin: 0; font-size: inherit; font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .home-card, .home-pin { transition: none; } .home-card:hover, .home-pin:hover { transform: none; } }
+body.budget-open #expandPanel, body.budget-open #expandDetail, body.budget-open #panelHandle, body.budget-open #resizeHandle { display: none; }

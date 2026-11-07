@@ -287,21 +287,21 @@
 
   const flyBounds = (b, opts) => (reduceMotion ? map.fitBounds(b, opts) : map.flyToBounds(b, { ...opts, duration: 0.6 }));
   function showAll() {
-    if (!layer.getLayers().length) return;
+    const g = trafficOn ? tLayer : layer;
+    if (!g.getLayers().length) return;
     const right = !detailEl.hidden && !isNarrow() ? detailEl.offsetWidth + 30 : 30;
     const bottom = !detailEl.hidden && isNarrow() ? detailEl.offsetHeight + 20 : 30;
-    flyBounds(layer.getBounds(), { paddingTopLeft: [30, 30], paddingBottomRight: [right, bottom], maxZoom: 15 });
+    flyBounds(g.getBounds(), { paddingTopLeft: [30, 30], paddingBottomRight: [right, bottom], maxZoom: 15 });
   }
   const ShowAll = L.Control.extend({
-    options: { position: 'topleft' },
+    options: { position: 'topright' },
     onAdd() {
-      const box = L.DomUtil.create('div', 'leaflet-bar');
-      const a = L.DomUtil.create('a', 'showall-btn', box);
-      a.href = '#'; a.title = 'Show all ranked spots (H)'; a.setAttribute('role', 'button');
-      a.setAttribute('aria-label', 'Show all ranked spots');
-      a.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
-      L.DomEvent.on(a, 'click', e => { L.DomEvent.preventDefault(e); L.DomEvent.stopPropagation(e); showAll(); });
-      return box;
+      const a = L.DomUtil.create('button', 'zoomout-btn');
+      a.type = 'button'; a.title = 'Zoom out to see everything on this list (H)';
+      a.innerHTML = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="6.5" cy="6.5" r="4.8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 10l4.2 4.2M4.3 6.5h4.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Zoom out';
+      L.DomEvent.disableClickPropagation(a);
+      L.DomEvent.on(a, 'click', e => { L.DomEvent.preventDefault(e); showAll(); });
+      return a;
     }
   });
   new ShowAll().addTo(map);
@@ -390,7 +390,7 @@
     extra.forEach(p => {
       const m = L.circleMarker([p.lat, p.lon], EXTRA_STYLE);
       m.bindTooltip(`${p.rank ? '#' + fmt(p.rank) + ' ' : ''}${esc(p.name)}: ${p.killed} people killed`, { direction: 'top', offset: [0, -4] })
-        .on('click', () => select(p, false, null));
+        .on('click', () => pickSpot(p, false, null));
       m._p = p; m.addTo(layer); markers[p.rank_ksi] = m;
     });
     // Draw lower ranks first so higher ranks sit on top.
@@ -410,7 +410,7 @@
             fillColor: t.color, fillOpacity: 0.85
           });
       m.bindTooltip(`#${p.rank} ${esc(p.name)}`, { direction: 'top', offset: [0, p.rank <= 10 ? -14 : -4] })
-        .on('click', () => select(p, false, m.getElement && m.getElement()));
+        .on('click', () => pickSpot(p, false, m.getElement && m.getElement()));
       m._p = p; m.addTo(layer); markers[p.rank_ksi] = m;
     });
 
@@ -435,7 +435,7 @@
     list.querySelectorAll('li[data-id]').forEach(li => {
       const p = byId.get(+li.dataset.id);
       const btn = li.querySelector('button');
-      btn.addEventListener('click', () => select(p, true, btn));
+      btn.addEventListener('click', () => pickSpot(p, true, btn));
       // Hovering or focusing a card lifts and highlights its marker, so overlapping markers can be found.
       const on = () => highlight(p, true), off = () => highlight(p, false);
       li.addEventListener('mouseenter', on); li.addEventListener('mouseleave', off);
@@ -481,6 +481,11 @@
   // Redraw the graphs to fit when the detail panel is resized or widened.
   if (window.ResizeObserver) new ResizeObserver(() => renderGraphs()).observe(document.getElementById('detail'));
   const detailEl = document.getElementById('detail');
+  const spotOpen = () => !detailEl.hidden && !detailEl.classList.contains('home');
+  let ready = false;   // set at the end of start-up; the overview isn't drawn before then
+  const refreshHome = () => { if (ready && !spotOpen() && !isNarrow()) renderHome(); };
+  const pickSpot = (p, fly, from) => (spotOpen() && current && current.rank_ksi === p.rank_ksi ? closeDetail(true) : select(p, fly, from));
+  const pickLine = (t, fly) => (spotOpen() && tSel === t ? closeDetail(false) : selectTraffic(t, fly));
   const mapW = () => document.getElementById('map').offsetWidth || window.innerWidth;
   const maxW = () => Math.max(340, mapW() - 90);
   const defaultExpanded = () => Math.max(800, Math.round(mapW() * 0.66));
@@ -499,7 +504,7 @@
     b.textContent = leftExpanded ? '‹' : '›';
     b.title = leftExpanded ? 'Narrow the list' : 'Widen the list';
     b.setAttribute('aria-label', b.title); b.setAttribute('aria-pressed', String(leftExpanded));
-    if (!document.body.classList.contains('budget-view')) map.invalidateSize();   // never measure the map while it's hidden
+    map.invalidateSize();
   }
   function toggleLeft() {
     leftExpanded = !leftExpanded; store.set('leftExpanded', leftExpanded);
@@ -507,7 +512,7 @@
   }
 
   function applyLayout() {
-    if (isNarrow()) { detailEl.style.width = ''; detailEl.classList.remove('expanded', 'split'); return; }
+    if (isNarrow()) { detailEl.style.width = ''; detailEl.classList.remove('expanded', 'split'); mainEl.style.setProperty('--detail-w', '0px'); return; }
     // Both expanded: the detail panel fills everything right of the list (the two meet in the middle).
     const split = expanded && leftExpanded;
     detailEl.classList.toggle('split', split);
@@ -515,6 +520,7 @@
     const w = split ? mapW() : expanded ? (widths.expanded || defaultExpanded()) : widths.normal;
     detailEl.style.width = (split ? w : Math.min(Math.max(340, w), maxW())) + 'px';
     detailEl.classList.toggle('expanded', expanded);
+    mainEl.style.setProperty('--detail-w', (detailEl.hidden ? 0 : detailEl.offsetWidth) + 'px');
     const b = document.getElementById('expandDetail');
     // Same control as the list's edge tab: the arrow points the way the edge will move.
     b.textContent = expanded ? '›' : '‹';
@@ -528,7 +534,11 @@
   }
   document.getElementById('expandDetail').onclick = toggleExpand;
   document.getElementById('expandPanel').onclick = toggleLeft;
-  window.addEventListener('resize', () => { applyPanel(); applyLayout(); });
+  window.addEventListener('resize', () => {
+    applyPanel(); applyLayout();
+    // Crossing the phone/desktop width: the overview lives only on desktop.
+    if (!spotOpen()) { if (isNarrow()) { detailEl.hidden = true; detailEl.classList.remove('home'); } else if (detailEl.hidden) refreshHome(); }
+  });
   applyPanel();
   applyLayout();
 
@@ -573,6 +583,7 @@
     h.addEventListener('pointermove', e => {
       if (!h.hasPointerCapture(e.pointerId)) return;
       detailEl.style.width = Math.min(Math.max(340, startW + (startX - e.clientX)), maxW()) + 'px';
+      mainEl.style.setProperty('--detail-w', detailEl.offsetWidth + 'px');
     });
     h.addEventListener('pointerup', e => {
       h.releasePointerCapture(e.pointerId); document.body.classList.remove('resizing');
@@ -588,7 +599,7 @@
     const inDetail = detailEl.contains(e.target);
     const inMap = document.getElementById('map').contains(e.target);
     if ((e.key === 'h' || e.key === 'H') && (inMap || inDetail)) { showAll(); return; }
-    if (detailEl.hidden) return;
+    if (!spotOpen()) return;
     if (e.key === 'Escape') closeDetail(true);
     else if ((e.key === 'e' || e.key === 'E') && inDetail && !isNarrow()) toggleExpand();
   });
@@ -945,7 +956,7 @@
 
   // The map view from before a spot was opened, so closing it zooms back out to where you were.
   let viewBefore = null;
-  const rememberView = () => { if (detailEl.hidden && !viewBefore) viewBefore = { c: map.getCenter(), z: map.getZoom() }; };
+  const rememberView = () => { if (!spotOpen() && !viewBefore) viewBefore = { c: map.getCenter(), z: map.getZoom() }; };
   function select(p, fly, from, keepFocus) {
     rememberView();
     if (!current || current.rank_ksi !== p.rank_ksi) { crashFilter = 'all'; reqFilter = ''; showAllCrashes = showAllReqs = false; }
@@ -1012,7 +1023,7 @@
         </div>
       </div>`;
     const wasHidden = detailEl.hidden;
-    detailEl.hidden = false;
+    detailEl.hidden = false; detailEl.classList.remove('home');
     if (wasHidden) setSheet(false);
     applyLayout();
     if (fly) flyVisible([p.lat, p.lon], 17);
@@ -1080,7 +1091,7 @@
           This spot is outside them, so it isn't in the ranked list.</p>
       </div>`;
     const wasHidden = detailEl.hidden;
-    detailEl.hidden = false; if (wasHidden) setSheet(false); applyLayout();
+    detailEl.hidden = false; detailEl.classList.remove('home'); if (wasHidden) setSheet(false); applyLayout();
     flyVisible([s.lat, s.lon], 17);
     focus.clearLayers();
     L.circleMarker([s.lat, s.lon], { radius: 9, color: '#1d2430', weight: 3, fillColor: '#fff', fillOpacity: 0.9, interactive: false }).addTo(focus);
@@ -1089,10 +1100,13 @@
   }
 
   function closeDetail(restoreFocus) {
-    detailEl.hidden = true; mainEl.classList.remove('split'); clearFocus();
-    applyLayout();
+    mainEl.classList.remove('split'); clearFocus();
+    const wasLine = tSel; tSel = null;
+    if (isNarrow()) { detailEl.hidden = true; detailEl.classList.remove('home'); applyLayout(); } else renderHome();
+    tSel = wasLine;
+    const right = isNarrow() ? 30 : detailEl.offsetWidth + 30;
     if (viewBefore) { if (reduceMotion) map.setView(viewBefore.c, viewBefore.z, { animate: false }); else map.flyTo(viewBefore.c, viewBefore.z, { duration: 0.6 }); }
-    else { const g = trafficOn ? tLayer : layer; if (g.getLayers().length) (reduceMotion ? map.fitBounds : map.flyToBounds).call(map, g.getBounds(), { padding: [30, 30], maxZoom: 15 }); }
+    else { const g = trafficOn ? tLayer : layer; if (g.getLayers().length) (reduceMotion ? map.fitBounds : map.flyToBounds).call(map, g.getBounds(), { paddingTopLeft: [30, 30], paddingBottomRight: [right, 30], maxZoom: 15 }); }
     viewBefore = null;
     if (tSel) { tSel = null; tLines.forEach(line => line.setStyle(lineStyle(line._t, false))); document.querySelectorAll('.tlist li.selected').forEach(li => li.classList.remove('selected')); }
     history.replaceState(null, '', location.pathname + location.search);
@@ -1218,7 +1232,7 @@
   })();
   function savePins() {
     try { localStorage.setItem(PIN_KEY, JSON.stringify(pins)); localStorage.removeItem('ipm.pin'); } catch { /* storage unavailable */ }
-    renderPinList();
+    renderPinList(); refreshHome();
   }
   const pinTitle = g => g.name || g.label;
   const samePin = g => pins.find(p => Math.abs(p.lat - g.lat) < 0.0002 && Math.abs(p.lon - g.lon) < 0.0002);
@@ -1272,7 +1286,7 @@
     return flyToMarker(m, g);
   }
   function flyToMarker(m, g) {
-    if (!detailEl.hidden) closeDetail(false);
+    if (spotOpen()) closeDetail(false);
     const go = () => { m.openPopup(); };
     // On phones the map is short: put the pin low so its pop-up fits above it.
     let c = L.latLng(g.lat, g.lon);
@@ -1393,19 +1407,47 @@
 
   // ---------- tabs ----------
   const tabs =[...document.querySelectorAll('nav [role=tab]')];
-  let budgetView = null;
-  function showTab(b) {
+  // The budget has no locations, so it slides up over the map as a sheet. On desktop the list and the details panel
+  // stay put beside it; on a phone it covers everything below the header. The list underneath keeps the last tab.
+  const sheetEl = document.getElementById('budgetSheet');
+  let lastTab = tabs[0], unwidened = null;
+  const budgetOpen = () => document.body.classList.contains('budget-open');
+  function setTabState(b) {
     tabs.forEach(x => { const on = x === b; x.classList.toggle('active', on); x.setAttribute('aria-selected', on); x.tabIndex = on ? 0 : -1; });
-    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
-    const budget = b.dataset.tab === 'spending', wasBudget = document.body.classList.contains('budget-view');
-    // The budget has no locations, so the map is hidden on that tab. Keep its view and restore it on the way out,
-    // which also makes Leaflet redraw every tile (a hidden map can be measured as 0 x 0 if the window is resized).
-    if (budget && !wasBudget) budgetView = { c: map.getCenter(), z: map.getZoom() };
-    document.body.classList.toggle('budget-view', budget);
-    applyPanel();
-    if (!budget && wasBudget && budgetView) map.setView(budgetView.c, budgetView.z, { animate: false, reset: true });
+  }
+  function openBudget() {
+    if (budgetOpen()) return;
+    // A widened list or details panel would squeeze the sheet to nothing: narrow them while it's open, restore after.
+    if (!isNarrow() && (leftExpanded || expanded)) {
+      unwidened = { left: leftExpanded, right: expanded };
+      leftExpanded = expanded = false; applyPanel(); applyLayout();
+      if (current) select(current, false, null, true);
+    }
+    sheetEl.hidden = false; void sheetEl.offsetWidth;   // start the slide from below
+    document.body.classList.add('budget-open');
+    document.getElementById('budgetTitle').focus({ preventScroll: true });
+  }
+  function closeBudget() {
+    if (!budgetOpen()) return;
+    document.body.classList.remove('budget-open');
+    setTimeout(() => { if (!budgetOpen()) sheetEl.hidden = true; }, reduceMotion ? 0 : 360);
+    if (unwidened) {
+      leftExpanded = unwidened.left; expanded = unwidened.right; unwidened = null; applyPanel(); applyLayout();
+      if (current) select(current, false, null, true);
+    }
+  }
+  function showTab(b) {
+    setTabState(b);
+    if (b.dataset.tab === 'spending') { openBudget(); return; }
+    closeBudget(); lastTab = b;
+    document.querySelectorAll('#panel .tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
     setLineView(b.dataset.tab === 'traffic' ? 'traffic' : b.dataset.tab === 'walk' ? 'walk' : null);
   }
+  document.getElementById('closeBudget').onclick = () => { showTab(lastTab); lastTab.focus(); };
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || !budgetOpen() || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+    e.stopPropagation(); showTab(lastTab); lastTab.focus();
+  }, true);
   // Budget tab -> the crash map with SDOT's mapped projects switched on.
   document.addEventListener('click', e => {
     if (!e.target.closest || !e.target.closest('.proj-show')) return;
@@ -1634,7 +1676,7 @@
       const casing = L.polyline(s.pts, { color: '#fff', weight: lineStyle(t).weight + 4, opacity: 0.9, interactive: false }).addTo(tLayer);
       const line = L.polyline(s.pts, lineStyle(t, tSel === s)).addTo(tLayer)
         .bindTooltip(`#${M.rank(s)} ${esc(M.name(s))}`, { sticky: true })
-        .on('click', () => selectTraffic(s));
+        .on('click', () => pickLine(s));
       line._casing = casing; line._t = t; tLines.set(tKey(s), line);
     });
     document.getElementById(V().list).innerHTML = rows.map((s, i) => {
@@ -1649,7 +1691,7 @@
     const byKey = new Map(rows.map(s => [tKey(s), s]));
     document.querySelectorAll('#' + V().list + ' li').forEach(li => {
       const s = byKey.get(li.dataset.k), line = tLines.get(li.dataset.k);
-      li.querySelector('button').onclick = () => selectTraffic(s, true);
+      li.querySelector('button').onclick = () => pickLine(s, true);
       const hl = on => { if (line) { line.setStyle(lineStyle(line._t, on || tSel === s)); if (on) line.bringToFront(); } };
       li.onmouseenter = () => hl(true); li.onmouseleave = () => hl(false);
     });
@@ -1698,7 +1740,7 @@
     document.getElementById('detailTitle').innerHTML = `<span class="drank">#${M.rank(s)}</span> ${esc(M.name(s))}`;
     document.getElementById('detailBody').innerHTML = M.detail(s);
     const wasHidden = detailEl.hidden;
-    detailEl.hidden = false;
+    detailEl.hidden = false; detailEl.classList.remove('home');
     if (wasHidden) setSheet(false);
     applyLayout();
     const b = L.latLngBounds(flatPts(s.pts));
@@ -1711,7 +1753,7 @@
     };
     document.getElementById('detailBody').onchange = null;
   }
-  Object.values(VIEWS).forEach(v => { v.modeEl.onchange = v.topEl.onchange = () => { if (tSel) closeDetail(false); renderTraffic(); }; });
+  Object.values(VIEWS).forEach(v => { v.modeEl.onchange = v.topEl.onchange = () => { if (tSel) closeDetail(false); renderTraffic(); refreshHome(); }; });
 
   // "Sidewalks here" on a safety spot: SDOT's missing-sidewalk tier and sidewalk rated poor, right at the spot.
   function sidewalksHere(p) {
@@ -1748,10 +1790,11 @@
     const was = view; view = name; trafficOn = !!name;
     document.body.classList.toggle('traffic-view', !!name);
     document.body.classList.toggle('walk-view', name === 'walk');
-    if (!detailEl.hidden) closeDetail(false);
+    if (spotOpen()) closeDetail(false);
     tSel = null;
     if (name) { if (!was) { map.removeLayer(layer); clearFocus(); tLayer.addTo(map); } renderTraffic(); }
     else { map.removeLayer(tLayer); layer.addTo(map); }
+    refreshHome();
   }
 
   // ---------- capital budget tab ----------
@@ -2052,5 +2095,78 @@
     return false;
   }
   window.addEventListener('hashchange', openFromHash);
-  if (!openFromHash() && layer.getLayers().length) map.fitBounds(layer.getBounds(), { padding: [30, 30], maxZoom: 15 });
+  // ---------- desktop overview: the details panel never closes; with nothing picked it shows where to start ----------
+  function renderHome() {
+    if (isNarrow()) { detailEl.hidden = true; detailEl.classList.remove('home'); return; }
+    detailEl.classList.add('home'); detailEl.hidden = false;
+    applyLayout();
+    const titleEl = document.getElementById('detailTitle'), body = document.getElementById('detailBody');
+    renderGraphs = () => {};
+    const card = (it, i) => `<li><button type="button" class="home-card" data-home="${i}">
+        <span class="hc-rank" style="background:${TIERS[tier(it.rank)].color}">#${it.rank}</span>
+        <span class="hc-main"><span class="hc-name">${esc(it.name)}</span><span class="hc-sub">${esc(it.sub)}</span></span>
+        <span class="hc-val">${it.val}</span></button></li>`;
+    let items, title, lead, middle = '';
+    if (!view) {
+      const top = D.priorities.filter(p => p.rank != null).slice(0, 50), n = top.length;
+      title = 'Crash hot spots: where to start';
+      lead = 'Nothing picked yet. Click a dot on the map or a place in the list, or search an address, to see why it ranks.';
+      items = top.slice(0, 3).map(p => ({
+        rank: p.rank, name: p.name, sub: [p.area, plural(p.crashes, 'crash', 'crashes')].filter(Boolean).join(' · '),
+        val: `<b>${(p.killed ?? 0) + (p.seriously_injured ?? 0)}</b>killed or seriously hurt`, open: () => select(p, true, null) }));
+      const arterial = top.filter(p => /arterial/i.test(p.street_type || '')).length;
+      const hin = top.filter(p => p.sdot_hin).length, planned = top.filter(p => p.proj_planned).length;
+      // A spot on the line between two areas ("Beacon Hill / Central Area") counts in both.
+      const ac = {};
+      top.forEach(p => (p.area || '').split(' / ').filter(Boolean).forEach(a => (ac[a] = (ac[a] || 0) + 1)));
+      const areas = Object.entries(ac).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 6);
+      const max = areas.length ? areas[0][1] : 1;
+      middle = `
+        <section class="hsec hsec-common"><h3>What the top ${n} have in common</h3>
+          <div class="stat-grid home-stats">
+            ${stat(`${arterial} of ${n}`, 'on main streets (arterials)')}
+            ${stat(`${hin} of ${n}`, "on SDOT's High Injury Network")}
+            ${stat(`${planned} of ${n}`, 'have an SDOT project published nearby')}
+          </div></section>
+        <section class="hsec hsec-where"><h3>Where the top ${n} are</h3>
+          <div class="hbars" role="list">${areas.map(([a, c]) => `<div class="hbar" role="listitem" data-tip="${esc(`<b>${esc(a)}</b><br>${c} of the top ${n} spots`)}">
+            <span class="hb-l">${esc(a)}</span><span class="hb-t" aria-hidden="true"><i style="width:${(100 * c / max).toFixed(1)}%"></i></span>
+            <span class="hb-v">${c}<span class="sr-only"> spots</span></span></div>`).join('')}</div>
+          <div class="note">A spot on the line between two areas counts in both.</div></section>`;
+    } else {
+      const M = curMode();
+      title = view === 'traffic' ? 'Slow buses & busy streets: where to start' : 'Missing & broken sidewalks: where to start';
+      lead = 'Nothing picked yet. Click a line on the map or a street in the list to see the details.';
+      items = M.items().slice(0, 3).map(t => ({ rank: M.rank(t), name: M.name(t), sub: M.sub(t), val: M.score(t), open: () => selectTraffic(t, true) }));
+    }
+    const pinsHtml = pins.length ? `<section class="hsec hsec-pins"><h3>Your pins</h3><ul class="home-pins">${pins.map(g => {
+        const nb = nearbySpots(g.lat, g.lon);
+        return `<li><button type="button" class="home-pin" data-pin="${g.id}"><span class="hp-name">📍 ${esc(pinTitle(g))}</span>
+          <span class="hp-sub">${nb.crashes ? `${plural(nb.crashes, 'crash', 'crashes')} within a quarter mile` : 'No crashes within a quarter mile'}</span></button></li>`;
+      }).join('')}</ul></section>` : '';
+    titleEl.textContent = title;
+    body.innerHTML = `<div class="home-wrap">
+      <p class="home-lead">${lead}</p>
+      <section class="hsec hsec-top"><h3>Top 3 on this list</h3><ol class="home-top">${items.map(card).join('')}</ol></section>
+      ${middle}
+      ${pinsHtml}
+      <section class="hsec hsec-tips"><h3>Try this</h3><ul class="home-tips">
+        <li><b>Right-click the map</b> to pin a place you care about, like home or a school. Pins stay on this device.</li>
+        <li>${projToggleBtn()} (purple lines, from SDOT's published project maps).</li>
+        <li>Click a place a second time to zoom back out, or use <b>Zoom out</b> at the top right of the map.</li>
+        ${view ? '' : '<li>The <b>Slow buses</b> and <b>Sidewalks</b> tabs show other problems on the same streets.</li>'}
+      </ul></section></div>`;
+    body.scrollTop = 0;
+    body.onchange = null;
+    body.onclick = e => {
+      const h = e.target.closest('[data-home]'); if (h) { items[+h.dataset.home].open(); return; }
+      const pb = e.target.closest('[data-pin]'); if (pb) { const g = pins.find(x => String(x.id) === pb.dataset.pin); if (g) openPin(g, true); }
+    };
+  }
+
+  ready = true;
+  if (!openFromHash()) {
+    refreshHome();
+    if (layer.getLayers().length) map.fitBounds(layer.getBounds(), { paddingTopLeft: [30, 30], paddingBottomRight: [isNarrow() ? 30 : detailEl.offsetWidth + 30, 30], maxZoom: 15 });
+  }
 })();
