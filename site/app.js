@@ -719,7 +719,7 @@
       const what = fx.label.toLowerCase();
       if (rate(b0, yb) && rate(a0, ya)) ba = '<p class="tc-ba"><b>Before the ' + esc(what) + ':</b> ' + rate(b0, yb) + ' crashes a year (' + sev(b0) + ' fatal or serious in ' + yb.toFixed(1) + ' years). ' +
         '<b>After:</b> ' + rate(a0, ya) + ' a year (' + sev(a0) + ' fatal or serious in ' + ya.toFixed(1) + ' years). ' +
-        (ya < 2 ? "That's under 2 years, so a change could easily be luck." : 'Crash counts swing from year to year, so treat a small change as a hint, not proof.') + '</p>';
+        (ya < 2 ? "That's under 2 years, too short to tell a real change from normal ups and downs." : 'Crash counts swing from year to year, so treat a small change as a hint, not proof.') + '</p>';
       else ba = '<p class="tc-ba">Not enough time on one side of the ' + esc(what) + ' to compare before and after.</p>';
     }
     return '<div class="legend"><span><i style="background:' + SEV.I.color + '"></i>All crashes</span>' +
@@ -924,8 +924,8 @@
       (p.rank_risk ? `, and #${p.rank_risk} once you account for how busy it is` : '') + '.';
     const why = p.killed >= 2 && rk > 50
       ? `<p class="callout">${p.killed} people died here. It ranks #${fmt(rk)} because the ranking estimates where people are most
-          likely to be hurt next, and this spot has few other crashes (${p.crashes} in total), so the model treats much of its
-          record as chance. That may understate it: repeated deaths can mean traffic moves at deadly speeds. It's always listed
+          likely to be hurt next, and this spot has few other crashes (${p.crashes} in total), which gives the model little history to tell whether the
+          danger here will continue, so it leans on what's typical for similar streets. That may understate it: repeated deaths can mean traffic moves at deadly speeds. It's always listed
           so it isn't overlooked.</p>` : '';
     return `<p class="verdict">${esc(parts.join(' '))}</p><p class="verdict2">${line2}</p>${why}`;
   }
@@ -1890,7 +1890,7 @@
         <ol class="steps">
           <li><b>Crash harm ${fmt(Math.round(ex.harm))}.</b> ${ex.crashes} crashes; each scores by how badly people were hurt.</li>
           <li><b>Expected harm ${fmt(Math.round(ex.expected_harm))}.</b> The fatal/serious part is blended with what's typical for
-            ${esc(groupName(ex.ref_group))}, so luck matters less.</li>
+            ${esc(groupName(ex.ref_group))}, so a handful of crashes doesn't swing the estimate too far.</li>
           <li><b>Score ${fmt(Math.round(ex.score_ksi))}.</b> × ${(1 + ex.request_boost).toFixed(2)} for nearby safety-related repair requests.</li>
         </ol>
       </div>` : '';
@@ -1899,14 +1899,14 @@
       <ol>
         <li><b>Crash harm.</b> Points per crash: killed or seriously injured ${k}, other injury ${weight('injury')},
           property damage only ${weight('pdo')}, × ${weight('ped_bike_mult')} when someone walking or biking was hurt.
-          Fatal and serious count alike because whether a crash kills depends heavily on chance (age, vehicle, ambulance
-          time). Vision Zero programs use the same "KSI" grouping. Since January 2026 about 1 in 10 reports has no severity; those
+          Fatal and serious count alike because whether a serious crash turns fatal often depends on things beyond the street
+          itself, like the person's age, the vehicle, or how quickly help arrives. Vision Zero programs use the same "KSI" grouping. Since January 2026 about 1 in 10 reports has no severity; those
           aren't treated as harmless: each gets the typical non-fatal/serious harm for similar streets.</li>
         <li><b>Repeated deaths compound.</b> The 1st fatal crash at a spot counts ${k}, the 2nd ${(k * g).toFixed(1)},
           the 3rd ${(k * g * g).toFixed(1)} (each × ${g} the last). This extra weight then goes through step 3 like all fatal/serious
           harm: at a spot with few crashes, most of it is replaced by the typical rate. That's why places where 2 or more people
           died are also listed separately, whatever their rank.</li>
-        <li><b>Expected harm.</b> A spot with few crashes can look deadly or safe by luck. So its fatal/serious harm is blended
+        <li><b>Expected harm.</b> With only a few crashes, a spot's record can make it look much more or much less dangerous than it really is. So its fatal/serious harm is blended
           with the typical rate for similar spots (same kind of location and street class), weighted by its crash count:
           own record × crashes ÷ (crashes + ${A}). A spot with 5 crashes leans ${Math.round(100 * A / (5 + A))}% on the typical
           rate; one with 60 leans ${Math.round(100 * 60 / (60 + A))}% on its own record. Every crash, even a fender-bender,
@@ -1938,11 +1938,11 @@
       <table class="vtable"><thead><tr><th scope="col">Method</th><th scope="col">Top 50</th><th scope="col">Top 200</th></tr></thead><tbody>
         ${(meta.validation || []).map(v => `<tr class="${v.method === 'expected' ? 'total' : ''}"><td>${vname[v.method] || v.method}</td><td>${v.k50}</td><td>${v.k200}</td></tr>`).join('')}
       </tbody></table>
-      <p class="note">Ranking on fatal/serious crashes alone predicts worst: those are rare enough that luck dominates.
+      <p class="note">Ranking on fatal/serious crashes alone predicts worst: they're rare enough that a place's count swings a lot from year to year, so past counts alone say little about what comes next.
         Blending them with crash counts does best. That's why the method is what it is.</p>
       <p class="note">This test was also used to choose the method, so a fresh test would likely do somewhat worse. The repair-request
         boost isn't included in it. Spots that rank high after a bad stretch usually improve somewhat on their own (regression to
-        the mean): the blending corrects the fatal/serious share for luck, but not the crash count itself.</p>`;
+        the mean): the blending evens out the fatal/serious share where numbers are small, but not the crash count itself.</p>`;
     const ag = (meta.sdot_agreement || []).reduce((o, a) => (o[a.mode] = a, o), {});
     const agRow = (m, label) => ag[m] ? `<tr><td>${label}</td><td>${ag[m].on_hin}</td><td>${ag[m].on_hin_high}</td><td>${ag[m].sdot_hcl_recent}</td></tr>` : '';
     const agreement = `
