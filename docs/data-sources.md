@@ -116,3 +116,12 @@ the weather analysis.
 - **Weather:** Open-Meteo historical archive (no key), NOAA GHCN for the Sea-Tac station
 - **Traffic congestion:** TomTom or HERE free tiers, sampled over time
 - **King County Metro GTFS-realtime:** transit reliability
+
+## Added in tester round 1
+- **Leading Pedestrian Intervals**: `Vision_Zero_-_Leading_Pedestrian_Intervals_ACTIVE/FeatureServer/8`
+  (1,239 signals; LPI_Status Existing / Planned / Not Feasible, LPI_Install_Date, LPI_Planned_Year; multipoint).
+- **Traffic signal assemblies**: `Traffic_Signal_Assemblies_(Active)/FeatureServer/0` (1,254; INTKEY,
+  PEDSIGNALYN, PEDAUDIODEVICEYN, LTPROTECTEDYN, LTFIRSTINSTALLDT). Joined to crash locations by INTKEY.
+- **Traffic volumes**: `DATAQUALIT` and `START_DATE` are now used. The "2024" layer is a compilation:
+  about 30% are 2024 counts; others are 2013-2023 counts or undated estimates (e.g. 36,000 on Aurora).
+- **Crash reporting lag**: the newest 2-3 months are far below normal (e.g. Oct 2026: 47 vs ~480 a month).

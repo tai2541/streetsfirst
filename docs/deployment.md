@@ -28,6 +28,23 @@ Triggers: many cities/regions, user accounts, comments, or data too large for st
 - **Map data:** vector tiles (PMTiles on object storage) instead of JSON.
 - **API:** a small API for per-region queries.
 
+## Done in tester round 1
+- Expected harm (empirical Bayes on severity), chosen by an out-of-sample test; honest SDOT consistency check.
+- Traffic volume per street at each spot, with count year and estimate flags; risk ranking per vehicle entering.
+- Scoring window that skips the last 3 months (late police reports); Unknown severity scored 0.
+- SDOT actions per spot: head-start walk signals (LPI), protected left turns, accessible signals; "still dangerous after" flags.
+- Fetch writes to data/raw.tmp and only swaps in if row counts look sane; retries; paging by exceededTransferLimit.
+
+## Next (from the developer review, accepted)
+1. Sidewalk and curb-ramp ranking (Sidewalk_Observation, Sidewalks_(Active), Curb_Ramps_(Active)), weighted by
+   transit walksheds, school walk zones and the city's Race and Social Equity index. Show property-owner responsibility.
+2. Request-to-repair tracking with SDOT_Sidewalk_WorkOrders_Public (links to 311 numbers; time to fix; recorded cost).
+3. Before/after look at head-start walk signals vs comparable signals (labelled as observed change, not effect).
+4. Nightly score snapshots keyed on stable IDs (INTKEY / COMPKEY instead of SDOT's location text).
+5. Planned work: All_Sidewalk_Projects, Transportation_Plans_and_Projects (incl. unfunded), paving moratoria.
+6. Port fetch to Node or DuckDB httpfs for Linux CI; lazy-load per-spot details once hosted.
+7. Expansion: a canonical collision schema with per-city adapters (Vancouver WA publishes WSDOT-schema crashes).
+
 ## Roadmap for the data
 1. Normalize by traffic volume (SDOT traffic counts) so busy streets aren't automatically on top.
 2. ~~Smooth fatal crashes~~ Done: KSI weighting, compounding repeated fatal crashes,

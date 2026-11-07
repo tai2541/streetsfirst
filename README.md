@@ -2,15 +2,19 @@
 
 A public map that answers one question: **what in this city most needs to be worked on next?**
 
-It combines public data on crashes, emergency calls, service complaints, infrastructure
-condition, weather and neighborhood vulnerability into one ranked list of problem spots,
-each with the reasons behind its score.
+Today it ranks Seattle's crash locations using SDOT collision reports, Find It Fix It repair
+requests, and SDOT's street, traffic, signal and Vision Zero layers, with the reasons behind
+each score. The goal is to add more: emergency calls, infrastructure condition, weather and
+neighborhood vulnerability (see the roadmap).
 
 First region: **Seattle, WA**. The design keeps the scoring engine separate from the
 data sources so other Washington cities, the whole state, and later other states can be
 added by plugging in new sources.
 
-## Three questions the site answers
+## Three questions the site is built to answer
+*Question 1 is answered today. Questions 2 and 3 are partly answered (SDOT actions per spot, the capital
+budget by program) and are the main roadmap.*
+
 1. **What needs work next?** A ranked map of problem spots with the reasons for each score.
 2. **Why is this being worked on?** Every current and future project, its cost, and the
    evidence of need behind it (or the lack of it).
@@ -21,8 +25,9 @@ added by plugging in new sources.
 - **Fixes, not policing.** Focus on call types with a fixable cause (crashes, medical,
   fire, infrastructure). Leave out crime-type calls. Never single out people or exact homes.
 - **Show the reasons.** Every ranked item explains why it ranks where it does.
-- **Respect planned work.** Problems already in a funded capital plan are marked as
-  scheduled, not ranked as neglected.
+- **Respect work already done.** Each spot shows what SDOT has already installed or planned there
+  (head-start walk signals, protected left turns) and flags spots that are still dangerous after it.
+  *Roadmap:* link funded capital projects to locations and mark them as scheduled.
 - **Check against reality.** Validate rankings against known Seattle problems
   (e.g. West Seattle Bridge, Magnolia Bridge, SDOT high-injury streets) and SDOT's
   Asset Status & Condition Report (published every 5 years; latest data 2020, next expected 2026).
@@ -33,14 +38,17 @@ added by plugging in new sources.
 **Long-term goal:** `condition x usage x consequence of failure x area vulnerability`,
 reduced when repair work is already scheduled.
 
-**Current (crashes + repair requests)**, "Recommended" ranking:
-1. **Crash harm:** fatal or serious injury 30 (KSI), injury 5, property damage 1,
-   x1.5 when a pedestrian or cyclist was involved.
+**Current (crashes + repair requests)**, "Recommended" ranking, over 60 full months ending 3 months
+before the newest crash (recent police reports arrive late):
+1. **Crash harm:** fatal or serious injury 30 (KSI), injury 5, property damage 1, unknown 0,
+   x1.5 when a pedestrian or cyclist was hurt.
 2. **Repeated deaths compound:** the nth fatal crash at a spot counts 30 x 1.5^(n-1).
-3. **Reliability:** x crashes / (crashes + 3), so patterns outrank one-off events.
-   Confidence is low under 5 crashes, medium under 15, high otherwise.
-4. **Repair boost:** nearby requests raise the score by at most +50%. They can't create
-   a priority on their own.
+3. **Expected harm (empirical Bayes):** the fatal/serious part is blended with the typical
+   rate for similar spots (same location type and street class), weighted crashes / (crashes + 20).
+   Chosen because it best predicted later fatal/serious crashes in an out-of-sample test
+   (rank on the first 3 years, count KSI crashes in the last 2). Results are on the site.
+4. **Repair boost:** safety-related requests (signals, streetlights, signs, sidewalks, ADA,
+   Safe Routes to School) since mid-2023, duplicates collapsed, raise the score by at most +25%.
 
 The v1 "fatal-weighted" ranking is kept for comparison. All weights are in the
 `weights` table at the top of `pipeline/build.sql`.

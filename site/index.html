@@ -11,64 +11,75 @@
   <header>
     <div>
       <h1>Seattle Infrastructure Priority Map <span class="tag">v1</span></h1>
-      <p class="sub" id="subtitle"></p>
+      <p class="sub">Where Seattle's streets hurt people most, ranked by what to fix first. Pick a spot to see why.
+        <span class="sub-not">About fixing streets, not policing.</span></p>
     </div>
-    <nav>
-      <button data-tab="priorities" class="active">Priorities</button>
-      <button data-tab="spending">SDOT spending</button>
-      <button data-tab="about">How it's scored</button>
+    <nav role="tablist" aria-label="Views">
+      <button role="tab" id="tabbtn-priorities" data-tab="priorities" aria-controls="tab-priorities" aria-selected="true" class="active">Priorities</button>
+      <button role="tab" id="tabbtn-spending" data-tab="spending" aria-controls="tab-spending" aria-selected="false" tabindex="-1">SDOT capital budget</button>
+      <button role="tab" id="tabbtn-about" data-tab="about" aria-controls="tab-about" aria-selected="false" tabindex="-1">How it's scored</button>
     </nav>
   </header>
 
   <main>
     <aside id="panel">
-      <section id="tab-priorities" class="tab active">
-        <div class="controls">
-          <label>Ranking
-            <select id="mode" title="How crashes are weighted. See 'How it's scored'.">
-              <option value="ksi">Recommended</option>
-              <option value="risk">Risk for its traffic</option>
-              <option value="fatal">Fatal-weighted (v1)</option>
-            </select>
-          </label>
+      <section id="tab-priorities" class="tab active" role="tabpanel" aria-labelledby="tabbtn-priorities">
+        <div class="searchbox">
+          <input id="search" type="search" autocomplete="off" placeholder="Find any street or intersection"
+                 aria-label="Find any street or intersection" aria-controls="searchResults" aria-expanded="false">
+          <ul id="searchResults" role="listbox" aria-label="Matching locations" hidden></ul>
         </div>
         <div class="controls">
+          <label>Ranking
+            <select id="mode">
+              <option value="ksi">Recommended</option>
+              <option value="risk">Risk for its traffic</option>
+              <option value="fatal">Fatal-weighted (old)</option>
+            </select>
+          </label>
           <label>Show top
             <select id="topN"><option>10</option><option>25</option><option selected>50</option><option>100</option><option>200</option></select>
           </label>
+        </div>
+        <p id="modeHint" class="hint" aria-live="polite"></p>
+        <div class="controls">
           <label>Type
             <select id="addrFilter">
               <option value="">All</option><option value="I">Intersections</option><option value="B">Blocks</option>
-              <option value="F">Has a fatal crash</option>
             </select>
           </label>
+          <label class="check"><input type="checkbox" id="onlyFatal"> Has a death</label>
+          <label class="check" title="A fatal or serious-injury crash in 3 or more different years"><input type="checkbox" id="onlyOngoing"> Ongoing harm</label>
         </div>
-        <ol id="list"></ol>
+        <ol id="list" aria-label="Ranked locations"></ol>
+        <p class="note provenance" id="provenance"></p>
       </section>
 
-      <section id="tab-spending" class="tab">
-        <p class="note">SDOT capital budget by program, from the City of Seattle Capital Budget dataset.
-          The city's data has <strong>no location field</strong>, so spending can't be placed on the map yet.
-          Years after the current one are planned amounts.</p>
+      <section id="tab-spending" class="tab" role="tabpanel" aria-labelledby="tabbtn-spending">
         <div id="budget"></div>
       </section>
 
-      <section id="tab-about" class="tab">
+      <section id="tab-about" class="tab" role="tabpanel" aria-labelledby="tabbtn-about">
         <div id="about"></div>
       </section>
     </aside>
 
-    <div id="map"></div>
-  </main>
-
-  <div id="detail" hidden>
-    <div id="resizeHandle" title="Drag to resize"></div>
-    <div class="dbtns">
-      <button id="expandDetail" title="Expand (E)" aria-label="Expand">⤢</button>
-      <button id="closeDetail" title="Close (Esc)" aria-label="Close">×</button>
+    <div id="detail" role="region" aria-labelledby="detailTitle" hidden>
+      <div id="resizeHandle" title="Drag to resize" aria-hidden="true"></div>
+      <div class="dtop">
+        <h2 id="detailTitle" tabindex="-1"></h2>
+        <div class="dbtns">
+          <button id="sheetDetail" title="Show more" aria-label="Show more" aria-expanded="false">⌃</button>
+          <button id="expandDetail" title="Expand (E)" aria-label="Expand">⤢</button>
+          <button id="closeDetail" title="Close (Esc)" aria-label="Close">×</button>
+        </div>
+      </div>
+      <div id="detailBody"></div>
     </div>
-    <div id="detailBody"></div>
-  </div>
+
+    <div id="map" aria-label="Map of ranked locations"></div>
+    <div id="mapNote" hidden>The budget isn't on the map: the city's budget data has no locations.</div>
+  </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="data/data.js"></script>
