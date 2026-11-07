@@ -440,6 +440,8 @@ from all_types a left join scored s using (location);
 .read pipeline/traffic.sql
 -- sidewalks: SDOT's missing-sidewalk priorities and sidewalks in poor condition (context only, not scored)
 .read pipeline/sidewalks.sql
+-- SDOT's published project maps: planned and recently finished work (context only, not scored)
+.read pipeline/projects.sql
 
 -- ---------------------------------------------------------------- final ranking
 create or replace table priorities as
@@ -527,7 +529,7 @@ copy (
          wet_crashes, dark_crashes, unlit_crashes, road_known, light_known,
          first_crash, last_crash, requests, request_types,
          fixes, vol_history, bus_trips, bus_routes, bus_stretch_id,
-         sw_missing_tier, sw_poor_ft, sw_poor_assessed
+         sw_missing_tier, sw_poor_ft, sw_poor_assessed, proj_ids, proj_planned
   from export_set() order by rank
 ) to 'site/data/priorities.json' (format json, array true);
 

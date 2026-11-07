@@ -150,3 +150,22 @@ All read by `pipeline/fetch.ps1`, joined in `pipeline/traffic.sql`. Context only
 Never fetched: owner or parcel fields (PROPERTY_OWNER_RESPONSIBILITY, NEAREST_PARCEL_ID_NUMBER and similar). The map is about
 streets, not singling out homes. Candidates for later: Substandard Sidewalks (layer 19), Enhanced Street Crossings (layer 17),
 Curb_Ramps_(Active), Marked_Crosswalks_(Active), School_Walking_Boundaries.
+
+## Added for SDOT's planned projects (2026-11)
+Shown on the map (layer "SDOT planned & recent projects"), in each crash spot's "What SDOT has done" section, on the
+Sidewalks tab, and next to the matching budget programs. Never scored. Built in `pipeline/projects.sql`.
+
+| Source | Layer | Used for | Notes |
+|---|---|---|---|
+| SDOT New Sidewalks map | `All_Sidewalk_Projects/FeatureServer/53` | New sidewalk blocks: moving into design (`Planning = 'Y'`), completed (`Planning` empty, year ≤ this year) | Same filters as SDOT's own "New Sidewalks Map". Rows outside them aren't on SDOT's map and are left out. Matched to the missing-sidewalk list by SDOT's block name. |
+| SDOT Neighborhood-Initiated Safety Partnership Program map | `NISPP_Projects_draft/FeatureServer/0` | Small safety projects, Planned / Completed, with planned year | Names lose SDOT's internal area prefix ("S - ") and program suffix ("- NISPP"); "TBD" shown as not yet named. |
+| Leading Pedestrian Intervals (already fetched) | `Vision_Zero_-_Leading_Pedestrian_Intervals_ACTIVE` | Head-start walk signals with status Planned | |
+
+Each layer's last-edit date is saved in `data/raw/proj_edited.json` and shown on the site.
+
+Checked and not used:
+- **Capital Projects Input Data** (`q76w-bfs5`): 68 projects, last updated Sep 2025, many 2016–2020 projects still "Active". Too stale.
+- **dotMaps Active Projects** (gisdata.seattle.gov `SDOT_StreetUse`): that server's service is stopped.
+- **Bike_Imp_Data**: no dates or status (can't tell planned from built); last edited 2024.
+- No public layer ties a capital budget line (MC-TR-C…) to a location or gives per-project costs. Two programs share a name
+  with a project map (MC-TR-C058 New Sidewalk Program, MC-TR-C154 NISPP); the budget tab shows them side by side only.

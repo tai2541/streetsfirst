@@ -514,3 +514,16 @@ header nav { margin-left: 0; }
 header > div:first-child { flex: 1 1 300px; min-width: 0; }
 header nav { flex: none; }
 @media (max-width: 760px) { header nav { flex: 1 1 100%; } }
+/* ---- SDOT's published project maps ---- */
+.chip.proj { background: #efeafd; color: #4a2fb8; border: 1px dashed #8d76e6; }
+.proj-h { margin: 12px 0 4px; font-size: 13px; }
+.proj-list { margin: 4px 0 6px; padding-left: 18px; }
+.proj-list li { margin-bottom: 4px; }
+.proj-callout { background: #f3f0fe; border-left: 3px solid #5b3fd1; padding: 6px 10px; border-radius: 4px; font-size: 13px; }
+.proj-pop { font: 13px/1.45 Inter, system-ui, sans-serif; }
+.proj-src { font-size: 11.5px; margin-top: 6px; }
+.map-legend .lg-proj { display: none; }
+body.proj-on .map-legend .lg-proj { display: flex; }
+.lg-pline { display: inline-block; width: 22px; height: 0; border-top: 3px dashed #5b3fd1; vertical-align: middle; margin-right: 6px; }
+.lg-pline.done { border-top-style: solid; opacity: .5; }
+.lg-ppt { display: inline-block; width: 9px; height: 9px; border: 2px solid #5b3fd1; border-radius: 50%; background: #fff; vertical-align: middle; margin: 0 9px 0 4px; }

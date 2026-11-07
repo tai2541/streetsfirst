@@ -117,6 +117,22 @@ Get-ArcGISLayer "$gis/Seattle_Transportation_Plan_Pedestrian_Element/FeatureServ
 Get-ArcGISLayer "$gis/Sidewalks_(Active)/FeatureServer/0" `
   'COMPKEY,SEGKEY,UNITDESC,CONDITION,CONDITION_ASSESSMENT_DATE,SIDE,SW_WIDTH' 'sw_poor' "CONDITION IN ('POOR','VERY-POOR') AND CURRENT_STATUS = 'INSVC'"
 
+# ---- 4b3. SDOT's own published project maps: where SDOT shows planned (and recently finished) work.
+#   * New sidewalk projects: the layer behind SDOT's "New Sidewalks Map".
+#   * Neighborhood-Initiated Safety Partnership Program (NISPP): small safety projects with a planned year.
+# The City's budget data has no locations, and none of these layers carry budget line numbers or dollars, so the
+# site never puts a dollar figure on a mapped project. These lists are small and change as projects are added,
+# so they get a low floor and skip the 25% change check. Each layer's last-edit date is kept and shown on the site.
+Get-ArcGISLayer "$gis/All_Sidewalk_Projects/FeatureServer/53" 'COMPKEY,UNITID,UNITDESC,Year,Scope,Planning' 'proj_sidewalk'
+Get-ArcGISLayer "$gis/NISPP_Projects_draft/FeatureServer/0" `
+  'Neighborhood,Project_Name,Location,Scope,Project_Stage___Website,Planned_Delivery_Year,Project_Source,Link' 'proj_nispp'
+$projEdited = [ordered]@{}
+foreach ($p in @(@('proj_sidewalk', "$gis/All_Sidewalk_Projects/FeatureServer/53"), @('proj_nispp', "$gis/NISPP_Projects_draft/FeatureServer/0"))) {
+  $info = Invoke-RestMethod "$($p[1])?f=json" -TimeoutSec 60
+  $projEdited[$p[0]] = if ($info.editingInfo.lastEditDate) { [DateTimeOffset]::FromUnixTimeMilliseconds($info.editingInfo.lastEditDate).ToString('yyyy-MM-dd') } else { '' }
+}
+$projEdited | ConvertTo-Json | Set-Content (Join-Path $tmp 'proj_edited.json')
+
 # ---- 4c. King County Metro timetable (GTFS). Metro sets scheduled run times from how long buses actually
 # take at each time of day, so peak vs early-morning run times between stops show where traffic slows buses. ----
 $gtfsZip = Join-Path $tmp 'gtfs.zip'
@@ -134,13 +150,14 @@ Write-Host "gtfs stops: $($counts['gtfs_stops'])"
 $minimum = @{ collisions = 20000; requests = 50000; budget = 10000; streets = 20000; volumes = 1000
               hin = 50; hcl = 100; lpi = 500; signals = 800; districts = 7; hoods_main = 15; hoods_sub = 80
               volhist_years = 8; humps = 50; cushions = 30; radar = 30; bikelanes = 200; buslanes = 500; busvol = 2000; gtfs_stops = 3000
-              sw_missing = 8000; sw_poor = 1500 }
+              sw_missing = 8000; sw_poor = 1500; proj_sidewalk = 20; proj_nispp = 5 }
+$volatile = @('proj_sidewalk', 'proj_nispp')   # small project lists: big swings are normal
 $prev = @{}
 $prevFile = Join-Path $raw 'counts.json'
 if (Test-Path $prevFile) { (Get-Content $prevFile -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $prev[$_.Name] = [int]$_.Value } }
 foreach ($k in $minimum.Keys) {
   if (-not $counts.ContainsKey($k) -or $counts[$k] -lt $minimum[$k]) { throw "Fetch check failed: $k has $($counts[$k]) rows (minimum $($minimum[$k])). Keeping the previous data." }
-  if ($prev.ContainsKey($k) -and $prev[$k] -gt 0 -and [math]::Abs($counts[$k] - $prev[$k]) / $prev[$k] -gt 0.25) {
+  if ($k -notin $volatile -and $prev.ContainsKey($k) -and $prev[$k] -gt 0 -and [math]::Abs($counts[$k] - $prev[$k]) / $prev[$k] -gt 0.25) {
     throw "Fetch check failed: $k changed from $($prev[$k]) to $($counts[$k]) rows (>25%). Keeping the previous data. Delete data\raw\counts.json to accept it."
   }
 }

@@ -175,6 +175,8 @@
     const parts = [];
     if (p.sdot_hin) parts.push(`High Injury Network: ${p.sdot_hin}`);
     if (p.sdot_hcl_years && p.sdot_hcl_years.length) parts.push(`High Collision list ${p.sdot_hcl_years.slice(-1)[0]}`);
+    const planned = projectsAt(p).filter(j => j.stage !== 'done');
+    if (planned.length) parts.push(`Project nearby: ${esc(planned.map(j => j.kind === 'lpi' ? 'head-start walk signal' : j.kind === 'sidewalk' ? 'new sidewalk' : (j.scope || 'safety project').toLowerCase().split(',')[0]).filter((x, i, a) => a.indexOf(x) === i).join(', '))}`);
     return parts.length ? `<div class="sdotrow"><span class="sdot-mark" aria-hidden="true">SDOT</span> ${parts.join(' · ')}</div>` : '';
   }
 
@@ -218,7 +220,58 @@
     });
   };
   map.on('zoomend overlayadd', declutter); declutter();
-  L.control.layers(baseLayers, { 'Neighborhood names': hoodLabels }, { position: 'topleft' }).addTo(map);
+
+  // ---------- SDOT's published project maps: planned and recently finished work (context, never scored) ----------
+  // Only what SDOT publishes on a map with a location: new sidewalk projects, Neighborhood-Initiated Safety Partnership
+  // Program projects, and planned head-start walk signals. None carry budget numbers, so no dollars are shown per project.
+  const PJ = D.projects || { list: [], missing_blocks: [], counts: {} };
+  const PE = D.projEdited || {};
+  const projById = new Map(PJ.list.map(j => [j.id, j]));
+  // Projects within about 100 ft of an intersection or 80 ft of a block (matched in pipeline/projects.sql).
+  function projectsAt(p) { return (p.proj_ids || []).map(i => projById.get(i)).filter(Boolean); }
+  const dateText = d => (d ? new Date(d + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+  const PROJ_SRC = {
+    sidewalk: () => `SDOT's New Sidewalks map${PE.proj_sidewalk ? ` (last updated ${dateText(PE.proj_sidewalk)})` : ''}`,
+    safety: () => `SDOT's Neighborhood-Initiated Safety Partnership Program map${PE.proj_nispp ? ` (last updated ${dateText(PE.proj_nispp)})` : ''}`,
+    lpi: () => `SDOT's head-start walk signal (Leading Pedestrian Interval) list`
+  };
+  const projTitle = j => j.kind === 'sidewalk' ? `New sidewalk: ${niceName(j.name.replace(/ BETWEEN /, ' between ').replace(/ AND /, ' and '))}`
+    : j.kind === 'lpi' ? 'Head-start walk signal' : (j.name || 'Project (name not yet published by SDOT)');
+  // SDOT's own words for each stage; a year SDOT lists for a project in design is a target, not a promise.
+  const projStage = j => j.kind === 'sidewalk'
+    ? (j.stage === 'design' ? `moving into design${j.year ? ` (SDOT lists ${j.year})` : ''}` : `completed${j.year ? ' ' + j.year : ''}`)
+    : j.stage === 'done' ? `completed${j.year ? ' ' + j.year : ''}` : `planned${j.year ? ' for ' + j.year : ''}`;
+  const projWhat = j => j.kind === 'sidewalk' ? (j.scope ? `${j.scope} sidewalk` : 'New sidewalk') : j.kind === 'lpi' ? '' : (j.scope || '');
+  const projHtml = j => `<b>${esc(projTitle(j))}</b>${projWhat(j) ? ` <span class="muted">· ${esc(projWhat(j))}</span>` : ''}
+    — ${esc(projStage(j))}.${j.link ? ` <a href="${esc(j.link)}" target="_blank" rel="noopener">SDOT page</a>` : ''}`;
+  map.createPane('projects'); map.getPane('projects').style.zIndex = 420;
+  const PROJ_COLOR = '#5b3fd1';
+  const projLayer = L.layerGroup();
+  PJ.list.forEach(j => {
+    const done = j.stage === 'done';
+    const style = { pane: 'projects', color: PROJ_COLOR, weight: done ? 3 : 4, opacity: done ? 0.45 : 0.9, dashArray: done ? null : '6 5', lineCap: 'round' };
+    const shape = j.pt ? L.circleMarker(j.pt, { ...style, radius: 5, weight: 2, fillColor: '#fff', fillOpacity: 1, dashArray: null })
+      : j.pts && j.pts.length ? L.polyline(j.pts, style) : null;
+    if (!shape) return;
+    shape.bindPopup(`<div class="proj-pop">${projHtml(j)}<div class="muted proj-src">From ${esc(PROJ_SRC[j.kind]())}.
+      Not tied to a budget line: SDOT doesn't publish costs on these maps.</div></div>`, { maxWidth: 300 });
+    shape.addTo(projLayer);
+  });
+  const projOn = () => map.hasLayer(projLayer);
+  try { if (localStorage.getItem('ipm.projects') === '1') projLayer.addTo(map); } catch { /* storage unavailable */ }
+  document.body.classList.toggle('proj-on', projOn());
+  // Same state whether it's switched from the layer menu or a "show on map" button; remembered on this device.
+  const projLabel = () => (projOn() ? 'Hide SDOT projects on the map' : 'Show SDOT projects on the map');
+  map.on('layeradd layerremove', e => {
+    if (e.layer !== projLayer) return;
+    try { localStorage.setItem('ipm.projects', projOn() ? '1' : '0'); } catch { /* ignore */ }
+    document.body.classList.toggle('proj-on', projOn());
+    document.querySelectorAll('.proj-toggle').forEach(b => { b.textContent = projLabel(); b.setAttribute('aria-pressed', String(projOn())); });
+  });
+  const setProjects = on => { if (on && !projOn()) projLayer.addTo(map); else if (!on && projOn()) map.removeLayer(projLayer); };
+  const projToggleBtn = () => `<button type="button" class="linkbtn proj-toggle" aria-pressed="${projOn()}">${projLabel()}</button>`;
+  document.addEventListener('click', e => { if (e.target.closest && e.target.closest('.proj-toggle')) setProjects(!projOn()); });
+  L.control.layers(baseLayers, { 'Neighborhood names': hoodLabels, 'SDOT planned & recent projects': projLayer }, { position: 'topleft' }).addTo(map);
   // The area this map covers: Seattle city limits. Everything outside is dimmed and the edge is outlined,
   // so it's obvious where the data stops. Drawn in its own pane, under the markers, and not clickable.
   if (D.boundary) {
@@ -288,6 +341,9 @@
         ${[0, 1, 2].map(t => `<div class="lg-traffic"><b class="lg-tline" style="background:${TIERS[t].color};height:${7 - t}px"></b>${['Top 10', '11–25', '26–50'][t]}</div>`).join('')}
         <div class="lg-traffic"><b class="lg-tline" style="background:#8a94a6;height:2px"></b>Others</div>
         <div><b class="lg-line"></b>Seattle city limits (area covered)</div>
+        <div class="lg-proj"><b class="lg-pline"></b>SDOT project: planned or in design</div>
+        <div class="lg-proj"><b class="lg-pline done"></b>SDOT project: completed</div>
+        <div class="lg-proj"><b class="lg-ppt"></b>Head-start walk signal planned</div>
         <button type="button" class="pausebtn" aria-pressed="${paused}">${paused ? 'Play' : 'Pause'} animation</button>
         </div>`;
       d.querySelector('.lg-toggle').onclick = e => {
@@ -314,8 +370,9 @@
     const type = document.getElementById('addrFilter').value;
     const onlyFatal = document.getElementById('onlyFatal').checked;
     const ongoing = document.getElementById('onlyOngoing').checked;
+    const noPlan = document.getElementById('noPlan').checked;
     const keep = p => (!type || p.addr_type === type || (type === 'B' && p.addr_type === 'A'))
-        && (!onlyFatal || p.killed > 0) && (!ongoing || p.ksi_years >= 3);
+        && (!onlyFatal || p.killed > 0) && (!ongoing || p.ksi_years >= 3) && (!noPlan || !p.proj_planned);
     const rows = D.priorities.filter(p => p.rank != null && p.rank <= 200).filter(keep).slice(0, n);
     // Spots where 2+ people died are never left off, even when their predicted-harm rank is low.
     const inRows = new Set(rows.map(p => p.rank_ksi));
@@ -710,9 +767,20 @@
     });
     if (p.addr_type === 'I' && !p.signalized) items.push('No traffic signal in SDOT\'s signal data.');
     const still = stillDangerous(p);
+    // Planned and recent projects from SDOT's published project maps (the planned walk signal is already listed above).
+    const projs = projectsAt(p).filter(j => j.kind !== 'lpi');
+    const kinds = [...new Set(projs.map(j => j.kind))];
     return `${still ? `<p class="callout">${esc(still.long)}</p>` : ''}
       ${items.length ? `<ul>${items.map(i => `<li>${i}</li>`).join('')}</ul>` : '<div class="note">Nothing recorded in the SDOT layers this site reads.</div>'}
-      <div class="note">From SDOT signal, Vision Zero, traffic-calming, bike-lane and bus-lane data. Repaving, sidewalks and street redesigns aren't linked yet.</div>`;
+      <h4 class="proj-h">SDOT projects published nearby</h4>
+      ${projs.length ? `<ul class="proj-list">${projs.map(j => `<li>${projHtml(j)}</li>`).join('')}</ul>
+        <div class="note">From ${kinds.map(k => esc(PROJ_SRC[k]())).join(' and ')}. "Nearby" means within about
+          ${p.addr_type === 'I' ? '100' : '80'} ft. A project nearby isn't necessarily aimed at these crashes; check what it is.</div>`
+      : `<div class="note">None on SDOT's published project maps (new sidewalks, neighborhood safety projects, head-start walk
+          signals). SDOT may have other plans here, such as paving or corridor projects, that it doesn't publish on a map.</div>`}
+      ${projToggleBtn()}
+      <div class="note">From SDOT signal, Vision Zero, traffic-calming, bike-lane, bus-lane and project-map data. Repaving and
+        large corridor redesigns aren't linked: SDOT doesn't publish a current map of them.</div>`;
   }
 
   function countBy(arr, f) {
@@ -1030,7 +1098,7 @@
     opener = null;
   }
   document.getElementById('closeDetail').onclick = () => closeDetail(true);
-  ['topN', 'addrFilter', 'onlyFatal', 'onlyOngoing'].forEach(id => (document.getElementById(id).onchange = render));
+  ['topN', 'addrFilter', 'onlyFatal', 'onlyOngoing', 'noPlan'].forEach(id => (document.getElementById(id).onchange = render));
 
   function weight(k) { const w = meta.weights.find(x => x.k === k); return w ? w.v : '?'; }
 
@@ -1210,6 +1278,12 @@
     if (!budget && wasBudget && budgetView) map.setView(budgetView.c, budgetView.z, { animate: false, reset: true });
     setLineView(b.dataset.tab === 'traffic' ? 'traffic' : b.dataset.tab === 'walk' ? 'walk' : null);
   }
+  // Budget tab -> the crash map with SDOT's mapped projects switched on.
+  document.addEventListener('click', e => {
+    if (!e.target.closest || !e.target.closest('.proj-show')) return;
+    showTab(document.getElementById('tabbtn-priorities')); setProjects(true);
+    say('Showing SDOT\'s mapped projects as purple lines next to the crash hot spots.');
+  });
   tabs.forEach((b, i) => {
     b.addEventListener('click', () => showTab(b));
     b.addEventListener('keydown', e => {
@@ -1343,6 +1417,7 @@
     `Condition ratings come from past inspections, typically around ${SW.counts.poor_assessed_median}`;
   const ftText = ft => (ft >= 1320 ? `${(ft / 5280).toFixed(1)} mi` : `${fmt(Math.round(ft / 10) * 10)} ft`);
   const blockName = b => niceName(b.replace(/ BETWEEN /, ' between ').replace(/ AND /, ' and '));
+  const swProj = new Map((PJ.missing_blocks || []).map(x => [x.b, projById.get(x.p)]));
   const SMODES = {
     missing: {
       hint: `Blocks with no sidewalk, in SDOT's own order of priority. SDOT scores each missing block for safety, equity, schools,
@@ -1355,15 +1430,23 @@
         { cls: 'serious', text: s.sides === 2 ? 'No sidewalk on either side' : 'No sidewalk on one side' },
         ...(s.safety ? [{ cls: 'fatal', text: `SDOT safety score ${s.safety}` }] : []),
         ...(s.school ? [{ cls: 'ped', text: 'near a school' }] : []),
-        ...(s.transit ? [{ cls: 'state', text: 'near transit' }] : [])],
+        ...(s.transit ? [{ cls: 'state', text: 'near transit' }] : []),
+        ...(swProj.get(s.id) ? [{ cls: 'proj', text: `SDOT project: ${projStage(swProj.get(s.id))}` }] : [])],
       note: `From the Pedestrian Element of the Seattle Transportation Plan. Scores and tiers are SDOT's; this site only puts
-        them on a map with the crash ranking. Within a tier, blocks are ordered by SDOT's score, then length.`,
+        them on a map with the crash ranking. Within a tier, blocks are ordered by SDOT's score, then length.
+        "SDOT project" tags come from ${PROJ_SRC.sidewalk()}, matched by SDOT's block name; ${fmt((PJ.missing_blocks || []).length)}
+        blocks on this list have one.`,
       detail: s => `
       <div class="dhead">
         <div class="where">${esc(SMODES.missing.sub(s))} · ${copyLoc(blockName(s.name))}</div>
         <p class="verdict"><b>${s.sides === 2 ? 'No sidewalk on either side' : 'No sidewalk on one side'}</b> of this
           ${ftText(s.ft)} block. SDOT puts building one in <b>Tier ${s.tier}</b> of 5 (Tier 1 = build first), with a score of
           ${s.score}.</p>
+        ${swProj.get(s.id) ? `<p class="proj-callout">${swProj.get(s.id).stage === 'done'
+          ? `SDOT's project map lists a new sidewalk on this block as <b>${esc(projStage(swProj.get(s.id)))}</b>, so it may no
+             longer be missing. The missing-sidewalk list comes from an older SDOT plan layer.`
+          : `SDOT has a new sidewalk project on this block: <b>${esc(projStage(swProj.get(s.id)))}</b>.`}
+          <span class="muted">From ${esc(PROJ_SRC.sidewalk())}, matched by SDOT's own block name.</span></p>` : ''}
         <div class="stat-grid">
           ${stat(s.safety ?? 0, 'safety score')}${stat(s.equity ?? 0, 'equity score')}
           ${stat(s.school ?? 0, 'school score')}${stat(s.transit ?? 0, 'transit score')}
@@ -1558,6 +1641,31 @@
       .replace(/\bPMP\b/, 'Pedestrian Master Plan').replace(/\bBMP\b/, 'Bicycle Master Plan')
       .replace(/\bCWF\b/, 'Central Waterfront').replace(/\bAWMC\b/, 'Alaskan Way Main Corridor')
       .replace(/\bST3\b/, 'ST3').replace(/\bREET\b/, 'REET (real estate excise tax)').replace(/\bEW\b/, 'East-West');
+    // Budget programs whose projects SDOT also publishes on a map. Matched by name only (the two are the same program
+    // name in both places); SDOT publishes no link between a budget line and a mapped project, and no per-project cost.
+    function mappedPrograms() {
+      const line = re => { const ys = {}; D.budget.filter(b => re.test(b.project)).forEach(b => (ys[b.year] = (ys[b.year] || 0) + b.amount)); return ys; };
+      const progs = [
+        { name: 'New sidewalks', budget: 'PMP – New Sidewalk Program (MC-TR-C058)', ys: line(/MC-TR-C058\b/),
+          mapped: `${fmt(PJ.counts.sidewalk_design || 0)} blocks moving into design, ${fmt(PJ.counts.sidewalk_done || 0)} completed`, src: PROJ_SRC.sidewalk() },
+        { name: 'Neighborhood safety projects', budget: 'Neighborhood-Initiated Safety Partnership Program (MC-TR-C154)', ys: line(/MC-TR-C154\b/),
+          mapped: `${fmt(PJ.counts.safety_planned || 0)} planned, ${fmt(PJ.counts.safety_done || 0)} completed`, src: PROJ_SRC.safety() }
+      ];
+      return `<h3>Where SDOT maps the work</h3>
+        <p class="note">For two programs, SDOT also publishes a map of the projects. The budget pays for each program as a whole;
+          the City doesn't publish how that money is split among the mapped projects, so this site shows no cost for any single
+          project. The two are matched by program name only.</p>
+        <div class="tablewrap"><table><tr><th scope="col">Program</th><th scope="col">On SDOT's map</th>
+          ${years.filter(y => y >= thisYear).map(y => `<th scope="col" class="${y > thisYear ? 'planned' : ''}">${y}${y > thisYear ? '*' : '†'}</th>`).join('')}</tr>
+          ${progs.map(g => `<tr><td><b>${esc(g.name)}</b><br><small class="muted">Budget line: ${esc(g.budget)}</small></td>
+            <td>${esc(g.mapped)}<br><small class="muted">${esc(g.src)}</small></td>
+            ${years.filter(y => y >= thisYear).map(y => `<td class="${y > thisYear ? 'planned' : ''}">${g.ys[y] ? money(g.ys[y]) : '–'}</td>`).join('')}</tr>`).join('')}
+        </table></div>
+        <p class="note">Also on the map: ${fmt(PJ.counts.lpi_planned || 0)} head-start walk signals SDOT lists as planned (no
+          single budget line is named for them). Repaving, bridges and large corridor projects have budget lines but no current
+          public map, so they can't be shown.</p>
+        <p><button type="button" class="report-btn proj-show">See SDOT's mapped projects next to the crash hot spots</button></p>`;
+    }
     const byProg = {};
     D.budget.forEach(b => {
       const g = (byProg[b.program] ||= { total: {}, projects: {} });
@@ -1580,9 +1688,11 @@
     document.getElementById('budget').innerHTML = `
       <p class="note">SDOT's <b>capital budget</b> by program, from the City of Seattle Capital Budget dataset. These are
         <b>budgeted</b> amounts, net of mid-year cuts (some lines are negative), <b>not money actually spent</b>.
-        The city's budget data has no location field, so it can't be placed on the map yet.</p>
+        The city's budget data has no location field, so these amounts can't be placed on the map; see "Where SDOT maps
+        the work" below for the projects SDOT does map.</p>
       <div class="tablewrap"><table>${head}<tr class="total"><td class="nowrap">All SDOT capital</td>${cells(grand)}</tr></table></div>
       <p class="note">† current year's budget. * planned future years. Click a program for its projects.</p>
+      ${mappedPrograms()}
       ${html}
       <p class="note">Abbreviations: ST3 = Sound Transit 3; BUD = a budget-level entry in the city's data. Projects are matched
         across years by their city project number and shown under their newest name.</p>
@@ -1710,6 +1820,23 @@
         <li><b>Sidewalks in poor condition</b>: blocks with the most sidewalk SDOT rated poor or very poor in its inventory. Many
           ratings are several years old, so some may have been fixed. Who owns the adjacent property isn't shown.</li>
         <li>Each block lists the safety spots along it, and each safety spot shows any missing or poor sidewalk right there.</li>
+      </ul>
+      <h3>SDOT's planned projects</h3>
+      <ul>
+        <li>Only what SDOT publishes on a map with a location: its <b>New Sidewalks</b> project map (blocks moving into design,
+          and recently completed ones), its <b>Neighborhood-Initiated Safety Partnership Program</b> map (crossings, traffic
+          calming, curb ramps and more, planned or completed), and the <b>head-start walk signals</b> it lists as planned. Stage
+          names ("moving into design", "planned for 2027") are SDOT's; a year for a project in design is SDOT's target.</li>
+        <li>A project counts as "nearby" a crash spot within about 100 ft of an intersection or 80 ft of a block. Nearby doesn't
+          mean it was designed for those crashes: pavement art at a school and a new crossing look the same to a map, so each
+          project is listed with what it is.</li>
+        <li>"No SDOT project published nearby" means none on these maps. SDOT may still have plans there, such as repaving,
+          signal work or corridor projects, that it doesn't publish on a current public map. SDOT's older bike-project map is
+          left out because it has no dates or status.</li>
+        <li>The City's budget data has no locations, and these maps have no costs or budget numbers. Two budget programs share a
+          name with a project map (New Sidewalk Program; Neighborhood-Initiated Safety Partnership Program), so the budget tab
+          shows them side by side, but no dollar amount is ever given for a single project.</li>
+        <li>None of this changes the crash ranking.</li>
       </ul>
       <h3>Driver behavior</h3>
       <p class="note">Crashes involving speeding stay in the score. Repeated speeding at one spot usually points to road design
