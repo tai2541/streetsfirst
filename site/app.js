@@ -111,7 +111,7 @@
     `at ${fmt(N)} locations, plus Find It Fix It repair requests. Data fetched ${D.fetchedAt || 'unknown'}.`;
 
   const scoreText = p => (mode === 'risk' ? `${p.score.toFixed(1)} <small>per million vehicles</small>` : `${fmt(Math.round(p.score))} <small>pts</small>`);
-  const topShare = rank => { const s = (100 * rank) / N; return s < 1 ? `top ${Math.max(0.1, Math.ceil(s * 10) / 10)}%` : `top ${Math.ceil(s)}%`; };
+  const topShare = rank => { const s = (100 * rank) / N; return s < 1 ? `top ${Math.max(0.1, Math.ceil(s * 10) / 10)}%` : s <= 50 ? `top ${Math.ceil(s)}%` : 'lower half'; };
 
   // ---------- reasons: plain-language chips, most important first ----------
   function reasons(p) {
@@ -935,8 +935,8 @@
     const st = [p.speed_limit ? `${p.speed_limit} mph` : '', (p.street_type || '').toLowerCase(), p.volume ? `${fmt(p.volume)} vehicles a weekday` : ''].filter(Boolean);
     if (st.length) parts.push(st.join(', ').replace(/^./, c => c.toUpperCase()) + '.');
     const rk = p.rank_ksi;
-    const line2 = `Ranks <b>#${rk}</b> of ${fmt(N)} crash locations (${topShare(rk)})` +
-      (p.rank_risk ? `, and #${p.rank_risk} once you account for how busy it is` : '') + '.';
+    const line2 = `Ranks <b>#${fmt(rk)}</b> of ${fmt(N)} crash locations (${topShare(rk)})` +
+      (p.rank_risk ? `, and #${fmt(p.rank_risk)} once you account for how busy it is` : '') + '.';
     const why = p.killed >= 2 && rk > 50
       ? `<p class="callout">${p.killed} people died here. It ranks #${fmt(rk)} because the ranking estimates where people are most
           likely to be hurt next, and this spot has few other crashes (${p.crashes} in total), which gives the model little history to tell whether the
@@ -993,14 +993,16 @@
       `<section class="dsec dsec-${id} ${collapsed[id] ? 'collapsed' : ''}" data-sec="${id}">
          <h3><button type="button" class="dsec-h" aria-expanded="${!collapsed[id]}" aria-controls="sec-${id}">${title}</button></h3>
          <div class="dsec-b" id="sec-${id}">${html}</div></section>`;
-    const chips = reasons(p);
-    document.getElementById('detailTitle').innerHTML = `<span class="drank">#${p.rank ?? p.rank_ksi}</span> ${esc(p.name)}`;
+    const chips = reasons(p).filter(r => !(r.cls === 'conf' && p.crashes < 5));   // the note under the summary says it
+    document.getElementById('detailTitle').innerHTML = `<span class="drank">#${fmt(p.rank ?? p.rank_ksi)}</span> ${esc(p.name)}`;
     document.getElementById('detailBody').innerHTML = `
       <div class="dhead">
         ${p.neighborhood ? `<div class="where">${esc(p.neighborhood)}${p.area && p.area !== p.neighborhood ? ` <span class="muted">· ${esc(p.area)}</span>` : ''}</div>` : ''}
         <div class="note">${kind} · <a href="${sv}" target="_blank" rel="noopener">Street View ↗</a> ·
           <button type="button" class="linkbtn" id="copyLink">Copy link</button> · ${copyLoc(p.name)}</div>
         ${verdict(p)}
+        ${p.crashes < 5 ? `<p class="note few">With only ${plural(p.crashes, 'crash', 'crashes')} here, this is a record of what happened,
+          too few to show a pattern.</p>` : ''}
         <div class="stat-grid">
           <div class="stat"><b>${p.crashes}</b><span>crashes</span></div>
           <div class="stat"><b>${(p.killed ?? 0) + (p.seriously_injured ?? 0)}</b><span>people killed or seriously hurt</span></div>
@@ -1086,14 +1088,59 @@
     };
   }
 
-  // Locations outside the exported top lists (found by search): a short summary, no crash list.
+  // ---------- every other place: full details from its map area's file (data/more/<cell>.js), loaded on first use ----------
+  // Script tags rather than fetch, so the site also works opened straight from disk.
+  const moreCache = new Map(), moreWait = new Map();
+  window.SITE_MORE = o => { moreCache.set(o.cell, o.data); };
+  function loadCell(cell) {
+    if (moreCache.has(cell)) return Promise.resolve(moreCache.get(cell));
+    if (!moreWait.has(cell)) moreWait.set(cell, new Promise((res, rej) => {
+      const sc = document.createElement('script');
+      sc.src = `data/more/${cell}.js`;
+      sc.onload = () => { moreWait.delete(cell); moreCache.has(cell) ? res(moreCache.get(cell)) : rej(new Error('empty')); };
+      sc.onerror = () => { moreWait.delete(cell); sc.remove(); rej(new Error('failed')); };
+      document.head.appendChild(sc);
+    }));
+    return moreWait.get(cell);
+  }
+  const zipObj = (keys, vals) => Object.fromEntries(keys.map((k, j) => [k, vals[j]]));
+  async function fullSpot(s) {
+    const have = byId.get(s.rank); if (have) return have;
+    if (!s.cell) return null;
+    const d = await loadCell(s.cell);
+    const rk = d.c.indexOf('rank'), i = d.r.findIndex(r => r[rk] === s.rank);
+    if (i < 0) return null;
+    const p = zipObj(d.c, d.r[i]);
+    p.rank_ksi = p.rank; p.name = niceName(p.location); p.more = true;
+    p.rank = { ksi: p.rank_ksi, risk: p.rank_risk }[mode] ?? null;
+    p.score = { ksi: p.score_ksi, risk: p.score_risk }[mode] ?? null;
+    D.details[p.location] = {
+      crashes: d.k[i].map(a => zipObj(d.kc, a)),
+      requests: d.l[i].map(([qi, m]) => ({ ...zipObj(d.qc, d.q[qi]), m }))
+    };
+    byId.set(p.rank_ksi, p);
+    return p;
+  }
+  // Places outside the ranked lists: show the short summary right away, then the full panel once its area's file loads.
+  let liteToken = 0;
   function selectLite(s) {
+    const tok = ++liteToken, from = opener;
+    const cached = byId.get(s.rank) || (s.cell && moreCache.has(s.cell));
+    if (!cached) selectBrief(s, 'loading');
+    fullSpot(s).then(p => {
+      if (tok !== liteToken) return;
+      if (!cached && (!current || current.rank_ksi !== s.rank)) return;   // something else was picked while loading
+      if (p) select(p, !!cached, from); else selectBrief(s, 'failed');   // the summary already moved the map
+    }, () => { if (tok === liteToken) selectBrief(s, 'failed'); });
+  }
+  // A short summary from the search index: while the full details load, or if they can't be loaded.
+  function selectBrief(s, state) {
     rememberView();
     current = { rank_ksi: s.rank, rank: null, lat: s.lat, lon: s.lon };
     opener = document.getElementById('search');
     history.replaceState(null, '', '#loc=' + s.rank);
     markCurrent();
-    document.getElementById('detailTitle').innerHTML = `<span class="drank">#${s.rank}</span> ${esc(niceName(s.name))}`;
+    document.getElementById('detailTitle').innerHTML = `<span class="drank">#${fmt(s.rank)}</span> ${esc(niceName(s.name))}`;
     document.getElementById('detailBody').innerHTML = `
       <div class="dhead">
         ${s.hood ? `<div class="where">${esc(s.hood)}${s.area && s.area !== s.hood ? ` <span class="muted">· ${esc(s.area)}</span>` : ''}</div>` : ''}
@@ -1102,8 +1149,9 @@
         ${reportBox(niceName(s.name))}
         <p class="verdict">${plural(s.crashes, 'crash', 'crashes')} from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}${s.ksi ? `; ${s.ksi} killed or seriously injured someone` : ''}${s.pb ? `; ${s.pb} involved people walking or biking` : ''}.</p>
         <p class="verdict2">Ranks <b>#${fmt(s.rank)}</b> of ${fmt(N)} crash locations (${topShare(s.rank)}).</p>
-        <p class="note">Full crash and request details are included for the top-ranked spots only.
-          This spot is outside them, so it isn't in the ranked list.</p>
+        <p class="note">${state === 'failed'
+          ? 'The full crash and request details for this place couldn’t be loaded. Check your connection and try again.'
+          : 'Loading the full crash and request details…'}</p>
       </div>`;
     const wasHidden = detailEl.hidden;
     detailEl.hidden = false; detailEl.classList.remove('home', 'place'); if (wasHidden) setSheet(false); applyLayout();
@@ -1138,7 +1186,7 @@
   function weight(k) { const w = meta.weights.find(x => x.k === k); return w ? w.v : '?'; }
 
   // ---------- search: every scored location ----------
-  const searchIdx = (D.search || []).map(r => ({ name: r[0], lat: +r[1], lon: +r[2], rank: +r[3], crashes: +r[4], ksi: +r[5], pb: +r[6], type: r[7], hood: r[8] || '', area: r[9] || '' }));
+  const searchIdx = (D.search || []).map(r => ({ name: r[0], lat: +r[1], lon: +r[2], rank: +r[3], crashes: +r[4], ksi: +r[5], pb: +r[6], type: r[7], hood: r[8] || '', area: r[9] || '', cell: r[10] || '' }));
   const normQ = t => t.toLowerCase().replace(/&/g, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ');
   searchIdx.forEach(s => { s.nkey = ' ' + normQ(niceName(s.name)) + ' '; s.key = s.nkey + ' ' + normQ(s.hood + ' ' + s.area); });
   const sInput = document.getElementById('search'), sList = document.getElementById('searchResults');

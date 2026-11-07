@@ -21,3 +21,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Build output too large to keep twice (split into site/data/more/ by run.ps1)
+data/*.ndjson

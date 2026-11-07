@@ -1,7 +1,7 @@
 # Deployment plan
 
 ## v1 (now): local
-- `run.ps1` fetches the data, runs the DuckDB scoring (`pipeline/build.sql`) and writes `site/data/data.js`.
+- `run.ps1` fetches the data, runs the DuckDB scoring (`pipeline/build.sql`) and writes `site/data/data.js`. It also writes `site/data/more/`: one small script per map area (about 1.1 km square) with the full crash and request details for every place outside the ranked lists. The site loads an area's file only when someone opens a place there; publish the folder with the rest of `site/`.
 - `site/index.html` opens directly in a browser. No server is needed.
 
 ## v2: public, static, rebuilt nightly

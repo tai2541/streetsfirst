@@ -72,7 +72,7 @@ nearby infrastructure repair requests, and shows the SDOT capital budget through
 ```
 pipeline/fetch.ps1   download raw city data -> data/raw/   (git-ignored)
 pipeline/build.sql   DuckDB: clean, score, export          (weights at the top)
-run.ps1              fetch + build + write site/data/data.js
+run.ps1              fetch + build + write site/data/data.js and site/data/more/ (per-area details, loaded on click)
 site/                static web page (Leaflet map)
 docs/                data sources, deployment plan
 ```

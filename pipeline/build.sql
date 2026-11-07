@@ -521,7 +521,8 @@ create or replace macro export_set() as table
   select * from ranked where rank <= 200 or rank_risk <= 200
      or killed >= 2;   -- places where 2 or more people died are always shown, whatever their rank
 
-copy (
+-- Every place's site fields (the same columns for the ranked spots and, loaded on demand, for every other place).
+create or replace table spot_export as
   select rank, rank_noboost, rank_fatal, rank_risk, location, addr_type, round(lon, 6) lon, round(lat, 6) lat,
          round(score_ksi, 1) score_ksi, round(score_fatal, 1) score_fatal, round(score_risk, 1) score_risk,
          round(harm, 1) harm, round(expected_harm, 1) expected_harm, round(eb_weight, 3) eb_weight,
@@ -539,13 +540,19 @@ copy (
          first_crash, last_crash, requests, request_types,
          fixes, vol_history, bus_trips, bus_routes, bus_stretch_id,
          sw_missing_tier, sw_poor_ft, sw_poor_assessed, proj_ids, proj_planned
-  from export_set() order by rank
+  from ranked;
+
+copy (
+  select * from spot_export where location in (select location from export_set()) order by rank
 ) to 'site/data/priorities.json' (format json, array true);
 
--- Search index: every scored location, compact: [name, lat, lon, rank, crashes, ksi, ped/bike crashes, type]
+-- Map areas for the on-demand files: a grid of about 1.1 km x 1.1 km cells.
+create or replace macro cell_of(lat, lon) as floor(lat / 0.01)::int || '_' || floor(-lon / 0.015)::int;
+
+-- Search index: every scored location, compact: [name, lat, lon, rank, crashes, ksi, ped/bike crashes, type, hood, area, cell]
 copy (
   select list([location, round(lat, 5)::varchar, round(lon, 5)::varchar, rank::varchar, crashes::varchar,
-               ksi::varchar, pb_crashes::varchar, addr_type, coalesce(neighborhood, ''), coalesce(area, '')] order by rank) as idx
+               ksi::varchar, pb_crashes::varchar, addr_type, coalesce(neighborhood, ''), coalesce(area, ''), cell_of(lat, lon)] order by rank) as idx
   from ranked
 ) to 'site/data/search.json' (format json, array false);
 
@@ -577,6 +584,56 @@ copy (
   select map_from_entries(list((c.location, {'crashes': c.crashes, 'requests': coalesce(r.requests, [])}) order by c.location)) as details
   from c left join r using (location)
 ) to 'site/data/details.json' (format json, array false);
+
+-- Full details for every place outside the ranked lists, so any place on the map can be opened in full. Kept out of
+-- the main data file (it would be ~10x bigger) and split by map area; the site loads one area's file on first click.
+-- Compact: field names once per file, rows as arrays; nearby requests stored once per area and referenced by index.
+create or replace table more_rows as
+select cell_of(s.lat, s.lon) as cell, s.rank, s.location, to_json(s) as j
+from spot_export s where s.location not in (select location from export_set());
+
+create or replace table more_crashes as
+select c.location, list(to_json([to_json(c.date),
+         to_json(case c.severity when 'Fatal Collision' then 'F' when 'Serious Injury Collision' then 'S'
+                                 when 'Injury Collision' then 'I' when 'Property Damage Only Collision' then 'P' else 'U' end),
+         to_json(c.coll_type), to_json(c.peds), to_json(c.cyclists), to_json(c.injuries), to_json(c.serious_injuries),
+         to_json(c.fatalities), to_json(c.road_cond), to_json(c.light_cond), to_json(c.weather), to_json(c.speeding),
+         to_json(c.date >= we() or c.date < ws())]) order by c.date desc, c.id) as k
+from collisions c join more_rows using (location) group by c.location;
+
+create or replace table more_req_ids as
+select cell, id, (row_number() over (partition by cell order by id) - 1)::int as qi
+from (select distinct m.cell, lr.id from location_requests lr join more_rows m using (location));
+
+create or replace table more_req_refs as
+select m.location, list([q.qi, round(lr.dist_m)::int] order by r.date desc, r.id) as l
+from location_requests lr join more_rows m using (location) join more_req_ids q on q.cell = m.cell and q.id = lr.id
+join requests r on r.id = lr.id
+group by m.location;
+
+copy (
+  with q as (
+    select q.cell, list(to_json([to_json(r.date), to_json(r.type), to_json(r.status), to_json(r.address),
+                                 to_json(round(r.lat, 6)), to_json(round(r.lon, 6))]) order by q.qi) as q
+    from more_req_ids q join requests r on r.id = q.id group by q.cell
+  ),
+  rows as (
+    select m.cell,
+      list(to_json(list_transform(json_keys(m.j), lambda k: json_extract(m.j, '$.' || k))) order by m.rank) as r,
+      list(coalesce(to_json(c.k), '[]'::json) order by m.rank) as k,
+      list(coalesce(to_json(l.l), '[]'::json) order by m.rank) as l
+    from more_rows m left join more_crashes c using (location) left join more_req_refs l using (location)
+    group by m.cell
+  )
+  select rows.cell, {
+    'c': (select json_keys(j) from more_rows limit 1),
+    'kc': ['d', 's', 't', 'pd', 'cy', 'inj', 'ser', 'fat', 'rd', 'lt', 'wx', 'sp', 'n'],
+    'qc': ['d', 't', 'st', 'a', 'lat', 'lon'],
+    'r': rows.r, 'k': rows.k, 'l': rows.l, 'q': coalesce(q.q, [])
+  } as data
+  from rows left join q using (cell)
+  order by rows.cell
+) to 'data/more.ndjson' (format json);
 
 -- SDOT capital budget by program and year (budgeted amounts, net of reductions; not money spent; no locations)
 -- Projects are matched across years by their MC-TR-C id (2024 lines put it in the title, e.g. "MC-TR-C064 - TRC0681 -
