@@ -253,7 +253,12 @@
     onAdd() {
       const d = L.DomUtil.create('div', 'map-legend');
       const sw = t => `<i style="background:${TIERS[t].color};box-shadow:0 0 0 ${t === 1 ? 2 : 1.5}px ${TIERS[t].stroke}${t === 1 ? '' : ',0 0 0 2.5px rgba(0,0,0,.12)'}"></i>`;
+      // Collapsed by default on phones, where it would cover much of the map.
+      const small = matchMedia('(max-width: 760px)').matches;
+      if (small) d.classList.add('collapsed');
       d.innerHTML = `
+        <button type="button" class="lg-toggle" aria-expanded="${!small}">Map key</button>
+        <div class="lg-body">
         <div class="lg-safety"><span class="lg-top"><span class="core">1</span></span>Top 10</div>
         <div class="lg-safety">${sw(1)}11–25</div>
         <div class="lg-safety">${sw(2)}26–50</div>
@@ -262,7 +267,11 @@
         ${[0, 1, 2].map(t => `<div class="lg-traffic"><b class="lg-tline" style="background:${TIERS[t].color};height:${7 - t}px"></b>${['Top 10', '11–25', '26–50'][t]}</div>`).join('')}
         <div class="lg-traffic"><b class="lg-tline" style="background:#8a94a6;height:2px"></b>Others</div>
         <div><b class="lg-line"></b>Seattle city limits (area covered)</div>
-        <button type="button" class="pausebtn" aria-pressed="${paused}">${paused ? 'Play' : 'Pause'} animation</button>`;
+        <button type="button" class="pausebtn" aria-pressed="${paused}">${paused ? 'Play' : 'Pause'} animation</button>
+        </div>`;
+      d.querySelector('.lg-toggle').onclick = e => {
+        const c = d.classList.toggle('collapsed'); e.currentTarget.setAttribute('aria-expanded', !c);
+      };
       L.DomEvent.disableClickPropagation(d);
       d.querySelector('.pausebtn').onclick = e => {
         paused = !paused; document.body.classList.toggle('paused', paused);

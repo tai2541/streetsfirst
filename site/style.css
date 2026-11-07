@@ -463,3 +463,13 @@ header nav { margin-left: 0; }
   background: #101b33; color: #fff; padding: 10px 16px; border-radius: 10px; font: 600 13.5px/1.4 Inter, system-ui, sans-serif;
   box-shadow: 0 8px 24px rgba(0,0,0,.3); transition: opacity .2s, transform .2s; max-width: calc(100% - 32px); }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---- collapsible map key ---- */
+.lg-toggle { display: flex !important; width: 100%; align-items: center; justify-content: space-between; gap: 8px; border: 0; background: none;
+  font: 700 12px/1.2 Inter, system-ui, sans-serif; color: #1d2430; padding: 2px 0 4px; cursor: pointer; }
+.lg-toggle::after { content: '▾'; font-size: 11px; transition: transform .15s; }
+.map-legend.collapsed .lg-toggle { padding: 2px 0; }
+.map-legend.collapsed .lg-toggle::after { transform: rotate(-90deg); }
+.map-legend .lg-body { display: block; }
+.map-legend.collapsed .lg-body { display: none; }
+.lg-toggle:focus-visible { outline: 2px solid #f2b632; outline-offset: 2px; }
