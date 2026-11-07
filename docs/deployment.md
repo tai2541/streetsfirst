@@ -30,8 +30,11 @@ Triggers: many cities/regions, user accounts, comments, or data too large for st
 
 ## Roadmap for the data
 1. Normalize by traffic volume (SDOT traffic counts) so busy streets aren't automatically on top.
-2. Smooth fatal crashes (blend location history with the corridor average) so a single
-   random fatal crash doesn't dominate.
+2. ~~Smooth fatal crashes~~ Done: KSI weighting, compounding repeated fatal crashes,
+   reliability factor, capped request boost. A possible next step is empirical-Bayes
+   comparison with similar locations (same street type and volume).
+2b. A "repair hotspots" view for places with many requests but few crashes (these are
+   excluded from the safety ranking on purpose).
 3. Link planned work: levy delivery plans, SDOT paving and project pages, project shapes.
    Mark items "scheduled" vs "unfunded".
 4. Spending vs need by council district.

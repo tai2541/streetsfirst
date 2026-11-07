@@ -9,6 +9,27 @@
     .replace(/\b(Ne|Nw|Se|Sw|N|S|E|W)\b/g, m => m.toUpperCase());
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+  // ---------- ranking mode ----------
+  // 'ksi' (recommended): fatal = serious injury, compounding for repeated fatal crashes, reliability factor,
+  //                      repair requests as a capped boost.  'fatal' (v1): fatal crashes weighted far higher.
+  let mode = (() => { try { return JSON.parse(localStorage.getItem('ipm.mode')) || 'ksi'; } catch { return 'ksi'; } })();
+  D.priorities.forEach(p => { p.rank_ksi = p.rank; });
+  function applyMode() {
+    D.priorities.forEach(p => {
+      p.rank = mode === 'ksi' ? p.rank_ksi : p.rank_fatal;
+      p.score = mode === 'ksi' ? p.score_ksi : p.score_fatal;
+    });
+    D.priorities.sort((a, b) => a.rank - b.rank);
+  }
+  applyMode();
+  const modeSel = document.getElementById('mode');
+  modeSel.value = mode;
+  modeSel.onchange = () => {
+    mode = modeSel.value;
+    try { localStorage.setItem('ipm.mode', JSON.stringify(mode)); } catch { /* ignore */ }
+    applyMode(); document.getElementById('closeDetail').click(); render(); renderAbout();
+  };
+
   document.getElementById('subtitle').textContent =
     `${fmt(meta.collisions)} collisions (${meta.collisions_from} to ${meta.collisions_to}) and ` +
     `${fmt(meta.requests)} infrastructure service requests across ${fmt(meta.locations_scored)} locations. ` +
@@ -27,7 +48,11 @@
     const dark = pct(p.dark_crashes, p.light_known), cityDark = Math.round(100 * meta.city_dark_share);
     if (p.light_known >= 5 && dark >= cityDark + 15) out.push({ cls: 'cond', text: `${dark}% in the dark (city ${cityDark}%)` });
     if (p.unlit_crashes) out.push({ cls: 'cond', text: `${p.unlit_crashes} with streetlights off/none` });
+    if (p.speeding_crashes >= 2 && pct(p.speeding_crashes, p.crashes) >= 15)
+      out.push({ cls: 'cond', text: `speeding in ${p.speeding_crashes} of ${p.crashes}` });
     if (p.requests) out.push({ cls: '', text: `${p.requests} nearby repair requests` });
+    if (p.confidence !== 'high')
+      out.push({ cls: 'conf', text: `${p.confidence} confidence: only ${p.crashes} crash${p.crashes > 1 ? 'es' : ''}` });
     return out;
   }
 
@@ -77,7 +102,9 @@
   function render() {
     const n = +document.getElementById('topN').value;
     const type = document.getElementById('addrFilter').value;
-    const rows = D.priorities.filter(p => !type || p.addr_type === type).slice(0, n);
+    const rows = D.priorities
+      .filter(p => p.rank <= 200)
+      .filter(p => !type || (type === 'F' ? p.fatal > 0 : p.addr_type === type)).slice(0, n);
     const maxScore = Math.max(...rows.map(r => r.score), 1);
 
     layer.clearLayers(); markers = {};
@@ -331,8 +358,13 @@
     document.getElementById('detailBody').innerHTML = `
       <div class="dhead">
         <h2>#${p.rank} ${esc(titleCase(p.location))}</h2>
-        <div class="note">${kind} · score ${p.score} = crash points ${p.crash_points} + repair-request points ${p.request_points} × ${weight('request_mult')}
-          · <a href="${sv}" target="_blank" rel="noopener">Street View ↗</a></div>
+        <div class="note">${kind} · <a href="${sv}" target="_blank" rel="noopener">Street View ↗</a></div>
+        <div class="formula">${mode === 'ksi'
+          ? `Score <b>${p.score}</b> = crash harm ${p.ksi_points_raw}
+             × reliability ${p.reliability.toFixed(2)} <span class="muted">(${p.crashes} crashes, ${p.confidence} confidence)</span>
+             × repair boost ${(1 + p.request_boost).toFixed(2)} <span class="muted">(${p.requests} requests)</span>`
+          : `Score <b>${p.score}</b> = crash points ${p.crash_points} + repair-request points ${p.request_points} × ${weight('request_mult')}`}
+          <span class="muted">· #${mode === 'ksi' ? p.rank_fatal : p.rank_ksi} in the ${mode === 'ksi' ? 'fatal-weighted' : 'recommended'} ranking</span></div>
         <div class="stat-grid">
           <div class="stat"><b>${p.crashes}</b><span>crashes</span></div>
           <div class="stat"><b>${p.fatal + p.serious}</b><span>fatal + serious</span></div>
@@ -432,28 +464,55 @@
   })();
 
   // ---------- about tab ----------
-  document.getElementById('about').innerHTML = `
-    <h3>What this ranks</h3>
-    <p>Every Seattle intersection and street block with a reported collision since ${meta.collisions_from}, scored by
-      how much harm happened there plus nearby infrastructure repair requests from Find It Fix It.</p>
-    <h3>Crash points per collision</h3>
-    <ul>
-      <li>Fatal: ${weight('fatal')}</li><li>Serious injury: ${weight('serious')}</li>
-      <li>Injury: ${weight('injury')}</li><li>Property damage only: ${weight('pdo')}</li>
-      <li>× ${weight('ped_bike_mult')} if a pedestrian or cyclist was involved</li>
-    </ul>
-    <h3>Repair-request points</h3>
-    <p>Requests within ${weight('request_radius_m')} m, weighted by type, then × ${weight('request_mult')}:</p>
-    <ul>${meta.request_weights.map(r => `<li>${esc(r.type)}: ${r.w}</li>`).join('')}</ul>
-    <p class="note">Encampment, parking, graffiti and similar report types are left out on purpose. This map is about
-      fixing infrastructure, not policing.</p>
-    <h3>Known limits (v1)</h3>
-    <ul>
-      <li>Fatal crashes are rare and partly random. A spot with 2 fatal crashes but few others can rank very high.</li>
-      <li>Not adjusted for traffic volume yet. Busy streets naturally have more crashes.</li>
-      <li>Find It Fix It status is unreliable (most requests stay "Reported"), so open and fixed requests count the same.</li>
-      <li>Planned projects aren't linked to locations yet.</li>
-    </ul>`;
+  function renderAbout() {
+    const g = weight('fatal_growth'), k = weight('ksi'), rk = weight('reliability_k');
+    const bmax = weight('request_boost_max'), bhalf = weight('request_boost_half');
+    const reqList = `<ul>${meta.request_weights.map(r => `<li>${esc(r.type)}: ${r.w}</li>`).join('')}</ul>`;
+    const ksi = `
+      <h3>Recommended ranking</h3>
+      <p>Built to reward <b>patterns of harm</b> over one-off events.</p>
+      <ol>
+        <li><b>Crash harm.</b> Points per crash: fatal or serious injury ${k}, injury ${weight('injury')},
+          property damage only ${weight('pdo')}, × ${weight('ped_bike_mult')} if a pedestrian or cyclist was involved.
+          Fatal and serious are counted alike because whether a crash kills or seriously injures someone depends heavily
+          on chance (age, vehicle, ambulance time). Vision Zero programs use the same "KSI" grouping.</li>
+        <li><b>Repeated deaths compound.</b> The 1st fatal crash at a spot counts ${k}, the 2nd ${(k * g).toFixed(1)},
+          the 3rd ${(k * g * g).toFixed(1)} (each × ${g} the last).</li>
+        <li><b>Reliability.</b> Crash harm × crashes ÷ (crashes + ${rk}). A spot with 3 crashes keeps
+          ${Math.round(100 * 3 / (3 + rk))}%, one with 30 keeps ${Math.round(100 * 30 / (30 + rk))}%. Confidence:
+          low under 5 crashes, medium under 15, high otherwise.</li>
+        <li><b>Repair boost.</b> Nearby repair requests raise the score by up to +${Math.round(100 * bmax)}%
+          (half of that at ${bhalf} request points). Requests can make a dangerous spot more urgent but can't put a
+          spot on the list alone. Some neighborhoods simply file far more requests than others.</li>
+      </ol>`;
+    const fatal = `
+      <h3>Fatal-weighted ranking (v1)</h3>
+      <p>Crash points: fatal ${weight('fatal')}, serious injury ${weight('serious')}, injury ${weight('injury')},
+        property damage only ${weight('pdo')}, × ${weight('ped_bike_mult')} with a pedestrian or cyclist, plus repair-request
+        points × ${weight('request_mult')}.</p>
+      <p class="note">Kept for comparison. One fatal crash outweighs 20 injury crashes here, so spots with only a few
+        crashes but one or two deaths can rank very high.</p>`;
+    document.getElementById('about').innerHTML = `
+      <h3>What this ranks</h3>
+      <p>Every Seattle intersection and street block with a reported collision since ${meta.collisions_from},
+        using SDOT collision records and Find It Fix It repair requests. Switch rankings with the <b>Ranking</b>
+        menu on the Priorities tab.</p>
+      ${mode === 'ksi' ? ksi + fatal : fatal + ksi}
+      <h3>Repair-request weights (by type, within ${weight('request_radius_m')} m)</h3>
+      ${reqList}
+      <p class="note">Encampment, parking, graffiti and similar report types are left out on purpose. This map is about
+        fixing infrastructure, not policing.</p>
+      <h3>Driver behavior</h3>
+      <p class="note">Crashes involving speeding stay in the score. Repeated speeding at one spot usually points to road design
+        (wide, straight streets invite speed), so it's flagged as context ("speeding in 8 of 30") rather than excluded.</p>
+      <h3>Known limits</h3>
+      <ul>
+        <li>Not adjusted for traffic volume yet. Busy streets naturally have more crashes.</li>
+        <li>Find It Fix It status is unreliable (most requests stay "Reported"), so open and fixed requests count the same.</li>
+        <li>Planned projects aren't linked to locations yet.</li>
+      </ul>`;
+  }
+  renderAbout();
 
   render();
 

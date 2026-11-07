@@ -29,9 +29,21 @@ added by plugging in new sources.
 - **Borrow SDOT's own criteria.** SDOT ranks paving by condition, traffic volume, equity,
   cost and coordination, and sidewalks by mobility impact, risk, cost, usage and equity.
 
-## Priority score (draft)
-`condition x usage x consequence of failure x area vulnerability`, reduced when repair
-work is already scheduled.
+## Priority score
+**Long-term goal:** `condition x usage x consequence of failure x area vulnerability`,
+reduced when repair work is already scheduled.
+
+**Current (crashes + repair requests)**, "Recommended" ranking:
+1. **Crash harm:** fatal or serious injury 30 (KSI), injury 5, property damage 1,
+   x1.5 when a pedestrian or cyclist was involved.
+2. **Repeated deaths compound:** the nth fatal crash at a spot counts 30 x 1.5^(n-1).
+3. **Reliability:** x crashes / (crashes + 3), so patterns outrank one-off events.
+   Confidence is low under 5 crashes, medium under 15, high otherwise.
+4. **Repair boost:** nearby requests raise the score by at most +50%. They can't create
+   a priority on their own.
+
+The v1 "fatal-weighted" ranking is kept for comparison. All weights are in the
+`weights` table at the top of `pipeline/build.sql`.
 
 ## Status
 **v1** is a local site that ranks Seattle intersections and blocks by collision harm plus

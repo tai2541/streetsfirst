@@ -3,8 +3,19 @@
 -- All weights live in the `weights` / `request_weights` tables below so they are easy to tune.
 
 -- ---------------------------------------------------------------- settings
+-- Two scoring modes are computed side by side; the site lets people switch between them.
+--   ksi (default): fatal counts like serious injury (KSI = killed or seriously injured),
+--                  doubled where fatal crashes repeat, then scaled by a reliability factor
+--                  so a pattern of harm outranks a one-off event.
+--   fatal (v1):    fatal crashes weighted far above everything else.
 create or replace table weights as select * from (values
-  ('fatal',            100.0),   -- points per fatal collision
+  ('ksi',               30.0),   -- ksi mode: points per fatal OR serious-injury collision
+  ('fatal_growth',       1.5),   -- ksi mode: the nth fatal crash at a location counts ksi x growth^(n-1)
+                                 --   (1st = 30, 2nd = 45, 3rd = 67.5 ...: repeated deaths compound)
+  ('reliability_k',      3.0),   -- ksi mode: crash points x crashes / (crashes + k)
+  ('request_boost_max',  0.5),   -- ksi mode: requests raise the crash score by at most +50%...
+  ('request_boost_half', 50.0),  -- ...reaching half that boost at this many request points
+  ('fatal',            100.0),   -- fatal mode: points per fatal collision
   ('serious',           30.0),   -- serious injury collision
   ('injury',             5.0),   -- other injury collision
   ('pdo',                1.0),   -- property damage only
@@ -78,7 +89,18 @@ select *,
      when 'Serious Injury Collision' then wt('serious')
      when 'Injury Collision'         then wt('injury')
      else wt('pdo') end)
-  * (case when peds + cyclists > 0 then wt('ped_bike_mult') else 1 end) as points
+  * (case when peds + cyclists > 0 then wt('ped_bike_mult') else 1 end) as points,
+  (case severity
+     when 'Fatal Collision'          then wt('ksi')
+     when 'Serious Injury Collision' then wt('ksi')
+     when 'Injury Collision'         then wt('injury')
+     else wt('pdo') end)
+  * (case when peds + cyclists > 0 then wt('ped_bike_mult') else 1 end)
+  -- compounding for repeated fatal crashes at the same location (oldest first)
+  * (case when severity = 'Fatal Collision'
+          then power(wt('fatal_growth'),
+                     row_number() over (partition by location, severity = 'Fatal Collision' order by date, id) - 1)
+          else 1 end) as points_ksi
 from collisions;
 
 create or replace table locations as
@@ -97,10 +119,19 @@ select
   count(*) filter (where light_cond ilike 'dark - street lights off%' or light_cond ilike 'dark - no street lights%') as unlit_crashes,
   count(*) filter (where road_cond is not null)         as road_known,
   count(*) filter (where light_cond is not null)        as light_known,
+  count(*) filter (where speeding)                      as speeding_crashes,
   min(date) as first_crash, max(date) as last_crash,
-  sum(points)                                           as crash_points
+  sum(points)                                           as crash_points,          -- fatal mode
+  sum(points_ksi)                                       as ksi_points_raw
 from collision_points
 group by location;
+
+-- ksi mode: reliability factor (patterns outrank one-off events)
+create or replace table locations as
+select *,
+  crashes / (crashes + wt('reliability_k')) as reliability,
+  case when crashes < 5 then 'low' when crashes < 15 then 'medium' else 'high' end as confidence
+from locations;
 
 -- ---------------------------------------------------------------- nearby requests
 -- bounding-box prefilter (~0.001 deg) then equirectangular distance in meters
@@ -129,28 +160,39 @@ select
   coalesce(s.requests, 0)       as requests,
   coalesce(s.request_points, 0) as request_points,
   s.request_types,
-  round(l.crash_points + coalesce(s.request_points, 0) * wt('request_mult'), 1) as score
+  round(l.ksi_points_raw * l.reliability, 1) as ksi_points,
+  round(wt('request_boost_max') * coalesce(s.request_points, 0)
+        / (coalesce(s.request_points, 0) + wt('request_boost_half')), 3) as request_boost,
+  round(l.ksi_points_raw * l.reliability
+        * (1 + wt('request_boost_max') * coalesce(s.request_points, 0)
+               / (coalesce(s.request_points, 0) + wt('request_boost_half'))), 1) as score_ksi,
+  round(l.crash_points + coalesce(s.request_points, 0) * wt('request_mult'), 1) as score_fatal
 from locations l
 left join location_request_summary s using (location);
 
 create or replace table ranked as
-select row_number() over (order by score desc, crashes desc) as rank, *
+select row_number() over (order by score_ksi desc, crashes desc)   as rank,        -- default mode
+       row_number() over (order by score_fatal desc, crashes desc) as rank_fatal,
+       score_ksi as score, *
 from priorities;
 
 -- ---------------------------------------------------------------- exports for the site
 copy (
-  select rank, location, addr_type, round(lon, 6) lon, round(lat, 6) lat, score,
-         round(crash_points, 1) crash_points, round(request_points, 1) request_points,
-         crashes, fatal, serious, injury, ped_crashes, bike_crashes,
+  select rank, rank_fatal, location, addr_type, round(lon, 6) lon, round(lat, 6) lat,
+         score_ksi, score_fatal,
+         round(crash_points, 1) crash_points, round(ksi_points_raw, 1) ksi_points_raw,
+         round(reliability, 3) reliability, ksi_points, request_boost, confidence,
+         round(request_points, 1) request_points,
+         crashes, fatal, serious, injury, ped_crashes, bike_crashes, speeding_crashes,
          wet_crashes, dark_crashes, unlit_crashes, road_known, light_known,
          first_crash, last_crash, requests, request_types
-  from ranked where rank <= 200 order by rank
+  from ranked where rank <= 200 or rank_fatal <= 200 order by rank
 ) to 'site/data/priorities.json' (format json, array true);
 
 -- Drill-down: every crash and nearby request for the top 200 locations, keyed by location.
 -- Severity codes: F fatal, S serious injury, I injury, P property damage only, U unknown.
 copy (
-  with top as (select location from ranked where rank <= 200),
+  with top as (select location from ranked where rank <= 200 or rank_fatal <= 200),
   c as (
     select c.location, list({
       'd': c.date,
