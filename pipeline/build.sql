@@ -7,7 +7,7 @@
 --   ksi (recommended): expected harm. Crash harm (fatal = serious injury, "KSI") with repeated deaths
 --                      compounding; the fatal/serious part is blended with the typical share on similar
 --                      streets (empirical Bayes); then a small capped boost from safety-related requests.
---   risk:              the same expected harm per 10,000 vehicles entering the spot.
+--   risk:              the same expected harm per million vehicles entering the spot (5 years of weekday counts).
 --   fatal (old v1):    fatal crashes weighted far above everything else. Retired from the site; still
 --                      computed so the change can be compared.
 create or replace table weights as select * from (values
@@ -15,7 +15,7 @@ create or replace table weights as select * from (values
   ('fatal_growth',       1.5),   -- the nth fatal crash at a location counts ksi x growth^(n-1)
                                  --   (1st = 30, 2nd = 45, 3rd = 67.5 ...: repeated deaths compound)
   ('injury',             5.0),   -- other injury collision
-  ('pdo',                1.0),   -- property damage only (Unknown severity counts 0: treated as missing)
+  ('pdo',                1.0),   -- property damage only (Unknown severity: see expected harm, filled with the typical non-KSI harm)
   ('ped_bike_mult',      1.5),   -- x this when a pedestrian or cyclist was involved AND someone was hurt
   ('ksi_prior_crashes', 20.0),   -- expected harm: how many crashes a spot needs before its own fatal/serious
                                  --   share counts as much as the typical share for similar streets
@@ -64,6 +64,8 @@ select
   coalesce(FATALITIES, 0)                  as fatalities,
   coalesce(SERIOUSINJURIES, 0)             as serious_injuries,
   coalesce(INJURIES, 0)                    as injuries,
+  coalesce(VEHCOUNT, 0)                    as vehicles,
+  coalesce(PERSONCOUNT, 0)                 as persons,
   ROADCOND                                 as road_cond,
   LIGHTCOND                                as light_cond,
   WEATHER                                  as weather,
@@ -72,7 +74,29 @@ select
   coordinates[1]                           as lon,
   coordinates[2]                           as lat
 from raw
-where LOCATION is not null and coordinates is not null;
+where LOCATION is not null and coordinates is not null
+-- Probable duplicate reports: same place, day, severity, crash type, people, vehicles and conditions under two
+-- report numbers (about 100 of 36,000, mostly property damage). Keep one.
+qualify row_number() over (partition by LOCATION, INCDATE, MAXSEVERITYDESC, ST_COLDESC, PEDCOUNT, PEDCYLCOUNT,
+          FATALITIES, SERIOUSINJURIES, INJURIES, VEHCOUNT, PERSONCOUNT, WEATHER, ROADCOND, LIGHTCOND order by INCKEY) = 1;
+
+-- Split roadways: SDOT names each side of a divided street separately ("M L KING JR WR WAY S" and "... ER ...",
+-- light rail in the median), so one intersection appears twice 15-20 m apart. Merge the two sides when they
+-- are within ~60 m of each other. NB/SB/EB/WB are left alone: those are separate bridges and ramps.
+create or replace macro road_norm(t) as regexp_replace(t, ' (WR|ER|NR|SR) ', ' ', 'g');
+create or replace table loc_merge as
+with p as (select location raw, road_norm(location) k, avg(lon) lon, avg(lat) lat from collisions group by location),
+g as (select k, max(lon) - min(lon) dlon, max(lat) - min(lat) dlat, count(*) n from p group by k)
+select p.raw, case when g.n > 1 and g.dlon < 0.0008 and g.dlat < 0.00055 then p.k else p.raw end as location
+from p join g using (k);
+update collisions set location = m.location from loc_merge m where collisions.location = m.raw and m.raw <> m.location;
+
+-- People killed and seriously injured citywide, including reports that have no location (so they can't be scored).
+create or replace table collisions_unlocated as
+with raw as (select unnest(features, recursive := true) from read_json('data/raw/collisions_*.json', maximum_object_size = 200000000))
+select make_timestamp(INCDATE::bigint * 1000)::date as date, MAXSEVERITYDESC as severity,
+       coalesce(FATALITIES, 0) as fatalities, coalesce(SERIOUSINJURIES, 0) as serious_injuries
+from raw where LOCATION is null or coordinates is null;
 
 create or replace table collisions_dropped as   -- disclosed on the site
 with raw as (select unnest(features, recursive := true) from read_json('data/raw/collisions_*.json', maximum_object_size = 200000000))
@@ -170,9 +194,15 @@ from locations_all;
 
 -- Street names at each location, from SDOT's location text: "A AND B" (intersection) or "A BETWEEN x AND y" (block).
 create or replace table loc_names as
-select location, unnest(case when addr_type = 'I' then string_split(location, ' AND ')
-                             else [split_part(location, ' BETWEEN ', 1)] end) as name
-from locations_all;
+select location, road_norm(name) as name from (
+  select location, unnest(case when addr_type = 'I' then string_split(location, ' AND ')
+                               else [split_part(location, ' BETWEEN ', 1)] end) as name
+  from locations_all);
+
+-- Count names can list several streets ("20TH AVE S,S JUDKINS ST"): one row per street name.
+create or replace table volumes_named as
+select road_norm(trim(unnest(string_split(street, ',')))) as street, awdt, quality, count_year, geom
+from volumes where street is not null;
 
 -- Traffic volume. For each street at the spot, the nearest SDOT count on that same street within 300 ft
 -- (so a cross street with no count right at the corner still finds its count). Intersections add the
@@ -182,7 +212,7 @@ with nearest as (
   select n.location, n.name,
          arg_min({'awdt': v.awdt, 'yr': v.count_year, 'est': v.quality = 'Estimate'}, ST_Distance(p.geom, v.geom)) as hit
   from loc_names n join loc_pts p using (location)
-  join volumes v on v.street = n.name and v.awdt is not null and ST_DWithin(p.geom, v.geom, 300)
+  join volumes_named v on v.street = n.name and v.awdt is not null and ST_DWithin(p.geom, v.geom, 300)
   group by n.location, n.name
 )
 select location, sum(hit.awdt)::int as volume, count(*) as volume_streets,
@@ -251,7 +281,7 @@ left join (select location,
 -- ---------------------------------------------------------------- crash harm (any date range)
 create or replace macro harm_in(d0, d1) as table
 with c as (
-  select location, date, id, severity, peds, cyclists, road_cond, light_cond, speeding,
+  select location, date, id, severity, peds, cyclists, road_cond, light_cond, speeding, fatalities, serious_injuries,
     severity in ('Fatal Collision', 'Serious Injury Collision') as is_ksi,
     (case severity
        when 'Fatal Collision'                then wt('ksi')
@@ -283,6 +313,9 @@ select location,
   count(*) filter (where severity = 'Injury Collision')           as injury,
   count(*) filter (where is_ksi)                                  as ksi,
   count(distinct year(date)) filter (where is_ksi)                as ksi_years,
+  sum(fatalities)                                                 as killed,
+  sum(serious_injuries)                                           as seriously_injured,
+  count(*) filter (where peds + cyclists > 0)                     as pb_crashes,
   count(*) filter (where peds > 0)                                as ped_crashes,
   count(*) filter (where cyclists > 0)                            as bike_crashes,
   count(*) filter (where road_cond ilike 'wet%' or road_cond ilike '%ice%' or road_cond ilike '%snow%') as wet_crashes,
@@ -313,13 +346,15 @@ with h as (
   from harm_in(d0, d1) h join loc_context x using (location)
 ),
 g as (select ref_group, count(*) ref_n, sum(ksi_harm) / sum(crashes) as ref_ksi_harm_per_crash,
+             sum(harm - ksi_harm) / nullif(sum(crashes - unknown_sev), 0) as ref_other_harm_per_known,
              sum(ksi) / sum(crashes) as ref_ksi_share
       from h group by ref_group)
-select h.*, g.ref_n, g.ref_ksi_share, g.ref_ksi_harm_per_crash,
+select h.*, g.ref_n, g.ref_ksi_share, g.ref_ksi_harm_per_crash, g.ref_other_harm_per_known,
   h.crashes / (h.crashes + wt('ksi_prior_crashes')) as eb_weight,
   (h.harm - h.ksi_harm)
     + h.crashes / (h.crashes + wt('ksi_prior_crashes')) * h.ksi_harm
-    + wt('ksi_prior_crashes') / (h.crashes + wt('ksi_prior_crashes')) * h.crashes * g.ref_ksi_harm_per_crash as expected_harm
+    + wt('ksi_prior_crashes') / (h.crashes + wt('ksi_prior_crashes')) * h.crashes * g.ref_ksi_harm_per_crash
+    + h.unknown_sev * coalesce(g.ref_other_harm_per_known, 0) as expected_harm
 from h join g using (ref_group);
 
 -- ---------------------------------------------------------------- locations in the scoring window
@@ -335,9 +370,10 @@ select e.*, x.addr_type, x.intkey, x.speed_limit, x.art_class,
   a.lon, a.lat,
   -- state facilities: WSDOT owns or shares responsibility
   -- Aurora Ave N is SR 99 and Lake City Way NE is SR 522, although SDOT classes them as city arterials.
-  case when regexp_matches(e.location, '^AURORA AVE N|\bSR ?99\b|ALASKAN WY VI|BATTERY ST TUNNEL') then 'SR 99'
-       when regexp_matches(e.location, '^LAKE CITY WAY NE|\bSR ?522\b') then 'SR 522'
-       when regexp_matches(e.location, '\bSR ?509\b|1ST AVE S BR') then 'SR 509'
+  case when regexp_matches(e.location, '\bAURORA (AVE N|BR)\b|\bSR ?99\b|ALASKAN WY VI|BATTERY ST TUNNEL') then 'SR 99'
+       when regexp_matches(e.location, '\bLAKE CITY WAY NE\b|\bSR ?522\b') then 'SR 522'
+       when regexp_matches(e.location, '\bSR ?509\b|\b1ST AVE? S BR\b') then 'SR 509'
+       when regexp_matches(e.location, '\bN(E)? 145TH ST\b') and a.lon > -122.3445 then 'SR 523'
        when regexp_matches(e.location, '\bSR ?520\b') then 'SR 520'
        when regexp_matches(e.location, '\bI ?5\b|\bI ?90\b') then 'Interstate'
        when x.art_class in (4, 5) then 'State route' end as state_route,
@@ -355,7 +391,9 @@ select l.*,
      and c.severity in ('Fatal Collision', 'Serious Injury Collision')
      and len(l.sdot_hcl_years) > 0 and year(c.date) > l.sdot_hcl_years[1]) as ksi_after_hcl,
   (select count(*) from collisions c where c.location = l.location and c.date >= ws() and c.date < we()
-     and c.peds > 0 and l.lpi_status = 'Existing' and c.date > l.lpi_installed) as ped_after_lpi
+     and c.peds > 0 and l.lpi_status = 'Existing' and c.date > l.lpi_installed) as ped_after_lpi,
+  (select count(*) from collisions c where c.location = l.location and c.date >= ws() and c.date < we()
+     and c.peds > 0 and c.coll_type ilike '%turning%' and l.lpi_status = 'Existing' and c.date > l.lpi_installed) as ped_turn_after_lpi
 from locations l;
 
 -- ---------------------------------------------------------------- nearby requests
@@ -406,9 +444,10 @@ with b as (
 select *,
   expected_harm * (1 + request_boost)                                as score_ksi,
   pts_old + request_points * wt('request_mult')                      as score_fatal,
-  -- Risk: expected harm per 10,000 vehicles entering the spot (intersections: streets added together).
+  -- Risk: expected harm per million vehicles over the 5 scoring years (weekday counts x 365 x 5; intersections:
+  -- streets added together, i.e. vehicles entering).
   case when volume is not null and crashes >= wt('risk_min_crashes')
-       then expected_harm / (greatest(volume, wt('risk_vol_floor')) / 10000.0) end as score_risk
+       then expected_harm * 1e6 / (greatest(volume, wt('risk_vol_floor')) * 365.0 * 5) end as score_risk
 from b;
 
 create or replace table ranked as
@@ -459,13 +498,13 @@ from sets group by m;
 -- ---------------------------------------------------------------- exports for the site
 create or replace macro export_set() as table
   select * from ranked where rank <= 200 or rank_risk <= 200
-     or fatal >= 2;   -- repeated deaths are always shown, whatever their rank
+     or killed >= 2;   -- places where 2 or more people died are always shown, whatever their rank
 
 copy (
   select rank, rank_noboost, rank_fatal, rank_risk, location, addr_type, round(lon, 6) lon, round(lat, 6) lat,
          round(score_ksi, 1) score_ksi, round(score_fatal, 1) score_fatal, round(score_risk, 1) score_risk,
          round(harm, 1) harm, round(expected_harm, 1) expected_harm, round(eb_weight, 3) eb_weight,
-         round(ksi_harm, 1) ksi_harm, round(block_ft) block_ft,
+         round(ksi_harm, 1) ksi_harm, round(block_ft) block_ft, round(ref_other_harm_per_known, 2) ref_other_harm_per_known,
          ref_group, ref_n, round(ref_ksi_share, 4) ref_ksi_share, round(ref_ksi_harm_per_crash, 2) ref_ksi_harm_per_crash,
          round(request_boost, 3) request_boost, round(request_points, 1) request_points, scored_requests,
          round(pts_old, 1) pts_old,
@@ -473,8 +512,8 @@ copy (
          volume, volume_streets, volume_year, volume_estimated,
          sdot_hin, sdot_hcl_years, ksi_after_hcl,
          lpi_status, lpi_installed, lpi_planned, ped_after_lpi, signalized, ped_signal, ped_audio, lt_protected, lt_installed,
-         confidence, crashes, unknown_sev, fatal, serious, injury, ksi, ksi_years,
-         ped_crashes, bike_crashes, speeding_crashes,
+         confidence, crashes, unknown_sev, fatal, serious, injury, ksi, ksi_years, killed, seriously_injured,
+         pb_crashes, ped_crashes, bike_crashes, speeding_crashes, ped_turn_after_lpi,
          wet_crashes, dark_crashes, unlit_crashes, road_known, light_known,
          first_crash, last_crash, requests, request_types,
          fixes, vol_history, bus_trips, bus_routes, bus_stretch_id
@@ -484,7 +523,7 @@ copy (
 -- Search index: every scored location, compact: [name, lat, lon, rank, crashes, ksi, ped/bike crashes, type]
 copy (
   select list([location, round(lat, 5)::varchar, round(lon, 5)::varchar, rank::varchar, crashes::varchar,
-               ksi::varchar, (ped_crashes + bike_crashes)::varchar, addr_type, coalesce(neighborhood, ''), coalesce(area, '')] order by rank) as idx
+               ksi::varchar, pb_crashes::varchar, addr_type, coalesce(neighborhood, ''), coalesce(area, '')] order by rank) as idx
   from ranked
 ) to 'site/data/search.json' (format json, array false);
 
@@ -518,12 +557,19 @@ copy (
 ) to 'site/data/details.json' (format json, array false);
 
 -- SDOT capital budget by program and year (budgeted amounts, net of reductions; not money spent; no locations)
+-- Projects are matched across years by their MC-TR-C id (2024 lines put it in the title, e.g. "MC-TR-C064 - TRC0681 -
+-- Vision Zero BUD"; later years use it as the code), and shown under their newest name and program.
 copy (
-  select program, project, code, year, round(sum(amount)) amount
-  from capital_budget
-  where dept = 'Seattle Department of Transportation' and year >= year(current_date) - 2
-  group by all having sum(amount) <> 0
-  order by program, project, year
+  with b as (
+    select *, coalesce(nullif(regexp_extract(project, '^(MC-TR-C[0-9]+)', 1), ''), nullif(regexp_extract(code, '^(MC-TR-C[0-9]+)', 1), ''), code) as pid
+    from capital_budget
+    where dept = 'Seattle Department of Transportation' and year >= year(current_date) - 2),
+  names as (select pid, arg_max(program, year) as program, arg_max(project, year) as project from b group by pid)
+  select n.program, n.project, b.pid as code, b.year, round(sum(b.amount)) amount,
+         round(sum(b.amount) filter (where b.fund ilike '%Transportation Levy%')) as levy
+  from b join names n using (pid)
+  group by all having sum(b.amount) <> 0
+  order by n.program, n.project, b.year
 ) to 'site/data/sdot_budget.json' (format json, array true);
 
 copy (
@@ -550,13 +596,29 @@ copy (
     (select count(*) filter (where severity in ('Fatal Collision', 'Serious Injury Collision')) from collisions
        where date >= (select test_start from scoring_window) and date < we()) as test_ksi_total,
     -- citywide totals for the summary at the top of the list (people, not crashes)
-    (select sum(fatalities) from collisions where date >= ws() and date < we()) as city_killed,
-    (select sum(serious_injuries) from collisions where date >= ws() and date < we()) as city_serious,
+    (select sum(fatalities) from collisions where date >= ws() and date < we())
+      + (select coalesce(sum(fatalities), 0) from collisions_unlocated where date >= ws() and date < we()) as city_killed,
+    (select sum(serious_injuries) from collisions where date >= ws() and date < we())
+      + (select coalesce(sum(serious_injuries), 0) from collisions_unlocated where date >= ws() and date < we()) as city_serious,
+    (select count(*) from collisions_unlocated where date >= ws() and date < we()
+       and severity in ('Fatal Collision', 'Serious Injury Collision')) as city_ksi_unlocated,
+    (select count(*) from collisions where date >= ws() and date < we()
+       and severity in ('Fatal Collision', 'Serious Injury Collision')) as city_ksi_located,
     (select count(*) from collisions where date >= ws() and date < we() and peds + cyclists > 0
        and severity in ('Fatal Collision', 'Serious Injury Collision')) as city_ped_bike_ksi,
     (select round(sum(ksi) filter (where rank <= 50) * 1.0 / sum(ksi), 3) from ranked) as top50_ksi_share,
     (select sum(ksi) filter (where rank <= 50) from ranked) as top50_ksi,
     (select sum(ksi) from ranked) as city_ksi_crashes,
+    -- looking ahead: the top 50 ranked on the first 3 years, and their share of the next 2 years' KSI crashes
+    (select sum(t.ksi) from (select location from eb_in(ws(), (select test_start from scoring_window))
+                             order by expected_harm desc, crashes desc, location limit 50) top
+       join (select location, count(*) ksi from collisions where date >= (select test_start from scoring_window) and date < we()
+               and severity in ('Fatal Collision', 'Serious Injury Collision') group by location) t using (location)) as forward_top50_ksi,
+    (select count(*) from collisions where date >= ws() and date < we() and peds + cyclists > 0
+       and severity = 'Fatal Collision') as city_ped_bike_fatal,
+    (select count(*) from collisions where date >= ws() and date < we() and severity = 'Unknown'
+       and date >= date '2026-01-01') as unknown_since_2026,
+    (select count(*) from collisions where date >= ws() and date < we() and speeding) as city_speeding,
     -- citywide shares, used to flag locations that are unusually wet/dark (Unknown/Other excluded)
     (select round(sum(wet_crashes)  / sum(road_known),  3) from locations) as city_wet_share,
     (select round(sum(dark_crashes) / sum(light_known), 3) from locations) as city_dark_share,

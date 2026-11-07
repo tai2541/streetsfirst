@@ -5,15 +5,19 @@
 -- None of this changes the safety ranking.
 
 -- ---------------------------------------------------------------- fixes SDOT has built
+-- Status from SDOT: in service = Built, PLANNED = Planned; signs temporarily out of service are left out.
 create or replace table fix_points as
-select 'Speed humps' as kind, f.properties.SEGKEY as segkey, gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/humps_*.json', maximum_object_size = 500000000)) where f.geometry is not null
-union all
-select 'Speed cushions', f.properties.SEGKEY, gj_geom(f.geometry)
-from (select unnest(features) f from read_json('data/raw/cushions_*.json', maximum_object_size = 500000000)) where f.geometry is not null
-union all
-select 'Radar speed sign', f.properties.SEGKEY, gj_geom(f.geometry)
-from (select unnest(features) f from read_json('data/raw/radar_*.json', maximum_object_size = 500000000)) where f.geometry is not null;
+select kind, segkey, case when st = 'PLANNED' then 'Planned' else 'Built' end as status, geom from (
+  select 'Speed humps' as kind, f.properties.SEGKEY as segkey, f.properties.CURRENT_STATUS as st, gj_geom(f.geometry) as geom
+  from (select unnest(features) f from read_json('data/raw/humps_*.json', maximum_object_size = 500000000)) where f.geometry is not null
+  union all
+  select 'Speed cushions', f.properties.SEGKEY, f.properties.CURRENT_STATUS, gj_geom(f.geometry)
+  from (select unnest(features) f from read_json('data/raw/cushions_*.json', maximum_object_size = 500000000)) where f.geometry is not null
+  union all
+  select 'Radar speed sign', f.properties.SEGKEY, f.properties.CURRENT_STATUS, gj_geom(f.geometry)
+  from (select unnest(features) f from read_json('data/raw/radar_*.json', maximum_object_size = 500000000)) where f.geometry is not null
+) x
+where coalesce(st, 'INSVC') not in ('TEMPOUTSVC', 'REMOVED', 'RETIRED');
 
 create or replace table fix_lines as
 select 'Protected bike lane' as kind,
@@ -31,11 +35,11 @@ where f.geometry is not null and f.properties.RemovalDate is null;
 -- at intersections, anything within 100 ft. Lanes count when they pass within the spot's radius.
 create or replace table loc_fixes as
 with hits as (
-  select a.location, fp.kind, null::date as d, 'Built' as status
+  select a.location, fp.kind, null::date as d, fp.status
   from locations_all a join streets s on s.unitdesc = a.location join fix_points fp on fp.segkey = s.compkey
   where a.addr_type <> 'I'
   union all
-  select p.location, fp.kind, null, 'Built'
+  select p.location, fp.kind, null, fp.status
   from loc_pts p join locations_all a using (location) join fix_points fp on ST_DWithin(p.geom, fp.geom, 100)
   where a.addr_type = 'I'
   union all
@@ -62,13 +66,17 @@ from (select filename, unnest(features) as f
 where json_type(f->'geometry') = 'OBJECT'
   and coalesce(f->'properties'->>'START_DATE', f->'properties'->>'COUNTSTART') is not null;
 
+-- one row per street name (some counts list two streets), split-roadway names normalized like loc_names
+create or replace table volhist_named as
+select yr, road_norm(trim(unnest(string_split(street, ',')))) as street, awdt, geom from volhist where street is not null;
+
 -- Per street at the spot: every real count on that street within 300 ft, the nearest one per count year.
 -- Kept per street, not added up at intersections: cross streets are counted in different years.
 create or replace table loc_volhist as
 with nearest as (
   select n.location, n.name, v.yr, arg_min(v.awdt, ST_Distance(p.geom, v.geom))::int as v
   from loc_names n join loc_pts p using (location)
-  join volhist v on v.street = n.name and v.awdt is not null and ST_DWithin(p.geom, v.geom, 300)
+  join volhist_named v on v.street = n.name and v.awdt is not null and ST_DWithin(p.geom, v.geom, 300)
   group by all
 )
 select location, list({'s': name, 'y': yr, 'v': v} order by name, yr) as vol_history
@@ -94,24 +102,29 @@ from near group by location;
 -- Metro sets each trip's scheduled time between "timed" stops from how long buses really take at that hour.
 -- For each stretch between two timed stops on a typical weekday: the quickest hourly median run time
 -- (light traffic) vs the slowest one in the rush hours (7-9 am, 3-6 pm). Includes extra boarding time
--- at busy hours, not only traffic. Stretches are about 1.5 miles; only those inside Seattle are kept.
+-- at busy hours, not only traffic. Stretches run between timed stops (usually 1/2 to 1 1/2 miles); only those inside Seattle are kept.
 create or replace macro secs(t) as split_part(t, ':', 1)::int * 3600 + split_part(t, ':', 2)::int * 60 + split_part(t, ':', 3)::int;
 create or replace table gtfs_cal as select * from read_csv('data/raw/gtfs/calendar.txt', all_varchar = true);
 create or replace table gtfs_cd as select * from read_csv('data/raw/gtfs/calendar_dates.txt', all_varchar = true);
--- the Wednesday in the next 90 days with the most regular weekday service (skips holidays and gaps)
+-- The Wednesday in the next 90 days with the most bus trips, after Metro's holiday exceptions
+-- (so a holiday or reduced-service day is never picked).
+create or replace table gtfs_trips_all as select * from read_csv('data/raw/gtfs/trips.txt', all_varchar = true);
 create or replace table gtfs_day as
 with wed as (select strftime(x, '%Y%m%d') as d
              from (select unnest(generate_series(current_date::timestamp, current_date::timestamp + interval 90 day, interval 1 day)) as x)
-             where dayofweek(x) = 3)
-select d from wed
-order by (select count(*) from gtfs_cal c where c.wednesday = '1' and c.start_date <= wed.d and c.end_date >= wed.d) desc, d
-limit 1;
+             where dayofweek(x) = 3),
+svc as (
+  (select w.d, c.service_id from wed w join gtfs_cal c on c.wednesday = '1' and c.start_date <= w.d and c.end_date >= w.d
+   union select w.d, x.service_id from wed w join gtfs_cd x on x.date = w.d and x.exception_type = '1')
+  except select w.d, x.service_id from wed w join gtfs_cd x on x.date = w.d and x.exception_type = '2')
+select d from svc join gtfs_trips_all t using (service_id)
+group by d order by count(*) desc, d limit 1;
 create or replace table gtfs_svc as
 (select service_id from gtfs_cal, gtfs_day where wednesday = '1' and start_date <= gtfs_day.d and end_date >= gtfs_day.d
  union select service_id from gtfs_cd, gtfs_day where date = gtfs_day.d and exception_type = '1')
 except select service_id from gtfs_cd, gtfs_day where date = gtfs_day.d and exception_type = '2';
 create or replace table gtfs_trips as
-select t.* from read_csv('data/raw/gtfs/trips.txt', all_varchar = true) t join gtfs_svc using (service_id);
+select t.* from gtfs_trips_all t join gtfs_svc using (service_id);
 create or replace table gtfs_tp as
 select s.trip_id, t.route_id, t.shape_id, s.stop_id, s.stop_sequence::int as sq, s.shape_dist_traveled::double as d,
        secs(s.arrival_time) as arr, secs(s.departure_time) as dep

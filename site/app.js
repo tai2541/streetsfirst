@@ -80,8 +80,8 @@
 
   // ---------- ranking modes ----------
   const MODES = {
-    ksi: { label: 'Most likely to hurt people', hint: 'Where people are most likely to keep getting killed or seriously hurt, based on 5 years of crashes. Start here.', unit: 'pts' },
-    risk: { label: 'Risk for its traffic', hint: 'Dangerous for how busy it is: the same harm per vehicle. Often quieter streets.', unit: 'per 10k vehicles' }
+    ksi: { label: 'Most likely to hurt people', hint: 'Where crashes are most likely to keep killing or seriously injuring people, estimated from 5 years of crashes. Start here.', unit: 'pts' },
+    risk: { label: 'Risk for its traffic', hint: 'Dangerous for how busy it is: expected harm per million vehicles passing through. Often quieter streets.', unit: 'per million vehicles' }
   };
   let mode = (() => { try { return JSON.parse(localStorage.getItem('ipm.mode')) || 'ksi'; } catch { return 'ksi'; } })();
   if (!MODES[mode]) mode = 'ksi';
@@ -110,14 +110,14 @@
     `Scored: ${fmt(meta.collisions_scored)} SDOT collision reports from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)} ` +
     `at ${fmt(N)} locations, plus Find It Fix It repair requests. Data fetched ${D.fetchedAt || 'unknown'}.`;
 
-  const scoreText = p => (mode === 'risk' ? `${Math.round(p.score)} <small>per 10k vehicles</small>` : `${fmt(Math.round(p.score))} <small>pts</small>`);
+  const scoreText = p => (mode === 'risk' ? `${p.score.toFixed(1)} <small>per million vehicles</small>` : `${fmt(Math.round(p.score))} <small>pts</small>`);
   const topShare = rank => { const s = (100 * rank) / N; return s < 1 ? `top ${Math.max(0.1, Math.ceil(s * 10) / 10)}%` : `top ${Math.ceil(s)}%`; };
 
   // ---------- reasons: plain-language chips, most important first ----------
   function reasons(p) {
     const out = [];
-    if (p.fatal) out.push({ cls: 'fatal', text: `${plural(p.fatal, 'death')}` });
-    if (p.serious) out.push({ cls: 'serious', text: `${p.serious} seriously injured` });
+    if (p.killed) out.push({ cls: 'fatal', text: `${p.killed} ${p.killed === 1 ? 'person' : 'people'} killed` });
+    if (p.seriously_injured) out.push({ cls: 'serious', text: `${p.seriously_injured} seriously injured` });
     const pb = [p.ped_crashes ? `${p.ped_crashes} with pedestrians` : '', p.bike_crashes ? `${p.bike_crashes} with cyclists` : ''].filter(Boolean);
     if (pb.length) out.push({ cls: 'ped', text: pb.join(', ') });
     const still = stillDangerous(p);
@@ -141,13 +141,17 @@
   function stillDangerous(p) {
     if (p.lpi_status === 'Existing' && p.ped_after_lpi >= 2) {
       const y = p.lpi_installed ? p.lpi_installed.slice(0, 4) : '';
-      return { short: `${p.ped_after_lpi} pedestrian crashes after ${y} signal fix`,
-        long: `SDOT gave pedestrians a head-start walk signal here in ${y || 'an unknown year'}; ${p.ped_after_lpi} crashes involving pedestrians have happened since. The standard low-cost fix hasn't been enough.` };
+      const from = p.lpi_installed && p.lpi_installed > meta.window_from ? monthYear(p.lpi_installed) : monthYear(meta.window_from);
+      return { short: `${p.ped_after_lpi} pedestrian crashes since ${from} (head-start signal ${y})`,
+        long: `SDOT added a head-start walk signal here in ${y || 'an unknown year'}. From ${from} to ${monthYear(meta.window_to)},
+          ${p.ped_after_lpi} crashes involving pedestrians were reported (${p.ped_turn_after_lpi || 0} with a turning vehicle, the kind
+          this signal targets). Crash data from before the signal isn't loaded, so this doesn't show whether it helped, only that
+          pedestrians are still being hit here.` };
     }
     const first = p.sdot_hcl_years && p.sdot_hcl_years[0];
     if (first && first <= +meta.window_from.slice(0, 4) && p.ksi_after_hcl >= 2)
-      return { short: `SDOT-listed since ${first}, still ${p.ksi_after_hcl} killed or seriously hurt`,
-        long: `SDOT first put this on its High Collision Locations list in ${first}. Since then (in the scored years) ${p.ksi_after_hcl} crashes have killed or seriously injured someone.` };
+      return { short: `On SDOT's High Collision list since ${first}; ${p.ksi_after_hcl} fatal/serious crashes since`,
+        long: `SDOT first put this on its High Collision Locations list in ${first}. Since then (in the scored years) ${p.ksi_after_hcl} crashes have killed or seriously injured someone. Being listed doesn't mean it was redesigned.` };
     return null;
   }
 
@@ -296,11 +300,11 @@
     const onlyFatal = document.getElementById('onlyFatal').checked;
     const ongoing = document.getElementById('onlyOngoing').checked;
     const keep = p => (!type || p.addr_type === type || (type === 'B' && p.addr_type === 'A'))
-        && (!onlyFatal || p.fatal > 0) && (!ongoing || p.ksi_years >= 3);
+        && (!onlyFatal || p.killed > 0) && (!ongoing || p.ksi_years >= 3);
     const rows = D.priorities.filter(p => p.rank != null && p.rank <= 200).filter(keep).slice(0, n);
     // Spots where 2+ people died are never left off, even when their predicted-harm rank is low.
     const inRows = new Set(rows.map(p => p.rank_ksi));
-    const extra = D.priorities.filter(p => p.fatal >= 2 && !inRows.has(p.rank_ksi) && keep(p))
+    const extra = D.priorities.filter(p => p.killed >= 2 && !inRows.has(p.rank_ksi) && keep(p))
       .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9) || a.rank_ksi - b.rank_ksi);
     return { rows, extra };
   }
@@ -313,7 +317,7 @@
     layer.clearLayers(); markers = {};
     extra.forEach(p => {
       const m = L.circleMarker([p.lat, p.lon], EXTRA_STYLE);
-      m.bindTooltip(`${p.rank ? '#' + fmt(p.rank) + ' ' : ''}${esc(p.name)}: ${p.fatal} deaths`, { direction: 'top', offset: [0, -4] })
+      m.bindTooltip(`${p.rank ? '#' + fmt(p.rank) + ' ' : ''}${esc(p.name)}: ${p.killed} people killed`, { direction: 'top', offset: [0, -4] })
         .on('click', () => select(p, false, null));
       m._p = p; m.addTo(layer); markers[p.rank_ksi] = m;
     });
@@ -810,7 +814,7 @@
     const parts = [];
     let s = `${plural(p.crashes, 'crash', 'crashes')} from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}`;
     s += p.ksi ? `; ${p.ksi === 1 ? '1 killed or seriously injured someone' : `${p.ksi} killed or seriously injured someone`}` +
-      (p.fatal ? ` (${plural(p.fatal, 'death')})` : '') : '; none killed or seriously injured anyone';
+      (p.killed ? ` (${p.killed} ${p.killed === 1 ? 'person' : 'people'} killed)` : '') : '; none killed or seriously injured anyone';
     parts.push(s + '.');
     const who = (n, verb) => `${n} involved ${n === 1 ? 'a person' : 'people'} ${verb}`;
     const pb = [p.ped_crashes ? who(p.ped_crashes, 'walking') : '', p.bike_crashes ? who(p.bike_crashes, 'biking') : ''].filter(Boolean);
@@ -820,8 +824,8 @@
     const rk = p.rank_ksi;
     const line2 = `Ranks <b>#${rk}</b> of ${fmt(N)} crash locations (${topShare(rk)})` +
       (p.rank_risk ? `, and #${p.rank_risk} once you account for how busy it is` : '') + '.';
-    const why = p.fatal >= 2 && rk > 50
-      ? `<p class="callout">${p.fatal} people died here. It ranks #${fmt(rk)} because the ranking estimates where people are most
+    const why = p.killed >= 2 && rk > 50
+      ? `<p class="callout">${p.killed} people died here. It ranks #${fmt(rk)} because the ranking estimates where people are most
           likely to be hurt next, and this spot has few other crashes (${p.crashes} in total), so the model treats much of its
           record as chance. That may understate it: repeated deaths can mean traffic moves at deadly speeds. It's always listed
           so it isn't overlooked.</p>` : '';
@@ -835,16 +839,16 @@
         other-crash harm ${fmt(Math.round(p.harm - p.ksi_harm))}
         + fatal/serious harm, blended: ${Math.round(100 * p.eb_weight)}% this spot's own record (${fmt(Math.round(p.ksi_harm))})
         and ${100 - Math.round(100 * p.eb_weight)}% the typical rate for ${esc(groupName(p.ref_group))} applied to its ${p.crashes} crashes
-        (${(p.crashes * p.ref_ksi_harm_per_crash).toFixed(0)}).</p>
+        (${(p.crashes * p.ref_ksi_harm_per_crash).toFixed(0)})${p.unknown_sev ? ` + ${p.unknown_sev} crash${p.unknown_sev === 1 ? '' : 'es'} with unknown severity × the typical other-crash harm ${(+p.ref_other_harm_per_known || 0).toFixed(1)}` : ''}.</p>
       <p class="note">Own-record weight = crashes ÷ (crashes + ${k}). Raw crash harm before blending: ${fmt(Math.round(p.harm))}.</p>
       <p><b>Score ${fmt(Math.round(p.score_ksi))}</b> = expected harm × repair boost ${(1 + p.request_boost).toFixed(2)}
         <span class="muted">(${plural(p.scored_requests, 'safety-related request')} since ${monthYear(meta.requests_scored_from)})</span>.
         Without the boost it would rank #${p.rank_noboost}.</p>`;
     const riskLine = p.score_risk != null
-      ? `<p><b>Risk ${Math.round(p.score_risk)}</b> = expected harm ${fmt(Math.round(p.expected_harm))} ÷
-          (${fmt(Math.max(p.volume, weight('risk_vol_floor')))} vehicles ÷ 10,000).</p>`
+      ? `<p><b>Risk ${p.score_risk.toFixed(1)} per million vehicles</b> = expected harm ${fmt(Math.round(p.expected_harm))} ÷
+          (${fmt(Math.max(p.volume, weight('risk_vol_floor')))} vehicles a weekday × 365 × 5 years ÷ 1 million).</p>`
       : `<p class="note">Not ranked for risk: ${p.volume ? `fewer than ${weight('risk_min_crashes')} crashes` : 'no SDOT traffic count'}.</p>`;
-    const ranks = `<p class="note">Ranks: #${p.rank_ksi} most likely to hurt people · ${p.rank_risk ? '#' + p.rank_risk : 'unranked'} for its traffic.</p>`;
+    const ranks = `<p class="note">Ranks: #${p.rank_ksi} most likely to hurt people · ${p.rank_risk ? '#' + p.rank_risk : 'unranked'} for how busy it is.</p>`;
     return (mode === 'risk' ? riskLine + ksiLine : ksiLine + riskLine) + ranks;
   }
   const groupName = g => {
@@ -885,8 +889,8 @@
         ${verdict(p)}
         <div class="stat-grid">
           <div class="stat"><b>${p.crashes}</b><span>crashes</span></div>
-          <div class="stat"><b>${p.ksi}</b><span>killed or seriously hurt</span></div>
-          <div class="stat"><b>${p.ped_crashes + p.bike_crashes}</b><span>with people walking or biking</span></div>
+          <div class="stat"><b>${(p.killed ?? 0) + (p.seriously_injured ?? 0)}</b><span>people killed or seriously hurt</span></div>
+          <div class="stat"><b>${p.pb_crashes ?? p.ped_crashes + p.bike_crashes}</b><span>with people walking or biking</span></div>
           <div class="stat"><b>${p.requests}</b><span>repair requests nearby</span></div>
         </div>
         <div class="chips dchips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</div>
@@ -1187,10 +1191,23 @@
     const other = (P, c) => P[0] === c ? P[1] : P[0];
     return `${common}: ${other(A, common)} to ${other(B, common)}`;
   }
-  // Real counts only, and a value repeated at a later date is SDOT re-publishing the same count: drop it.
-  const cleanHist = h => (h || []).filter((x, i, a) => i === 0 || x.v !== a[i - 1].v);
+  // Real counts only: a value repeated at a later date is SDOT re-publishing the same count, so it's dropped. So are
+  // counts that are implausible next to the street's other counts (a fall to under a fifth, e.g. 7,199 to 90, or a
+  // five-fold jump): those are almost always a partial or misfiled count, not a real change.
+  const cleanHist = h => {
+    const out = [];
+    for (const x of h || []) {
+      const prev = out[out.length - 1];
+      if (prev && x.v === prev.v) continue;
+      if (prev && (x.v < prev.v / 5 || x.v > prev.v * 5)) continue;
+      out.push(x);
+    }
+    return out;
+  };
+  // Trends skip pandemic-era counts (2020-2021) at either end: traffic was unusually low then.
+  const pandemic = y => y === 2020 || y === 2021;
   function trendText(h) {
-    h = cleanHist(h);
+    h = cleanHist(h).filter(x => !pandemic(x.y));
     if (h.length < 2 || h[h.length - 1].y - h[0].y < 4) return null;
     const a = h[0], b = h[h.length - 1], c = Math.round(100 * (b.v - a.v) / a.v);
     return Math.abs(c) < 5 ? `About the same as ${a.y}` : `${c > 0 ? 'Up' : 'Down'} ${Math.abs(c)}% since ${a.y}`;
@@ -1219,8 +1236,8 @@
 
   const TMODES = {
     bus: {
-      hint: `Stretches of bus route where buses lose the most time at rush hour, per mile, counting every bus that runs
-        there on a weekday. Ranked by bus time lost per mile, so short, badly jammed stretches rank high. From King County Metro's current weekday timetable${T.weekday ? ' (the schedule in effect on ' + longDate(T.weekday) + ')' : ''}.`,
+      hint: `Stretches of bus route where the timetable gives buses the most extra time per mile, compared with the quickest
+        hours (usually late night or early morning), added up over every weekday bus. Ranked by bus time lost per mile, so short, badly jammed stretches rank high. From King County Metro's current weekday timetable${T.weekday ? ' (the schedule in effect on ' + longDate(T.weekday) + ')' : ''}.`,
       items: () => T.stretches.filter(s => s.rank).sort((a, b) => a.rank - b.rank),
       rank: s => s.rank, name: stretchName,
       sub: s => `Routes ${s.routes.slice(0, 8).join(', ')}${s.routes.length > 8 ? '…' : ''}`,
@@ -1232,7 +1249,7 @@
     },
     busy: {
       hint: 'Streets with the most vehicles on an average weekday, from SDOT traffic counts. Busy isn\'t always slow, ' +
-        'but it\'s where delays and crashes affect the most people.',
+        'and one-direction counts (bridges, ramps) are marked. Busy isn\'t the same as slow or dangerous.',
       items: () => T.segments.slice().sort((a, b) => a.id - b.id),
       rank: s => s.id, name: s => niceName(s.street),
       sub: s => s.est || !s.yr ? `SDOT estimate${s.yr ? ' from ' + s.yr : ''}, not a measured count` : `SDOT count from ${s.yr}`,
@@ -1277,11 +1294,11 @@
     });
     document.getElementById('tNote').innerHTML = tmodeEl.value === 'bus'
       ? `Metro sets each trip's scheduled time from how long buses really take at that hour, so the rush-hour time includes
-         traffic and extra time for people getting on and off. It's measured between Metro's timed stops, about 1.5 miles
+         traffic and extra time for people getting on and off. It's measured between Metro's timed stops (usually ½ to 1½ miles apart; a few blocks downtown),
          apart, so the slowdown could be anywhere along the stretch. Stretches under a quarter mile are left out (the timetable
          is in whole minutes). Inside Seattle only.`
       : `Counts are weekday averages from SDOT's yearly traffic counts. Many streets are counted every few years, so a count can
-         be several years old; trends use real counts only.`;
+         be several years old; trends use real counts only and skip 2020–2021 (pandemic traffic).`;
   }
 
   function trafficHistChart(hist) {
@@ -1313,7 +1330,7 @@
 
   const safetyList = list => list.length
     ? `<ul class="tight">${list.slice(0, 8).map(p => `<li><button type="button" class="linkbtn" data-open="${p.rank_ksi}">#${p.rank} ${esc(p.name)}</button>
-        <span class="muted">· ${plural(p.ksi, 'person', 'people')} killed or seriously hurt</span></li>`).join('')}</ul>
+        <span class="muted">· ${plural((p.killed ?? 0) + (p.seriously_injured ?? 0), 'person', 'people')} killed or seriously hurt</span></li>`).join('')}</ul>
        ${list.length > 8 ? `<div class="note">and ${list.length - 8} more in the safety top 200.</div>` : ''}`
     : '<div class="note">None of the safety top 200 are along here.</div>';
 
@@ -1333,7 +1350,7 @@
           ${s.mi}-mile stretch, compared with ${s.base} minutes when traffic is light: <b>${Math.round(100 * s.slower)}% slower</b>.
           ${fmt(s.trips)} buses run it each weekday; together they lose about <b>${(s.lost / 60).toFixed(1)} hours a day</b> here.</p>
         <div class="stat-grid">
-          ${stat(s.base + ' min', 'light traffic')}${stat(s.peak + ' min', 'at ' + hourName(s.hr))}
+          ${stat(s.base + ' min', 'quickest hours (late night)')}${stat(s.peak + ' min', 'at ' + hourName(s.hr))}
           ${stat(fmt(s.trips), 'buses a weekday')}${stat((s.lost / 60).toFixed(1) + ' h', 'bus time lost a day')}
         </div>
       </div>
@@ -1374,7 +1391,7 @@
     const st = p.bus_stretch_id && T.stretches.find(x => x.id === p.bus_stretch_id);
     if (p.bus_trips) out.push(`<p><b>${fmt(p.bus_trips)} buses</b> a weekday${p.bus_routes && p.bus_routes.length ? ` <span class="muted">(routes ${esc(p.bus_routes.slice(0, 10).join(', '))}${p.bus_routes.length > 10 ? '…' : ''})</span>` : ''}.</p>`);
     if (st) out.push(`<p>On the bus stretch through here (${esc(stretchName(st))}), buses are <b>${Math.round(100 * st.slower)}% slower at
-        ${hourName(st.hr)}</b>: ${st.base} minutes in light traffic, ${st.peak} at rush hour.
+        ${hourName(st.hr)}</b>: ${st.base} minutes in the quickest (late-night) hours, ${st.peak} at its slowest.
         <button type="button" class="linkbtn" data-traffic="${st.id}">See it on the Traffic map</button></p>`);
     const by = {};
     (p.vol_history || []).forEach(x => (by[x.s] = by[x.s] || []).push({ y: x.y, v: x.v }));
@@ -1437,7 +1454,10 @@
       <div class="tablewrap"><table>${head}<tr class="total"><td class="nowrap">All SDOT capital</td>${cells(grand)}</tr></table></div>
       <p class="note">† current year's budget. * planned future years. Click a program for its projects.</p>
       ${html}
-      <p class="note">Abbreviations: ST3 = Sound Transit 3; BUD = a budget-level entry in the city's data.</p>`;
+      <p class="note">Abbreviations: ST3 = Sound Transit 3; BUD = a budget-level entry in the city's data. Projects are matched
+        across years by their city project number and shown under their newest name.</p>
+      ${D.budget.some(b => b.levy) && !D.budget.some(b => b.levy && b.year === 2025) ? `<p class="note">The Transportation Levy voters
+        approved in November 2024 shows up in this data from 2026 on; 2025 has no levy money in it, so 2025 may be understated.</p>` : ''}`;
     function sum(o) { return Object.values(o).reduce((a, b) => a + b, 0); }
   })();
 
@@ -1463,10 +1483,12 @@
         <li><b>Crash harm.</b> Points per crash: killed or seriously injured ${k}, other injury ${weight('injury')},
           property damage only ${weight('pdo')}, × ${weight('ped_bike_mult')} when someone walking or biking was hurt.
           Fatal and serious count alike because whether a crash kills depends heavily on chance (age, vehicle, ambulance
-          time). Vision Zero programs use the same "KSI" grouping. Crashes with unknown severity (mostly recent reports
-          still being processed) score 0.</li>
+          time). Vision Zero programs use the same "KSI" grouping. Since January 2026 about 1 in 10 reports has no severity; those
+          aren't treated as harmless: each gets the typical non-fatal/serious harm for similar streets.</li>
         <li><b>Repeated deaths compound.</b> The 1st fatal crash at a spot counts ${k}, the 2nd ${(k * g).toFixed(1)},
-          the 3rd ${(k * g * g).toFixed(1)} (each × ${g} the last).</li>
+          the 3rd ${(k * g * g).toFixed(1)} (each × ${g} the last). This extra weight then goes through step 3 like all fatal/serious
+          harm: at a spot with few crashes, most of it is replaced by the typical rate. That's why places where 2 or more people
+          died are also listed separately, whatever their rank.</li>
         <li><b>Expected harm.</b> A spot with few crashes can look deadly or safe by luck. So its fatal/serious harm is blended
           with the typical rate for similar spots (same kind of location and street class), weighted by its crash count:
           own record × crashes ÷ (crashes + ${A}). A spot with 5 crashes leans ${Math.round(100 * A / (5 + A))}% on the typical
@@ -1480,8 +1502,9 @@
       </ol>`;
     const risk = `
       <h3>Risk for its traffic</h3>
-      <p>Expected harm divided by traffic: vehicles entering an intersection (the streets' weekday counts added together)
-        or using a block. This surfaces places that are dangerous <i>for how busy they are</i>. Only spots with an SDOT
+      <p>Expected harm per million vehicles over the five years: vehicles entering an intersection (the streets' weekday counts
+        added together) or using a block, × 365 × 5. Weekday counts overstate weekends a little. Blocks and intersections share one
+        list, but a long block carries its traffic farther, so long blocks can look riskier than they are. This surfaces places that are dangerous <i>for how busy they are</i>. Only spots with an SDOT
         count and at least ${weight('risk_min_crashes')} crashes are ranked; volumes under ${fmt(weight('risk_vol_floor'))}
         count as ${fmt(weight('risk_vol_floor'))}. SDOT's counts range from 2013 to 2024 and some are estimates; each
         spot shows which it uses.</p>
@@ -1499,7 +1522,10 @@
         ${(meta.validation || []).map(v => `<tr class="${v.method === 'expected' ? 'total' : ''}"><td>${vname[v.method] || v.method}</td><td>${v.k50}</td><td>${v.k200}</td></tr>`).join('')}
       </tbody></table>
       <p class="note">Ranking on fatal/serious crashes alone predicts worst: those are rare enough that luck dominates.
-        Blending them with crash counts does best. That's why the method is what it is.</p>`;
+        Blending them with crash counts does best. That's why the method is what it is.</p>
+      <p class="note">This test was also used to choose the method, so a fresh test would likely do somewhat worse. The repair-request
+        boost isn't included in it. Spots that rank high after a bad stretch usually improve somewhat on their own (regression to
+        the mean): the blending corrects the fatal/serious share for luck, but not the crash count itself.</p>`;
     const ag = (meta.sdot_agreement || []).reduce((o, a) => (o[a.mode] = a, o), {});
     const agRow = (m, label) => ag[m] ? `<tr><td>${label}</td><td>${ag[m].on_hin}</td><td>${ag[m].on_hin_high}</td><td>${ag[m].sdot_hcl_recent}</td></tr>` : '';
     const agreement = `
@@ -1513,7 +1539,7 @@
       <p class="note">For scale: ${Math.round(100 * meta.busy_share_on_hin)}% of the ${fmt(meta.busy_locations)} spots with 10+ crashes are on the High Injury Network.</p>`;
     document.getElementById('about').innerHTML = `
       <h3>What this ranks</h3>
-      <p>Every Seattle intersection and street block with a reported crash from ${monthYear(meta.window_from)} to
+      <p>Every Seattle intersection and street block with a police-reported crash from ${monthYear(meta.window_from)} to
         ${monthYear(meta.window_to)} (${fmt(meta.collisions_scored)} SDOT collision reports), ranked by how likely people are to keep
         getting killed or seriously hurt there.</p>
       ${example}
@@ -1524,16 +1550,19 @@
       <p class="note">From SDOT's street network, traffic counts, signal inventory and Vision Zero layers: street type, speed
         limit (the highest at the spot), pavement condition (0–100, labelled good 70+, fair 40–69, poor under 40 by this
         site, not SDOT), head-start walk signals and protected left turns. Shown for context; not part of the score.
-        Aurora Ave N (SR 99) and Lake City Way NE (SR 522) are state highways: WSDOT shares responsibility.</p>
+        Aurora Ave N and the Aurora Bridge (SR 99), Lake City Way NE (SR 522), N/NE 145th St east of Aurora (SR 523) and the 1st Ave S
+        Bridge (SR 509) are state highways: WSDOT shares responsibility.</p>
       <p class="note">Encampment, parking, graffiti and similar report types are left out on purpose. This map is about
         fixing infrastructure, not policing.</p>
       <h3>The Traffic tab</h3>
       <p>Shown next to the safety ranking so you can compare them, but it doesn't change the safety score.</p>
       <ul>
         <li><b>Where buses lose the most time</b>: from King County Metro's timetable for a typical weekday. Metro schedules each
-          trip from how long buses really take at that hour, so for each stretch between Metro's timed stops (about 1.5 miles apart)
-          the rush-hour time (7–9 am, 3–6 pm) is compared with the quickest hours. Ranked by bus time lost per mile, counting every bus.
-          Rush-hour times include extra boarding time, not only traffic.</li>
+          trip from how long buses really take at that hour, so for each stretch between Metro's timed stops (usually ½ to 1½ miles apart; a few blocks downtown)
+          each hour's time is compared with the quickest hours, usually late night or before 6 am. Ranked by the extra bus time per mile,
+          added up over every weekday bus. Busy hours include extra boarding time, not only traffic. These are scheduled times, not
+          measured ones: Metro sets them from past trips, so they can lag behind recent changes. Short stretches downtown rank high
+          partly because a minute of schedule rounding is a big share of a short trip.</li>
         <li><b>Busiest streets</b>: SDOT's weekday traffic counts. Many streets are only counted every few years, and some numbers
           are SDOT estimates; both are labeled. Trends use real counts only: SDOT's yearly layers repeat old counts for streets that
           weren't recounted, so those repeats are left out.</li>
@@ -1544,10 +1573,20 @@
         (wide, straight streets invite speed), so it's flagged as context ("speed-related: 8 of 30") rather than excluded.</p>
       <h3>Known limits</h3>
       <ul>
-        <li>The latest 3 months of crashes aren't scored: police reports arrive late, so those months look safer than they were.</li>
+        <li>The latest 3 months of crashes aren't scored: police reports arrive late, so those months look safer than they were.
+          Citywide totals at the top include the ${fmt(meta.city_ksi_unlocated || 0)} fatal or serious reports that have no location.</li>
         <li>${fmt(meta.dropped_no_location)} crash reports (${meta.dropped_fatal} fatal, ${meta.dropped_ksi} fatal or serious) have no location and can't be placed.</li>
-        <li>${fmt(meta.unknown_severity)} scored crash reports have unknown severity and add no harm.</li>
-        <li>Counts are of crashes, not people: a crash that hurt three people counts once, at its worst injury.</li>
+        <li>${fmt(meta.unknown_severity)} scored crash reports have unknown severity (almost all since January 2026, when SDOT's
+          data began leaving it blank). They get the typical harm of a non-fatal crash on similar streets.</li>
+        <li>Scores count crashes, not people: a crash that hurt three people counts once, at its worst injury. The death and
+          injury numbers shown for each place count people.</li>
+        <li>Only police-reported crashes. Minor crashes, and falls by people biking with no vehicle involved, often go unreported.</li>
+        <li>Freeway mainlines (I-5, I-90, SR 520), handled by the State Patrol, are mostly not in SDOT's data.</li>
+        <li>Severity is the officer's judgment at the scene; a later death may not be added. "Speed-related" is what the officer
+          noted (${fmt(meta.city_speeding || 0)} of ${fmt(meta.collisions_scored)} crashes).</li>
+        <li>Only places with a reported crash are scored. A street can be dangerous before anyone is hurt (wide, fast, no crossings).</li>
+        <li>SDOT names each side of a divided street separately (for example both sides of Martin Luther King Jr Way S); those
+          are merged into one place when they're within about 60 m. Probable duplicate reports are counted once.</li>
         <li>Longer blocks collect more crashes. Each block shows its length; the score isn't adjusted because doing so made
           predictions worse in the test above.</li>
         <li>Requests are counted within ${ft(weight('request_radius_m'))} ft of a point, which covers more of an intersection than of a long block.</li>
@@ -1575,16 +1614,22 @@
   // Citywide summary at the top of the list: what's at stake, in people. Numbers count up once on load.
   (function citySummary() {
     const el = document.getElementById('citySummary'); if (!el || meta.city_killed == null) return;
-    const oneIn = Math.round(meta.city_ksi_crashes / meta.top50_ksi);
+    const ksiAll = meta.city_ksi_crashes + (meta.city_ksi_unlocated || 0);
+    const oneIn = Math.round(ksiAll / meta.top50_ksi);
+    const pbShare = meta.city_ped_bike_ksi ? Math.round(100 * meta.city_ped_bike_ksi / meta.city_ksi_crashes) : null;
     el.innerHTML = `
-      <div class="cs-head">Seattle streets, ${monthYear(meta.window_from)} – ${monthYear(meta.window_to)}</div>
+      <div class="cs-head">Seattle city streets, ${monthYear(meta.window_from)} – ${monthYear(meta.window_to)}</div>
       <div class="cs-nums">
         <div><b data-n="${meta.city_killed}">${fmt(meta.city_killed)}</b><span>people killed</span></div>
         <div><b data-n="${meta.city_serious}">${fmt(meta.city_serious)}</b><span>seriously injured</span></div>
       </div>
       <div class="cs-foot"><b class="cs-hi">About 1 in ${oneIn}</b> of the crashes that killed or seriously hurt someone
-        (${fmt(meta.top50_ksi)} of ${fmt(meta.city_ksi_crashes)}) happened at just <b class="cs-hi">50 spots</b>, out of
-        ${fmt(meta.locations_scored)} places with crashes. Those 50 are the top of this list.</div>`;
+        (${fmt(meta.top50_ksi)} of ${fmt(ksiAll)}) happened at just <b class="cs-hi">50 spots</b>, out of
+        ${fmt(meta.locations_scored)} places with crashes. Those 50 are the top of this list.${pbShare ? ` <b class="cs-hi">${pbShare}%</b> of
+        those crashes involved someone walking or biking.` : ''}</div>
+      ${meta.forward_top50_ksi ? `<div class="cs-note">Predicting is harder: ranked on the first 3 years, the top 50 had
+        ${fmt(meta.forward_top50_ksi)} of the next 2 years' ${fmt(meta.test_ksi_total)} fatal or serious crashes
+        (${Math.round(100 * meta.forward_top50_ksi / meta.test_ksi_total)}%). From police reports in SDOT's data; freeways not included.</div>` : ''}`;
     if (reduceMotion) return;
     el.querySelectorAll('b[data-n]').forEach(b => {
       const to = +b.dataset.n, pct = b.hasAttribute('data-pct'), t0 = performance.now(), dur = 1100;

@@ -13,13 +13,14 @@ None of these have been downloaded or inspected yet.
 ## Seattle: city data
 
 ### Safety and calls
+
+Excluded on purpose (policing or sensitive): SPD calls for service, Crisis Data, collision-person fields on citations, sobriety or drug tests, and traffic camera layers.
+
 | Dataset | ID | Type | Last updated | Notes |
 |---|---|---|---|---|
 | SDOT Collisions All Years | sbqc-3j3m | GeoData | 2026-05-05 | Core crash layer |
 | Seattle Real Time Fire 911 Calls | kzjm-xkqj | Socrata | 2026-11-06 | Fire/EMS, near-live |
 | Fire 911 Unit Dispatches | w35j-83t3 | Socrata | 2026-11-06 | Not domain-verified |
-| Call Data (SPD calls for service) | 33kz-ixgy | Socrata | 2026-11-06 | Use non-crime call types only |
-| Crisis Data | i2q9-thny | Socrata | 2026-11-06 | Behavioral-health signal |
 
 ### Service requests (Find It Fix It / 311)
 | Dataset | ID | Type | Last updated |
