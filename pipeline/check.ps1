@@ -25,7 +25,7 @@ if ($big) { $fails += "area files over 3 MB: $($big.Name -join ', ')" }
 # Text read with the wrong encoding shows up as mangled sequences (UTF-8 dash read as ANSI, etc.). ASCII-only pattern,
 # because Windows PowerShell reads this script file as ANSI.
 if ((Test-Path $dataJs) -and ([IO.File]::ReadAllText($dataJs, [Text.Encoding]::UTF8) -match '\u00E2\u20AC|\u00C3[\u0080-\u00BF]')) { $fails += 'data/data.js has garbled characters (encoding)' }
-foreach ($f in 'vendor\leaflet\leaflet.js', 'vendor\leaflet\leaflet.css', 'vendor\inter\inter.css', 'app.js', 'style.css', 'index.html') {
+foreach ($f in 'vendor\leaflet\leaflet.js', 'vendor\leaflet\leaflet.css', 'vendor\inter\inter.css', 'app.js', 'style.css', 'index.html', 'favicon.svg', 'favicon-32.png', 'apple-touch-icon.png') {
   if (-not (Test-Path (Join-Path $site $f))) { $fails += "$f is missing" }
 }
 
