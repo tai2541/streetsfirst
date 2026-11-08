@@ -17,18 +17,43 @@
   const monthYear = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // SDOT location text -> readable name: "M L KING JR WR WAY S AND S ALASKA ST" -> "Martin Luther King Jr Way S & S Alaska St"
-  function niceName(s) {
-    let t = s.toLowerCase().replace(/\b([a-z])/g, c => c.toUpperCase())
+  // SDOT's location names, made readable: abbreviations spelled out, travel direction in words, bridge markers dropped.
+  const DIRW = { EB: 'eastbound', WB: 'westbound', NB: 'northbound', SB: 'southbound' };
+  const ord = n => n + (/1[123]$/.test(n) ? 'th' : { 1: 'st', 2: 'nd', 3: 'rd' }[n.slice(-1)] || 'th');
+  function nicePart(u) {
+    let t = ' ' + u.replace(/ - |-(?=[A-Z])/g, '–') + ' ';
+    t = t.replace(/([ –])(W SEA BR?|WSB|W SEATTLE BR) /g, '$1WEST SEATTLE BR ')
+      .replace(/ AV /g, ' AVE ').replace(/ AV /g, ' AVE ').replace(/ VI /g, ' VIADUCT ').replace(/ BV /g, ' BLVD ')
+      .replace(/ (\d+) (AVE|ST|PL) /g, (m, n, k) => ` ${ord(n)} ${k} `)
+      .replace(/ SR ?(\d+)/g, ' SR $1').replace(/ I ?(5|90|405) /g, ' I-$1 ')
+      .replace(/ OFF RP /g, ' OFF-RAMP ').replace(/ ON RP /g, ' ON-RAMP ').replace(/ RP /g, ' RAMP ');
+    // one travel direction goes to the end in words; several stay where they are, in words
+    const dirs = t.match(/ (EB|WB|NB|SB)(?= )/g) || [];
+    if (dirs.length === 1) t = t.replace(/ (EB|WB|NB|SB) /, ' ') + `(${DIRW[dirs[0].trim()]})`;
+    else t = t.replace(/ (EB|WB|NB|SB)(?= )/g, (m, d) => ' ' + DIRW[d]);
+    t = t.trim().replace(/\s+/g, ' ');
+    t = t.toLowerCase().replace(/(^|[\s–(])([a-z])/g, (m, a, c) => a + c.toUpperCase())
       .replace(/\b(Ne|Nw|Se|Sw|N|S|E|W)\b/g, m => m.toUpperCase())
       .replace(/\bMc([a-z])/g, (m, c) => 'Mc' + c.toUpperCase())
+      .replace(/\b(\d+)(St|Nd|Rd|Th)\b/g, (m, n, s) => n + s.toLowerCase())
+      .replace(/\bSr (\d)/g, 'SR $1')
       .replace(/\bWy\b/g, 'Way').replace(/\bBr\b/g, 'Bridge')
-      .replace(/\b(Eb|Wb|Nb|Sb)\b/g, m => '(' + { Eb: 'eastbound', Wb: 'westbound', Nb: 'northbound', Sb: 'southbound' }[m] + ')')
-      .replace(/\bM L King Jr (?:[A-Z][a-z] )?(?:([NS]) )?Way\b/g,                    // SDOT spells it several ways
-        (m, d) => 'Martin Luther King Jr Way' + (d ? ' (' + d + ')' : ''));
-    t = t.replace(/ Between /, ' between ');
-    if (/ between /.test(t)) t = t.replace(/ And /, ' and '); else t = t.replace(/ And /g, ' & ');
+      .replace(/\b(On|Off)-[Rr]amp\b/g, m => m.toLowerCase()).replace(/\bRamp\b/g, 'ramp')
+      .replace(/\((\w+bound)\)/gi, (m, d) => '(' + d.toLowerCase() + ')').replace(/\b(Northbound|Southbound|Eastbound|Westbound)\b/g, m => m.toLowerCase())
+      .replace(/\bM L King Jr (?:[A-Z][a-z] )?(?:([NS]) )?Way\b/g, (m, d) => 'Martin Luther King Jr Way' + (d ? ' (' + d + ')' : ''));
     return t;
+  }
+  function niceName(s) {
+    const b = s.split(' BETWEEN ');
+    if (b.length === 2) {
+      const main = nicePart(b[0]);
+      // SDOT marks points along bridges as "POINT A", "POINT B": not places anyone knows, so name the real end only
+      const ends = b[1].split(' AND ').map(e => e.trim()).filter(e => !/^POINT [A-Z]$/.test(e));
+      if (ends.length === 2) return `${main} between ${nicePart(ends[0])} and ${nicePart(ends[1])}`;
+      if (ends.length === 1) return `${main} near ${nicePart(ends[0])}`;
+      return main;
+    }
+    return s.split(' AND ').map(nicePart).join(' & ');
   }
   const crashType = t => t.replace(/\s*--\s*/g, ', ');
   // Reporting is the point: people who see a problem should be one click from telling the City.
@@ -232,9 +257,38 @@
     const parts = [];
     if (p.sdot_hin) parts.push(`High Injury Network: ${p.sdot_hin}`);
     if (p.sdot_hcl_years && p.sdot_hcl_years.length) parts.push(`High Collision list ${p.sdot_hcl_years.slice(-1)[0]}`);
-    const planned = projectsAt(p).filter(j => j.stage !== 'done');
-    if (planned.length) parts.push(`Project nearby: ${esc(planned.map(j => j.kind === 'lpi' ? 'head-start walk signal' : j.kind === 'sidewalk' ? 'new sidewalk' : (j.scope || 'safety project').toLowerCase().split(',')[0]).filter((x, i, a) => a.indexOf(x) === i).join(', '))}`);
-    return parts.length ? `<div class="sdotrow"><span class="sdot-mark" aria-hidden="true">SDOT</span> ${parts.join(' · ')}</div>` : '';
+    const w = workSummary(p);
+    return (parts.length ? `<div class="sdotrow"><span class="sdot-mark" aria-hidden="true">SDOT</span> ${parts.join(' · ')}</div>` : '') +
+      `<div class="workrow w-${w.cls}">${esc(w.short)}</div>`;
+  }
+
+  // What has been done here, in one line, from the layers this site reads (SDOT's data has gaps, so "nothing" is
+  // always worded as "nothing recorded in these layers"). Budget projects and bus lanes are shown, never counted as fixes.
+  const projKind = j => (j.kind === 'lpi' ? 'head-start walk signal' : j.kind === 'sidewalk' ? 'new sidewalk' : (j.scope || 'safety project').toLowerCase().split(',')[0]);
+  function workSummary(p) {
+    const y0 = +meta.window_to.slice(0, 4) - 5;
+    const done = [], bus = [];
+    if (p.lpi_status === 'Existing' && p.lpi_installed) done.push({ y: +p.lpi_installed.slice(0, 4), k: 'head-start walk signal' });
+    if (p.lt_protected && p.lt_installed) done.push({ y: +p.lt_installed.slice(0, 4), k: 'protected left turn' });
+    if (p.signalized && p.signal_installed && +p.signal_installed.slice(0, 4) >= 1990) done.push({ y: +p.signal_installed.slice(0, 4), k: 'signal installed or rebuilt' });
+    (p.fixes || []).filter(f => f.s === 'Built' && f.d).forEach(f => (f.k === 'Bus lane' ? bus : done).push({ y: +f.d.slice(0, 4), k: f.k.toLowerCase() }));
+    projectsAt(p).filter(j => j.stage === 'done' && j.year).forEach(j => done.push({ y: +j.year, k: projKind(j) }));
+    done.sort((a, b) => b.y - a.y || a.k.localeCompare(b.k));
+    const uniq = a => [...new Map(a.map(f => [f.k, f])).values()];
+    const list = a => uniq(a).slice(0, 3).map(f => `${f.k} (${f.y})`).join(', ') + (uniq(a).length > 3 ? ', more' : '');
+    const recent = done.filter(f => f.y >= y0), older = done.filter(f => f.y < y0);
+    const planned = [...new Set(projectsAt(p).filter(j => j.stage !== 'done').map(projKind))];
+    if (p.lpi_status === 'Planned' && !planned.includes('head-start walk signal')) planned.push('head-start walk signal');
+    const cip = p.cip || [];
+    const parts = [];
+    if (recent.length) parts.push(`Work since ${y0}: ${list(recent)}`);
+    if (planned.length) parts.push(`Planned nearby: ${planned.join(', ')}`);
+    if (cip.length) parts.push(`Budget project named for this street: ${cip[0].t} (${cip[0].y0 === cip[0].y1 ? cip[0].y0 : cip[0].y0 + '–' + cip[0].y1})`);
+    if (!recent.length && older.length) parts.push(`Older work only: ${list(older)}`);
+    if (!recent.length && bus.length) parts.push(`Bus lane ${bus[0].y} (not counted as a safety fix)`);
+    const cls = recent.length ? 'done' : planned.length || cip.length ? 'planned' : 'none';
+    const text = parts.length ? parts.join(' · ') : 'No work recorded here in the SDOT layers this site reads';
+    return { cls, text, short: parts[0] || text };
   }
 
   // ---------- map ----------
@@ -1320,7 +1374,9 @@
           likely to be hurt next, and this spot has few other crashes (${p.crashes} in total), which gives the model little history to tell whether the
           danger here will continue, so it leans on what's typical for similar streets. That may understate it: repeated deaths can mean traffic moves at deadly speeds. It's always listed
           so it isn't overlooked.</p>` : '';
-    return `<p class="verdict">${esc(parts.join(' '))}</p><p class="verdict2">${line2}</p>${why}`;
+    const w = workSummary(p);
+    return `<p class="verdict">${esc(parts.join(' '))}</p><p class="verdict2">${line2}</p>
+      <p class="workline w-${w.cls}"><b>Done here:</b> ${esc(w.text)}.</p>${why}`;
   }
 
   function mathBox(p) {
@@ -2625,6 +2681,15 @@
       </tbody></table>
       <p class="note">For scale: ${Math.round(100 * meta.busy_share_on_hin)}% of the ${fmt(meta.busy_locations)} spots with 10+ crashes are on the High Injury Network.</p>`;
     document.getElementById('about').innerHTML = `
+      <h3>About this site</h3>
+      <p>Streets First is an independent project. It isn't made by or for the City of Seattle or SDOT, and it uses only the
+        City's public data, downloaded and rebuilt automatically every Monday. All the code and every calculation are public on
+        <a href="https://github.com/tai2541/streetsfirst" target="_blank" rel="noopener">GitHub</a>.</p>
+      <p><b>See a mistake?</b> <a href="https://github.com/tai2541/streetsfirst/issues/new" target="_blank" rel="noopener">Report it on GitHub</a>
+        (a free account is needed). Corrections that come from the City's own data are fixed in the next rebuild.</p>
+      <p class="note">Totals here can differ from SDOT's Vision Zero reports: this site counts police reports in SDOT's collision data
+        for the five years shown, leaves out freeway crashes, and places each crash at the intersection or block SDOT assigns it to.
+        The most recent months may still be filling in as reports arrive.</p>
       <h3>What this ranks</h3>
       <p>Every Seattle intersection and every stretch of street between intersections with a police-reported crash from ${monthYear(meta.window_from)} to
         ${monthYear(meta.window_to)} (${fmt(meta.collisions_scored)} SDOT collision reports), ranked by how likely people are to keep
@@ -2897,7 +2962,8 @@
       const T = { ksi: tot('ksi'), lpi: tot('lpi'), other: tot('other'), proj: tot('proj_planned') };
       const pc = (v, t) => (t ? Math.round(100 * v / t) : 0) + '%';
       const sel = rows.find(r => r.g === open);
-      const status = x => x.fixed ? 'Fix since ' + P.since : x.planned ? 'Project planned nearby' : 'Nothing dated since ' + P.since + ' or planned';
+      const status = x => { const q = D.priorities.find(r => r.location === x.loc); return esc(q ? workSummary(q).text
+        : x.fixed ? 'Work since ' + P.since : x.planned ? 'Project planned nearby' : 'No dated work since ' + P.since + ' or planned project in the layers this site reads'); };
       return `<section class="pg-sec" id="pg-need">
         <h3>Where serious crashes happen, and where SDOT's work is</h3>
         <div class="pg-dim" role="group" aria-label="Group by">
