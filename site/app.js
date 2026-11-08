@@ -1,6 +1,12 @@
 /* Seattle Infrastructure Priority Map: front end. Data comes from window.SITE_DATA (data/data.js). */
 (function () {
   const D = window.SITE_DATA;
+  if (!D || !D.meta || !window.L) {   // data file or map library didn't load (network hiccup, blocked file)
+    document.body.insertAdjacentHTML('afterbegin', '<div role="alert" style="padding:16px;background:#fde8e8;font:16px system-ui">' +
+      'The map couldn’t load its data. Please check your connection and reload the page.</div>');
+    return;
+  }
+  D.details = D.details || {};   // filled per map area as places are opened (data/more/<cell>.js)
   const meta = D.meta;
   const fmt = n => Number(n).toLocaleString('en-US');
   const money = n => (n < 0 ? '−' : '') + '$' + (Math.abs(n) >= 1e8 ? Math.round(Math.abs(n) / 1e6) + 'M' : Math.abs(n) >= 1e6 ? (Math.abs(n) / 1e6).toFixed(1) + 'M' : fmt(Math.round(Math.abs(n))));
@@ -1081,6 +1087,21 @@
   let viewBefore = null;
   const rememberView = () => { if (!spotOpen() && !viewBefore) viewBefore = { c: map.getCenter(), z: map.getZoom() }; };
   function select(p, fly, from, keepFocus) {
+    // The crash list and requests come from the place's map-area file: show the short summary while it loads.
+    if (!D.details[p.location] && p.cell) {
+      if (moreCache.has(p.cell)) ingestCell(moreCache.get(p.cell));
+      else {
+        const tok = ++liteToken, f = from === undefined ? opener : from;
+        const s = { name: p.location, lat: p.lat, lon: p.lon, rank: p.rank_ksi, crashes: p.crashes, ksi: p.ksi, pb: p.pb_crashes,
+                    type: p.addr_type, hood: p.neighborhood || '', area: p.area || '', cell: p.cell };
+        selectBrief(s, 'loading', !fly);
+        loadCell(p.cell).then(d => {
+          ingestCell(d);
+          if (tok === liteToken && current && current.rank_ksi === p.rank_ksi) select(p, false, f, keepFocus);   // the summary already moved the map
+        }, () => { if (tok === liteToken) selectBrief(s, 'failed', true); });
+        return;
+      }
+    }
     rememberView();
     if (!current || current.rank_ksi !== p.rank_ksi) { crashFilter = 'all'; reqFilter = ''; showAllCrashes = showAllReqs = false; }
     if (from !== undefined && !keepFocus) opener = from;
@@ -1225,12 +1246,22 @@
     p.rank_ksi = p.rank; p.name = niceName(p.location); p.more = true;
     p.rank = { ksi: p.rank_ksi, risk: p.rank_risk }[mode] ?? null;
     p.score = { ksi: p.score_ksi, risk: p.score_risk }[mode] ?? null;
-    D.details[p.location] = {
-      crashes: d.k[i].map(a => zipObj(d.kc, a)),
-      requests: d.l[i].map(([qi, m]) => ({ ...zipObj(d.qc, d.q[qi]), m }))
-    };
+    ingestCell(d);
     byId.set(p.rank_ksi, p);
     return p;
+  }
+  // Unpack an area file's crash lists and requests (once), keyed by place.
+  function ingestCell(d) {
+    if (d.done) return;
+    d.done = true;
+    const li = d.c.indexOf('location');
+    d.r.forEach((row, i) => {
+      if (D.details[row[li]]) return;
+      D.details[row[li]] = {
+        crashes: d.k[i].map(a => zipObj(d.kc, a)),
+        requests: d.l[i].map(([qi, m]) => ({ ...zipObj(d.qc, d.q[qi]), m }))
+      };
+    });
   }
   // Places outside the ranked lists: show the short summary right away, then the full panel once its area's file loads.
   let liteToken = 0;
@@ -1245,7 +1276,7 @@
     }, () => { if (tok === liteToken) selectBrief(s, 'failed'); });
   }
   // A short summary from the search index: while the full details load, or if they can't be loaded.
-  function selectBrief(s, state) {
+  function selectBrief(s, state, noFly) {
     rememberView();
     current = { rank_ksi: s.rank, rank: null, lat: s.lat, lon: s.lon };
     opener = document.getElementById('search');
@@ -1266,7 +1297,7 @@
       </div>`;
     const wasHidden = detailEl.hidden;
     detailEl.hidden = false; detailEl.classList.remove('home', 'place'); if (wasHidden) setSheet(false); applyLayout();
-    flyVisible([s.lat, s.lon], 17);
+    if (!noFly) flyVisible([s.lat, s.lon], 17);
     focus.clearLayers();
     L.circleMarker([s.lat, s.lon], { radius: 9, color: '#1d2430', weight: 3, fillColor: '#fff', fillOpacity: 0.9, interactive: false }).addTo(focus);
     Object.values(markers).forEach(m => dim(m, true));

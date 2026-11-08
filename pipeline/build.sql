@@ -525,9 +525,13 @@ create or replace macro export_set() as table
   select * from ranked where rank <= 200 or rank_risk <= 200
      or killed >= 2;   -- places where 2 or more people died are always shown, whatever their rank
 
+-- Map areas for the on-demand detail files: a grid of about 1.1 km x 1.1 km cells.
+create or replace macro cell_of(lat, lon) as floor(lat / 0.01)::int || '_' || floor(-lon / 0.015)::int;
+
 -- Every place's site fields (the same columns for the ranked spots and, loaded on demand, for every other place).
 create or replace table spot_export as
   select rank, rank_noboost, rank_fatal, rank_risk, location, addr_type, round(lon, 6) lon, round(lat, 6) lat,
+         cell_of(lat, lon) as cell,
          round(score_ksi, 1) score_ksi, round(score_fatal, 1) score_fatal, round(score_risk, 1) score_risk,
          round(harm, 1) harm, round(expected_harm, 1) expected_harm, round(eb_weight, 3) eb_weight,
          round(ksi_harm, 1) ksi_harm, round(block_ft) block_ft, round(ref_other_harm_per_known, 2) ref_other_harm_per_known,
@@ -552,8 +556,6 @@ copy (
   select * from spot_export where location in (select location from export_set()) order by rank
 ) to 'site/data/priorities.json' (format json, array true);
 
--- Map areas for the on-demand files: a grid of about 1.1 km x 1.1 km cells.
-create or replace macro cell_of(lat, lon) as floor(lat / 0.01)::int || '_' || floor(-lon / 0.015)::int;
 
 -- Search index: every scored location, compact: [name, lat, lon, rank, crashes, ksi, ped/bike crashes, type, hood, area, cell]
 copy (
@@ -562,41 +564,15 @@ copy (
   from ranked
 ) to 'site/data/search.json' (format json, array false);
 
--- Drill-down: every crash (including recent, not-yet-scored ones) and nearby request, keyed by location.
--- Severity codes: F fatal, S serious injury, I injury, P property damage only, U unknown. n = not scored (after window).
-copy (
-  with top as (select location from export_set()),
-  c as (
-    select c.location, list({
-      'd': c.date,
-      's': case c.severity when 'Fatal Collision' then 'F' when 'Serious Injury Collision' then 'S'
-                           when 'Injury Collision' then 'I' when 'Property Damage Only Collision' then 'P' else 'U' end,
-      't': c.coll_type, 'pd': c.peds, 'cy': c.cyclists,
-      'inj': c.injuries, 'ser': c.serious_injuries, 'fat': c.fatalities,
-      'rd': c.road_cond, 'lt': c.light_cond, 'wx': c.weather, 'sp': c.speeding, 'h': c.hour, 'w': isodow(c.date),
-      'n': c.date >= we() or c.date < ws()
-      -- no per-crash coordinates: SDOT snaps every crash to the intersection or block midpoint
-    } order by c.date desc, c.id) as crashes
-    from collisions c join top using (location) group by c.location
-  ),
-  r as (
-    select lr.location, list({
-      'd': r.date, 't': r.type, 'st': r.status, 'a': r.address, 'm': round(lr.dist_m),
-      'lat': round(r.lat, 6), 'lon': round(r.lon, 6)
-    } order by r.date desc, r.id) as requests
-    from location_requests lr join top using (location) join requests r on r.id = lr.id
-    group by lr.location
-  )
-  select map_from_entries(list((c.location, {'crashes': c.crashes, 'requests': coalesce(r.requests, [])}) order by c.location)) as details
-  from c left join r using (location)
-) to 'site/data/details.json' (format json, array false);
 
--- Full details for every place outside the ranked lists, so any place on the map can be opened in full. Kept out of
--- the main data file (it would be ~10x bigger) and split by map area; the site loads one area's file on first click.
--- Compact: field names once per file, rows as arrays; nearby requests stored once per area and referenced by index.
+-- Drill-down for every place: each crash (including recent, not-yet-scored ones) and each nearby repair request, plus
+-- the place's fields for places outside the ranked lists. Kept out of the main data file and split by map area; the site
+-- loads one area's file when someone opens a place there. Severity codes: F fatal, S serious injury, I injury,
+-- P property damage only, U unknown; n = not scored (outside the window). No per-crash coordinates: SDOT snaps every
+-- crash to the intersection or block midpoint. Compact: field names once per file, rows as arrays; nearby requests
+-- stored once per area and referenced by index.
 create or replace table more_rows as
-select cell_of(s.lat, s.lon) as cell, s.rank, s.location, to_json(s) as j
-from spot_export s where s.location not in (select location from export_set());
+select s.cell, s.rank, s.location, to_json(s) as j from spot_export s;
 
 create or replace table more_crashes as
 select c.location, list(to_json([to_json(c.date),
