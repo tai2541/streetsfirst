@@ -11,7 +11,7 @@ nav button { border: 1px solid #ccd3df; background: #fff; padding: 6px 12px; bor
 nav button.active { background: #1d2430; color: #fff; border-color: #1d2430; }
 
 main { flex: 1; display: flex; min-height: 0; position: relative; }
-#panel { width: 400px; flex: none; overflow-y: auto; border-right: 1px solid #dde2ea; background: #fafbfc; container-type: inline-size; }
+#panel { width: 400px; flex: none; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid #dde2ea; background: #fafbfc; container-type: inline-size; }
 #map { flex: 1; }
 
 .tab { display: none; padding: 12px 14px; }
@@ -779,6 +779,8 @@ main.sheet-over .sheet { z-index: 1200; padding-right: 0; }
 .pg-table .linkbtn { text-align: left; }
 /* the list looks like the details panel: a floating rounded card (desktop), a rounded sheet with the same title bar (phone) */
 .ptop { display: none; }
+/* only the body scrolls (like the details panel), so the scrollbar stays inside the rounded corners */
+#panelBody { flex: 1; min-height: 0; overflow-y: auto; }
 @media (min-width: 761px) {
   #panel { position: absolute; left: 16px; top: 12px; bottom: 12px; z-index: 1100; border: 0; border-radius: 14px;
     box-shadow: 0 12px 40px rgba(16,27,51,.22), 0 2px 6px rgba(16,27,51,.08); }
@@ -794,7 +796,7 @@ main.sheet-over .sheet { z-index: 1200; padding-right: 0; }
 @media (max-width: 760px) {
   #panel { position: relative; z-index: 1001; margin-top: -12px; border: 0; border-radius: 12px 12px 0 0;
     box-shadow: 0 -6px 24px rgba(16,27,51,.18); }
-  .ptop { display: flex; position: sticky; top: 0; z-index: 20; border-radius: 12px 12px 0 0; }
+  .ptop { display: flex; flex: none; border-radius: 12px 12px 0 0; }
   .ptop h2 { font-size: 15px; margin: 4px 0 0; flex: 1; min-width: 0; }
   /* "More": the list or the details replace the map completely */
   main.list-full #panel { position: absolute; inset: 0; height: auto; margin: 0; }
