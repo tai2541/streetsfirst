@@ -37,7 +37,7 @@ GitHub Actions (Mondays ~2am Pacific, or the "Run workflow" button)
   by council district and equity index) and each place's rank over the years. Late police reports slightly revise past
   months, which is intended. Saving weekly snapshots is still worth adding later for things that aren't dated in the
   data (repair-request status, project stage changes).
-- **Domain:** **streetsfirst.org**, registered at Cloudflare (streetfirst.org, if held, redirects to it for typos).
+- **Domain:** **streetsfirst.org**, registered at Cloudflare, with streetfirst.org (also Cloudflare) redirecting to it for typos: a proxied (orange cloud) placeholder `A` record plus a Cloudflare Redirect Rule, 301 to https://streetsfirst.org keeping the path.
   DNS at Cloudflare, every record set to **DNS only (grey cloud)** so GitHub can issue the https certificate:
   four `A` records for `@` (185.199.108.153, 185.199.109.153, 185.199.110.153, 185.199.111.153), four `AAAA` records
   for `@` (2606:50c0:8000::153, 2606:50c0:8001::153, 2606:50c0:8002::153, 2606:50c0:8003::153), and `CNAME www` to
