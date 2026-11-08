@@ -37,6 +37,10 @@ GitHub Actions (Mondays ~2am Pacific, or the "Run workflow" button)
   by council district and equity index) and each place's rank over the years. Late police reports slightly revise past
   months, which is intended. Saving weekly snapshots is still worth adding later for things that aren't dated in the
   data (repair-request status, project stage changes).
+- **Layout:** each city is published in its own folder (`dist/seattle/` -> streetsfirst.org/seattle/), so shared links
+  keep working as cities are added. The top level (`root/index.html` + `root/go.js`) sends visitors to /seattle/, keeping
+  any `#p=...` link; it can become a city picker later. `site/` is still the Seattle source, opened directly when working
+  locally. Row counts are published at /seattle/data/counts.json.
 - **Domain:** **streetsfirst.org**, registered at Cloudflare, with streetfirst.org (also Cloudflare) redirecting to it for typos: a proxied (orange cloud) placeholder `A` record plus a Cloudflare Redirect Rule, 301 to https://streetsfirst.org keeping the path.
   DNS at Cloudflare, every record set to **DNS only (grey cloud)** so GitHub can issue the https certificate:
   four `A` records for `@` (185.199.108.153, 185.199.109.153, 185.199.110.153, 185.199.111.153), four `AAAA` records

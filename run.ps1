@@ -80,18 +80,23 @@ Write-Host "Wrote $n area files to site\data\more"
 # The area files use the data fingerprint too (app.js adds it when it loads one).
 $appTag = Get-Tag @(Join-Path $PSScriptRoot 'site\app.js')
 $cssTag = Get-Tag @(Join-Path $PSScriptRoot 'site\style.css')
+# Each city is published in its own folder (streetsfirst.org/seattle/), so links keep working as cities are added.
+# The top level (root/) sends visitors to the city; later it can become a page for choosing one.
 $dist = Join-Path $PSScriptRoot 'dist'
 if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
-Copy-Item (Join-Path $PSScriptRoot 'site') $dist -Recurse
+New-Item -ItemType Directory -Force $dist | Out-Null
+Copy-Item (Join-Path $PSScriptRoot 'root\*') $dist
+$city = Join-Path $dist 'seattle'
+Copy-Item (Join-Path $PSScriptRoot 'site') $city -Recurse
 # The site reads only data.js and the area files; the intermediate JSON stays out of the published copy. The fetch's row
 # counts are published so the next weekly run can compare against them (see .github/workflows/weekly.yml).
-Remove-Item (Join-Path $dist 'data\*.json')
-if (Test-Path 'data\raw\counts.json') { Copy-Item 'data\raw\counts.json' (Join-Path $dist 'data\counts.json') }
-$idx = Join-Path $dist 'index.html'
+Remove-Item (Join-Path $city 'data\*.json')
+if (Test-Path 'data\raw\counts.json') { Copy-Item 'data\raw\counts.json' (Join-Path $city 'data\counts.json') }
+$idx = Join-Path $city 'index.html'
 $html = [IO.File]::ReadAllText($idx)
 $html = $html -replace 'src="data/data\.js(\?v=[0-9a-f]*)?"', "src=`"data/data.js?v=$dataTag`""
 $html = $html -replace 'src="app\.js(\?v=[0-9a-f]*)?"', "src=`"app.js?v=$appTag`""
 $html = $html -replace 'href="style\.css(\?v=[0-9a-f]*)?"', "href=`"style.css?v=$cssTag`""
 [IO.File]::WriteAllText($idx, $html, $utf8)
-Write-Host "File versions: data $dataTag, app $appTag, style $cssTag. Publishable copy in dist\"
+Write-Host "File versions: data $dataTag, app $appTag, style $cssTag. Publishable copy in dist\ (Seattle in dist\seattle\)"
 Write-Host "Done. Open site\index.html"

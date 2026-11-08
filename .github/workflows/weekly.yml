@@ -54,15 +54,19 @@ jobs:
         if: ${{ !inputs.accept_counts }}
         run: |
           New-Item -ItemType Directory -Force data\raw | Out-Null
-          try { Invoke-WebRequest "$env:SITE_URL/data/counts.json" -OutFile data\raw\counts.json -UseBasicParsing; Write-Host 'Got last counts.' }
-          catch { Write-Host "No published counts yet (first run?): $($_.Exception.Message)" }
+          # Seattle's counts; the older top-level address is the fallback for the first run after the move to /seattle/.
+          try { Invoke-WebRequest "$env:SITE_URL/seattle/data/counts.json" -OutFile data\raw\counts.json -UseBasicParsing; Write-Host 'Got last counts.' }
+          catch {
+            try { Invoke-WebRequest "$env:SITE_URL/data/counts.json" -OutFile data\raw\counts.json -UseBasicParsing; Write-Host 'Got last counts (old address).' }
+            catch { Write-Host "No published counts yet (first run?): $($_.Exception.Message)" }
+          }
 
       - name: Fetch and build
         run: powershell -ExecutionPolicy Bypass -File run.ps1
 
       - name: Check the built site
         timeout-minutes: 10
-        run: powershell -ExecutionPolicy Bypass -File pipeline/check.ps1 -Dir dist
+        run: powershell -ExecutionPolicy Bypass -File pipeline/check.ps1 -Dir dist/seattle
 
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -6,9 +6,13 @@
 param([string]$Dir = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-if (-not $Dir) { $Dir = if (Test-Path (Join-Path $root 'dist\index.html')) { 'dist' } else { 'site' } }
+# The published copy keeps each city in its own folder (dist\seattle\), with a top-level page that sends visitors there.
+if (-not $Dir) { $Dir = if (Test-Path (Join-Path $root 'dist\seattle\index.html')) { 'dist\seattle' } else { 'site' } }
 $site = Join-Path $root $Dir
 $fails = @()
+if ($Dir -match '^dist[\\/]') {
+  foreach ($f in 'index.html', 'go.js') { if (-not (Test-Path (Join-Path $root "dist\$f"))) { $fails += "top-level dist\$f is missing" } }
+}
 
 # ---- 1. data files
 $dataJs = Join-Path $site 'data\data.js'

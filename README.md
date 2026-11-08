@@ -1,6 +1,6 @@
 # Streets First
 
-Live at **https://streetsfirst.org** (Seattle). Earlier name: Seattle Infrastructure Priority Map.
+Live at **https://streetsfirst.org/seattle/** (each city gets its own folder; the top level sends visitors to Seattle for now). Earlier name: Seattle Infrastructure Priority Map.
 
 A public map that answers one question: **what in this city most needs to be worked on next?**
 
