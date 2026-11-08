@@ -777,18 +777,34 @@ main.sheet-over .sheet { z-index: 1200; padding-right: 0; }
   header nav.more-right { -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
 }
 .pg-table .linkbtn { text-align: left; }
-/* phone: "More" on the list half, like the details panel */
-.panel-more { display: none; }
-@media (max-width: 760px) {
-  .panel-more { display: block; position: sticky; top: 0; z-index: 20; margin: -4px 0 6px auto; min-height: 36px; padding: 6px 16px;
-    border: 1px solid #c9d3ee; border-radius: 999px; background: #fff; color: #24408f; font: inherit; font-weight: 700; cursor: pointer;
-    box-shadow: 0 2px 6px rgba(16,27,51,.12); }
-  main.list-full #panel { height: 88%; }
+/* the list looks like the details panel: a floating rounded card (desktop), a rounded sheet with the same title bar (phone) */
+.ptop { display: none; }
+@media (min-width: 761px) {
+  #panel { position: absolute; left: 16px; top: 12px; bottom: 12px; z-index: 1100; border: 0; border-radius: 14px;
+    box-shadow: 0 12px 40px rgba(16,27,51,.22), 0 2px 6px rgba(16,27,51,.08); }
+  #map { position: absolute; inset: 0; }
+  #map .leaflet-left { left: var(--panel-w, 416px); }
+  #panelEdge { top: 12px; bottom: 12px; left: calc(var(--panel-w) - 22px); }
+  .sheet { left: calc(var(--panel-w, 416px) + 12px); }
+  #detail.split { right: 16px; top: 12px; bottom: 12px; max-height: none; border-radius: 14px;
+    box-shadow: 0 12px 40px rgba(16,27,51,.22), 0 2px 6px rgba(16,27,51,.08); }
+  #detail.split .dtop { border-radius: 14px 14px 0 0; }
+  #detail.split #detailBody { border-radius: 0 0 14px 14px; }
 }
-@media (max-width: 760px) { main.list-full #detail { height: 88%; } }
+@media (max-width: 760px) {
+  #panel { position: relative; z-index: 1001; margin-top: -12px; border: 0; border-radius: 12px 12px 0 0;
+    box-shadow: 0 -6px 24px rgba(16,27,51,.18); }
+  .ptop { display: flex; position: sticky; top: 0; z-index: 20; border-radius: 12px 12px 0 0; }
+  .ptop h2 { font-size: 15px; margin: 4px 0 0; flex: 1; min-width: 0; }
+  /* "More": the list or the details replace the map completely */
+  main.list-full #panel { position: absolute; inset: 0; height: auto; margin: 0; }
+  #detail.full, main.list-full #detail { height: 100%; }
+}
 /* narrow phones: six tabs don't fit in one row, so they sit in two rows of three, all visible (no sideways scroll) */
 @media (max-width: 600px) {
   header nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; overflow: visible; }
   header nav.more-right { -webkit-mask-image: none; mask-image: none; }
   header nav button { padding: 7px 4px; text-align: center; }
 }
+/* nothing inside the map area (a closed sheet waiting below, a panel's shadow) may scroll the page itself */
+main { overflow: hidden; overflow: clip; }

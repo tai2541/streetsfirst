@@ -341,6 +341,8 @@
   }
   const layer = L.featureGroup().addTo(map);
   const isNarrow = () => window.innerWidth <= 760;
+  // Desktop: the list floats over the map's left side, so map fitting keeps clear of it (panel + its 16px margin).
+  const leftPad = () => (isNarrow() ? 0 : document.getElementById('panel').offsetWidth + 16);
 
   const flyBounds = (b, opts) => (reduceMotion ? map.fitBounds(b, opts) : map.flyToBounds(b, { ...opts, duration: 0.6 }));
   function showAll() {
@@ -348,7 +350,7 @@
     if (!g.getLayers().length) return;
     const right = !detailEl.hidden && !isNarrow() ? detailEl.offsetWidth + 30 : 30;
     const bottom = !detailEl.hidden && isNarrow() ? detailEl.offsetHeight + 20 : 30;
-    flyBounds(g.getBounds(), { paddingTopLeft: [30, 30], paddingBottomRight: [right, bottom], maxZoom: 15 });
+    flyBounds(g.getBounds(), { paddingTopLeft: [leftPad() + 30, 30], paddingBottomRight: [right, bottom], maxZoom: 15 });
   }
   const ShowAll = L.Control.extend({
     options: { position: 'topright' },
@@ -549,7 +551,8 @@
   const refreshHome = () => { if (ready && !spotOpen() && !isNarrow()) { if (placeG && detailEl.classList.contains('place')) showPlace(placeG); else renderHome(); } };
   const pickSpot = (p, fly, from) => (spotOpen() && current && current.rank_ksi === p.rank_ksi ? closeDetail(true) : select(p, fly, from));
   const pickLine = (t, fly) => (spotOpen() && tSel === t ? closeDetail(false) : selectTraffic(t, fly));
-  const mapW = () => document.getElementById('map').offsetWidth || window.innerWidth;
+  // The part of the map not under the floating list.
+  const mapW = () => (document.getElementById('map').offsetWidth || window.innerWidth) - leftPad();
   const maxW = () => Math.max(340, mapW() - 90);
   const defaultExpanded = () => Math.max(800, Math.round(mapW() * 0.66));
 
@@ -562,7 +565,7 @@
     if (isNarrow()) { panelEl.style.width = ''; return; }
     let w = leftExpanded ? (leftWidths.expanded || Math.round(mainEl.offsetWidth / 2)) : leftWidths.normal;
     panelEl.style.width = clampLeft(w) + 'px';
-    mainEl.style.setProperty('--panel-w', panelEl.offsetWidth + 'px');
+    mainEl.style.setProperty('--panel-w', leftPad() + 'px');
     const b = document.getElementById('expandPanel');
     b.textContent = leftExpanded ? '‹' : '›';
     b.title = leftExpanded ? 'Narrow the list' : 'Widen the list';
@@ -585,7 +588,7 @@
     const split = expanded && leftExpanded;
     detailEl.classList.toggle('split', split);
     mainEl.classList.toggle('split', split && !detailEl.hidden);   // both edge tabs on one line: offset them
-    const w = split ? mapW() : expanded ? (widths.expanded || defaultExpanded()) : widths.normal;
+    const w = split ? mapW() - 28 : expanded ? (widths.expanded || defaultExpanded()) : widths.normal;
     detailEl.style.width = (split ? w : Math.min(Math.max(340, w), maxW())) + 'px';
     detailEl.classList.toggle('expanded', expanded);
     mainEl.style.setProperty('--detail-w', (detailEl.hidden ? 0 : detailEl.offsetWidth) + 'px');
@@ -621,7 +624,7 @@
     h.addEventListener('pointermove', e => {
       if (!h.hasPointerCapture(e.pointerId)) return;
       panelEl.style.width = clampLeft(startW + (e.clientX - startX)) + 'px';
-      mainEl.style.setProperty('--panel-w', panelEl.offsetWidth + 'px');
+      mainEl.style.setProperty('--panel-w', leftPad() + 'px');
       applyLayout();
     });
     h.addEventListener('pointerup', e => {
@@ -1033,6 +1036,7 @@
   function flyVisible(latlng, zoom) {
     let pt = map.project(latlng, zoom);
     if (!detailEl.hidden && !isNarrow()) pt = pt.add([(detailEl.offsetWidth || 440) / 2, 0]);
+    if (!isNarrow()) pt = pt.subtract([leftPad() / 2, 0]);
     // (phone: the sheet covers the list below the map, not the map, so no shift)
     const c = map.unproject(pt, zoom);
     if (reduceMotion) map.setView(c, zoom, { animate: false }); else map.flyTo(c, zoom, { duration: 0.6 });
@@ -1380,7 +1384,7 @@
     tSel = wasLine;
     const right = isNarrow() ? 30 : detailEl.offsetWidth + 30;
     if (viewBefore) { if (reduceMotion) map.setView(viewBefore.c, viewBefore.z, { animate: false }); else map.flyTo(viewBefore.c, viewBefore.z, { duration: 0.6 }); }
-    else { const g = trafficOn ? tLayer : layer; if (g.getLayers().length) (reduceMotion ? map.fitBounds : map.flyToBounds).call(map, g.getBounds(), { paddingTopLeft: [30, 30], paddingBottomRight: [right, 30], maxZoom: 15 }); }
+    else { const g = trafficOn ? tLayer : layer; if (g.getLayers().length) (reduceMotion ? map.fitBounds : map.flyToBounds).call(map, g.getBounds(), { paddingTopLeft: [leftPad() + 30, 30], paddingBottomRight: [right, 30], maxZoom: 15 }); }
     viewBefore = null;
     if (tSel) { tSel = null; tLines.forEach(line => line.setStyle(lineStyle(line._t, false))); document.querySelectorAll('.tlist li.selected').forEach(li => li.classList.remove('selected')); }
     history.replaceState(null, '', location.pathname + location.search);
@@ -1844,6 +1848,8 @@
     const sh = sheets.find(x => x.dataset.tab === b.dataset.tab);
     if (sh) { showSheet(sh); return; }
     hideSheets(); lastTab = b;
+    const long = b.querySelector('.tab-long');
+    document.getElementById('panelTitle').textContent = long ? long.textContent : b.textContent;
     document.querySelectorAll('#panel .tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
     setLineView(b.dataset.tab === 'traffic' ? 'traffic' : b.dataset.tab === 'walk' ? 'walk' : null);
   }
@@ -2154,7 +2160,7 @@
     if (wasHidden) setSheet(false);
     applyLayout();
     const b = L.latLngBounds(flatPts(s.pts));
-    if (fly !== false) flyBounds(b, { paddingTopLeft: [40, 40], paddingBottomRight: [!isNarrow() ? detailEl.offsetWidth + 40 : 40, 40], maxZoom: 16 });
+    if (fly !== false) flyBounds(b, { paddingTopLeft: [leftPad() + 40, 40], paddingBottomRight: [!isNarrow() ? detailEl.offsetWidth + 40 : 40, 40], maxZoom: 16 });
     document.getElementById('detailBody').scrollTop = 0;
     document.getElementById('detailBody').onclick = e => {
       const o = e.target.closest('[data-open]'); if (!o) return;
@@ -2894,6 +2900,6 @@
   if (location.hash === '#selftest') { history.replaceState(null, '', location.pathname); selfTest(); }
   else if (!openFromHash()) {
     refreshHome();
-    if (layer.getLayers().length) map.fitBounds(layer.getBounds(), { paddingTopLeft: [30, 30], paddingBottomRight: [isNarrow() ? 30 : detailEl.offsetWidth + 30, 30], maxZoom: 15 });
+    if (layer.getLayers().length) map.fitBounds(layer.getBounds(), { paddingTopLeft: [leftPad() + 30, 30], paddingBottomRight: [isNarrow() ? 30 : detailEl.offsetWidth + 30, 30], maxZoom: 15 });
   }
 })();
