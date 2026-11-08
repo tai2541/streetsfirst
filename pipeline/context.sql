@@ -95,7 +95,9 @@ with raw as (select unnest(features, recursive := true)
 ik as (select intkey, mode(location) as location from collisions where intkey is not null group by intkey)
 select coalesce(ik.location, m.location, trim(r.LOCATION)) as location,
        make_timestamp(r.INCDATE::bigint * 1000)::date as date,
-       coalesce(r.PEDCOUNT, 0) as peds, coalesce(r.PEDCYLCOUNT, 0) as cyclists, r.ST_COLDESC as coll_type
+       coalesce(r.PEDCOUNT, 0) as peds, coalesce(r.PEDCYLCOUNT, 0) as cyclists, r.ST_COLDESC as coll_type,
+       coalesce(r.MAXSEVERITYDESC, 'Unknown') as severity, r.ADDRTYPE as addr_type,
+       r.coordinates[1] as lon, r.coordinates[2] as lat
 from raw r left join ik on r.ADDRTYPE = 'I' and ik.intkey = r.INTKEY
 left join loc_merge m on m.raw = trim(r.LOCATION)
 where r.LOCATION is not null

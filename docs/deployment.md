@@ -30,9 +30,12 @@ GitHub Actions (Mondays ~2am Pacific, or the "Run workflow" button)
 - **Cost:** free on both GitHub Pages and Cloudflare Pages.
 - **Pipeline portability:** the job runs on a Windows runner with Windows PowerShell, same as local. Moving to Linux
   runners later means porting `fetch.ps1`/`run.ps1` to PowerShell 7 or Node.
-- **History:** commit or upload a dated snapshot of the scores each night, e.g. to a
-  `history/` branch or object storage. That enables "what changed since last month"
-  views and tracking whether flagged spots ever get fixed.
+- **History (done, no storage needed):** `pipeline/history.sql` re-runs the ranking for 1 January of each year since 2018
+  and for each of the last 12 months, from the crash records (2011 on) and SDOT's dated fixes. That powers the
+  "Is it getting fixed?" view (since last month; did the worst places of a past year get a fix; need vs published work
+  by council district and equity index) and each place's rank over the years. Late police reports slightly revise past
+  months, which is intended. Saving weekly snapshots is still worth adding later for things that aren't dated in the
+  data (repair-request status, project stage changes).
 - **Live layers:** fire/EMS 911 calls and drawbridge status are fetched by the browser
   directly from Socrata at page load (CORS is allowed). The ranking stays precomputed.
 - **Domain:** optional custom domain on Pages.

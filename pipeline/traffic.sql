@@ -7,14 +7,16 @@
 -- ---------------------------------------------------------------- fixes SDOT has built
 -- Status from SDOT: in service = Built, PLANNED = Planned; signs temporarily out of service are left out.
 create or replace table fix_points as
-select kind, segkey, case when st = 'PLANNED' then 'Planned' else 'Built' end as status, geom from (
-  select 'Speed humps' as kind, f.properties.SEGKEY as segkey, f.properties.CURRENT_STATUS as st, gj_geom(f.geometry) as geom
+select kind, segkey, case when st = 'PLANNED' then 'Planned' else 'Built' end as status, d, geom from (
+  select 'Speed humps' as kind, f.properties.SEGKEY as segkey, f.properties.CURRENT_STATUS as st,
+         to_timestamp(f.properties.INSTALL_DATE::double / 1000)::date as d, gj_geom(f.geometry) as geom
   from (select unnest(features) f from read_json('data/raw/humps_*.json', maximum_object_size = 500000000)) where f.geometry is not null
   union all
-  select 'Speed cushions', f.properties.SEGKEY, f.properties.CURRENT_STATUS, gj_geom(f.geometry)
+  select 'Speed cushions', f.properties.SEGKEY, f.properties.CURRENT_STATUS,
+         to_timestamp(f.properties.INSTALL_DATE::double / 1000)::date, gj_geom(f.geometry)
   from (select unnest(features) f from read_json('data/raw/cushions_*.json', maximum_object_size = 500000000)) where f.geometry is not null
   union all
-  select 'Radar speed sign', f.properties.SEGKEY, f.properties.CURRENT_STATUS, gj_geom(f.geometry)
+  select 'Radar speed sign', f.properties.SEGKEY, f.properties.CURRENT_STATUS, null::date, gj_geom(f.geometry)
   from (select unnest(features) f from read_json('data/raw/radar_*.json', maximum_object_size = 500000000)) where f.geometry is not null
 ) x
 where coalesce(st, 'INSVC') not in ('TEMPOUTSVC', 'REMOVED', 'RETIRED');
@@ -33,22 +35,25 @@ where f.geometry is not null and f.properties.RemovalDate is null;
 
 -- Points (humps, cushions, radar signs) belong to the street block they're on (SDOT's segment key);
 -- at intersections, anything within 100 ft. Lanes count when they pass within the spot's radius.
-create or replace table loc_fixes as
-with hits as (
-  select a.location, fp.kind, null::date as d, fp.status
+-- Every match, with its own install date (dates before 1990 are placeholders in SDOT's data). Kept for the history view.
+create or replace table loc_fix_hits as
+select location, kind, case when d >= date '1990-01-01' then d end as d, status from (
+  select a.location, fp.kind, fp.d, fp.status
   from locations_all a join streets s on s.unitdesc = a.location join fix_points fp on fp.segkey = s.compkey
   where a.addr_type <> 'I'
   union all
-  select p.location, fp.kind, null, fp.status
+  select p.location, fp.kind, fp.d, fp.status
   from loc_pts p join locations_all a using (location) join fix_points fp on ST_DWithin(p.geom, fp.geom, 100)
   where a.addr_type = 'I'
   union all
   select p.location, fl.kind, fl.d, fl.status
   from loc_pts p join fix_lines fl on ST_DWithin(p.geom, fl.geom, p.r)
-)
+);
+
+create or replace table loc_fixes as
 select location, list({'k': kind, 'n': case when kind in ('Speed humps', 'Speed cushions', 'Radar speed sign') then n end,
                        'd': d, 's': status} order by kind, status) as fixes
-from (select location, kind, status, count(*) as n, min(d) as d from hits group by all)
+from (select location, kind, status, count(*) as n, min(d) as d from loc_fix_hits group by all)
 group by location;
 
 -- ---------------------------------------------------------------- traffic over the years

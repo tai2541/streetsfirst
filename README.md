@@ -77,6 +77,7 @@ pipeline/fetch.ps1   download raw city data -> data/raw/   (git-ignored)
 pipeline/build.sql   DuckDB: clean, score, export          (weights at the top)
 run.ps1              fetch + build + write site/data/data.js and site/data/more/ (per-area details, loaded on click),
                      then dist/ (the publishable copy, with versioned file addresses)
+pipeline/history.sql past rankings (yearly since 2018, monthly for a year), "what changed", need vs work by district
 pipeline/check.ps1   checks a build before publishing; site/index.html#selftest runs the page self-test
 .github/workflows/   weekly rebuild -> check -> GitHub Pages
 site/                static web page (Leaflet map; Leaflet and the font are vendored, no outside scripts)

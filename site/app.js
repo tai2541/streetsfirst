@@ -474,10 +474,15 @@
     const card = (p, isExtra, i) => {
       const chips = reasons(p).slice(0, 3);
       const rk = p.rank != null ? '#' + fmt(p.rank) : '—';
+      // movement since last month (recommended ranking only)
+      const mv = mode === 'ksi' && p.rank != null ? (p.rank_month_ago ? p.rank_month_ago - p.rank : null) : 0;
+      const move = mv == null ? '<span class="mv new" title="Not ranked a month ago">new</span>'
+        : mv >= 1 ? `<span class="mv up" title="Up ${mv} since last month (was #${fmt(p.rank_month_ago)})">▲${mv}</span>`
+        : mv <= -1 ? `<span class="mv down" title="Down ${-mv} since last month (was #${fmt(p.rank_month_ago)})">▼${-mv}</span>` : '';
       return `
       <li data-id="${p.rank_ksi}" class="${isExtra ? 'extra' : (p.rank <= 10 ? 'top10 ' : '') + 't' + tier(p.rank)}" style="--i:${Math.min(i || 0, 15)}">
         <button type="button" class="card">
-          <span class="row1"><span class="rank">${rk}</span><span class="loc">${esc(p.name)}${p.area ? `<span class="hood">${esc(p.area)}</span>` : ''}</span>
+          <span class="row1"><span class="rank">${rk}</span>${move}<span class="loc">${esc(p.name)}${p.area ? `<span class="hood">${esc(p.area)}</span>` : ''}</span>
             <span class="score">${p.score != null ? scoreText(p) : ''}</span></span>
           <span class="chips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</span>
           ${sdotRow(p)}
@@ -694,6 +699,33 @@
       </div>
       <div class="note">${known.length >= 5 ? `Most often ${top.r} (${top.n} of ${known.length}). ` : ''}${weekend} of ${crashes.length} on a weekend.
         Each bar is 3 hours, from the time in the police report${unknown ? `; ${unknown} ${unknown === 1 ? 'report has' : 'reports have'} no time` : ''}.</div>`;
+  }
+
+  // Where this place ranked on 1 January of each year (on the 5 years of crashes before it), and now.
+  function rankHistory(p) {
+    const P = D.progress || { years: [] };
+    const got = new Map((p.rank_years || []).map(([y, r]) => [y, r]));
+    const ys = [...new Set([...(P.years || []).map(y => y.yr), ...got.keys()])].sort();
+    const now = p.rank ?? p.rank_ksi;
+    const cells = ys.map(y => ({ l: "'" + String(y).slice(2), full: `1 January ${y}`, span: `crashes ${y - 5}–${y - 1}`, r: got.get(y) }))
+      .concat([{ l: 'Now', full: 'Now', span: `crashes ${monthYear(meta.window_from)}–${monthYear(meta.window_to)}`, r: now }]);
+    const cls = r => r == null ? 'none' : r <= 10 ? 't0' : r <= 50 ? 't2' : r <= 200 ? 't3' : 'low';
+    const in50 = cells.filter(c => c.r && c.r <= 50).length;
+    const fixes = [];
+    if (p.lpi_status === 'Existing' && p.lpi_installed) fixes.push({ d: p.lpi_installed, k: 'Head-start walk signal' });
+    if (p.lt_protected && p.lt_installed) fixes.push({ d: p.lt_installed, k: 'Protected left turn' });
+    (p.fixes || []).filter(f => f.d && f.s === 'Built' && f.k !== 'Bus lane').forEach(f => fixes.push({ d: f.d, k: f.k }));
+    const recent = fixes.filter(f => +f.d.slice(0, 4) >= ys[0] - 1).sort((a, b) => a.d.localeCompare(b.d));
+    const m = p.rank_month_ago, mv = m && now ? m - now : 0;
+    return `<ol class="rank-hist" aria-label="Rank on 1 January of each year, and now">
+        ${cells.map(c => `<li class="${cls(c.r)}" data-tip="${esc(`<b>${c.full}</b><br>${c.r ? '#' + fmt(c.r) : 'No crashes'}<br>${c.span}`)}">
+          <b>${c.r ? '#' + fmt(c.r) : '–'}</b><span>${c.l}</span></li>`).join('')}
+      </ol>
+      <div class="note">${in50 ? `In the top 50 in ${in50} of these ${cells.length} rankings. ` : ''}${m
+        ? (mv === 0 ? 'Same rank as a month ago. ' : `${mv > 0 ? 'Up' : 'Down'} ${plural(Math.abs(mv), 'place', 'places')} since last month (was #${fmt(m)}). `) : ''}
+        ${recent.length ? 'Fixes: ' + recent.map(f => `${esc(f.k)} (${monthYear(f.d)})`).join(', ') + '. ' : ''}
+        Each year is ranked on the 5 years of crashes before it, the same way as today, by crashes alone (repair requests
+        aren't available that far back). "–": no crashes in those years.</div>`;
   }
 
   function yearChart(crashes) {
@@ -1181,7 +1213,8 @@
       const w = g.clientWidth; if (Math.abs(w - (g._w || 0)) < 8 && g.innerHTML) return; g._w = w;
       g.innerHTML = '<div class="gcol"><h3 class="gh">Crashes and repair reports over time</h3>' + timeChart(det, p, Math.min(w - 34, 760)) + '</div>' +
         '<div class="gcol"><h3 class="gh">Crashes by year</h3>' + yearChart(det.crashes) + '</div>' +
-        '<div class="gcol"><h3 class="gh">Time of day</h3>' + todChart(det.crashes) + '</div>';
+        '<div class="gcol"><h3 class="gh">Time of day</h3>' + todChart(det.crashes) + '</div>' +
+        (p.rank_years ? '<div class="gcol"><h3 class="gh">Rank over the years</h3>' + rankHistory(p) + '</div>' : '');
     };
     renderGraphs();
     if (!keepFocus) { document.getElementById('detailBody').scrollTop = 0; document.getElementById('detailTitle').focus({ preventScroll: true }); }
@@ -2377,6 +2410,161 @@
   renderAbout();
 
   // If nobody has refreshed the data for a while, say so plainly at the top.
+  // ---------- "Is it getting fixed?": what changed since last month, the worst places of past years now, and need vs work ----------
+  // Everything here is worked out again from the crash records at each build (see pipeline/history.sql), so it needs no
+  // stored history.
+  function openPlaceByName(name) {
+    const s = searchIdx.find(x => x.name === name);
+    if (!s) return false;
+    showTab(document.getElementById('tabbtn-priorities'));
+    const p = byId.get(s.rank);
+    if (p) select(p, true, null); else selectLite(s);
+    return true;
+  }
+  document.addEventListener('click', e => {
+    const b = e.target.closest && e.target.closest('.prog-open');
+    if (b) openPlaceByName(b.dataset.loc);
+  });
+  const throughMonth = d => { const t = new Date(d + 'T12:00:00'); t.setDate(0); return t.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); };
+  const placeBtn = loc => searchIdx.some(x => x.name === loc)
+    ? `<button type="button" class="linkbtn prog-open" data-loc="${esc(loc)}">${esc(niceName(loc))}</button>`
+    : esc(niceName(loc));
+
+  (function progress() {
+    const P = D.progress, el = document.getElementById('progress');
+    if (!P || !el) return;
+    const M = P.month;
+    const change = (a, b) => { if (!a) return ''; const c = Math.round(100 * (b / a - 1));
+      return c === 0 ? 'about the same' : `${c < 0 ? 'down' : 'up'} ${Math.abs(c)}%`; };
+
+    // ---- 1. since last month
+    function monthPart() {
+      const ins = M.moves.filter(m => m.in50 === 'in'), outs = M.moves.filter(m => m.in50 === 'out');
+      const up = M.moves.filter(m => !m.in50 && m.was - m.now >= 5), down = M.moves.filter(m => !m.in50 && m.now - m.was >= 5);
+      const row = m => `<li><span class="pg-rk">#${fmt(m.now)}</span> ${placeBtn(m.loc)}
+        <span class="muted">${m.was ? `was #${fmt(m.was)}` : 'not ranked a month ago'}</span></li>`;
+      const group = (title, arr, empty) => `<div class="pg-group"><h4>${title}</h4>${arr.length
+        ? `<ul class="pg-list">${arr.map(row).join('')}</ul>` : `<p class="note">${empty}</p>`}</div>`;
+      const T = M.recent_ksi_total || {}, rk = M.recent_ksi.slice(0, 8);
+      const fixes = M.recent_fixes.filter(f => f.rank <= 500).slice(0, 10);
+      return `<section class="pg-sec">
+        <h3>Since last month</h3>
+        <p class="lead">The ranking now covers crashes through <b>${throughMonth(M.d_now)}</b>. A month ago it went through
+          ${throughMonth(M.d_before)}. Each month, the newest month of crash reports is added and the oldest one drops off.</p>
+        <div class="pg-grid">
+          ${group('New in the top 50', ins, 'No changes.')}
+          ${group('Left the top 50', outs, 'No changes.')}
+          ${group('Moved up 5 or more places', up, 'None.')}
+          ${group('Moved down 5 or more places', down, 'None.')}
+        </div>
+        <h4>Newest crash reports, not in the ranking yet</h4>
+        <p>From ${monthYear(T.from)} to ${monthYear(T.to)}, police reports so far list <b>${plural(T.f || 0, 'crash', 'crashes')}
+          where someone died</b> and <b>${plural(T.s || 0, 'crash', 'crashes')} where someone was seriously injured</b>.
+          Reports arrive months late, so these months join the ranking later.</p>
+        ${rk.length ? `<ul class="pg-list">${rk.map(r => `<li>${placeBtn(r.loc)} <span class="muted">${[r.f ? plural(r.f, 'fatal crash', 'fatal crashes') : '',
+            r.s ? plural(r.s, 'serious-injury crash', 'serious-injury crashes') : ''].filter(Boolean).join(', ')}${r.rank ? ` · ranked #${fmt(r.rank)}` : ''}</span></li>`).join('')}</ul>
+          ${M.recent_ksi.length > rk.length ? `<p class="note">And ${M.recent_ksi.length - rk.length} more places.</p>` : ''}` : ''}
+        <h4>Fixes SDOT recorded in the last 12 months</h4>
+        ${fixes.length ? `<ul class="pg-list">${fixes.map(f => `<li>${placeBtn(f.loc)} <span class="muted">${esc(f.k)}, ${monthYear(f.d)} · ranked #${fmt(f.rank)}</span></li>`).join('')}</ul>`
+          : `<p class="note">None at ranked places in SDOT's published data.</p>`}
+      </section>`;
+    }
+
+    // ---- 2. the worst places of a past year, now. Only years whose 5 crash years end before the current ones start,
+    // so "then" and "now" don't share any crashes.
+    const years = P.years.filter(y => y.d1 <= P.now.d0);
+    let pick = years.length ? years[years.length - 1].yr : null, onlyNone = false;
+    function thenPart() {
+      const Y = years.find(y => y.yr === pick);
+      if (!Y) return '';
+      const L = Y.places, fixed = L.filter(x => x.fx && x.fx.length), none = L.filter(x => !(x.fx && x.fx.length));
+      const sum = (a, k) => a.reduce((s, x) => s + (x[k] || 0), 0);
+      const still = L.filter(x => x.now && x.now <= 50).length;
+      const span = `${Y.d0.slice(0, 4)}–${+Y.d1.slice(0, 4) - 1}`, nowSpan = `${monthYear(P.now.d0)}–${throughMonth(P.now.d1)}`;
+      const grp = (a, label) => a.length ? `<tr><td>${label}</td><td>${a.length}</td><td>${sum(a, 'ksi')}</td><td>${sum(a, 'ksi_now')}</td>
+        <td>${change(sum(a, 'ksi'), sum(a, 'ksi_now'))}</td></tr>` : '';
+      const shown = onlyNone ? none : L;
+      const noneText = `<span class="muted">None in SDOT's published data</span>`;
+      return `<section class="pg-sec">
+        <h3>Did the worst places get fixed?</h3>
+        <label class="pg-pick">The 50 places that ranked worst in
+          <select id="pgYear">${years.map(y => `<option value="${y.yr}" ${y.yr === pick ? 'selected' : ''}>${y.yr}</option>`).join('')}</select></label>
+        <p class="lead">Ranked on crashes from ${span}, the same way as today. Since then:</p>
+        <div class="stat-grid pg-stats">
+          <div class="stat"><b>${fixed.length}</b><span>of 50 got a fix in SDOT's published data</span></div>
+          <div class="stat"><b>${none.length}</b><span>have no fix in that data</span></div>
+          <div class="stat"><b>${still}</b><span>are still in the top 50 today</span></div>
+        </div>
+        <div class="tablewrap"><table class="pg-table">
+          <tr><th scope="col"></th><th scope="col">Places</th><th scope="col">Fatal or serious crashes, ${span}</th>
+            <th scope="col">Fatal or serious crashes, ${nowSpan}</th><th scope="col">Change</th></tr>
+          ${grp(fixed, 'Got a fix')}${grp(none, 'No fix in the data')}
+          <tr class="total"><td>Citywide</td><td></td><td>${fmt(Y.ksi_city)}</td><td>${fmt(P.now.ksi_city)}</td><td>${change(Y.ksi_city, P.now.ksi_city)}</td></tr>
+        </table></div>
+        <p class="note">Places at the top of a list often have fewer crashes in later years even with no changes, because an
+          unusually bad stretch tends not to repeat at the same level. So compare the places that got a fix with the ones that
+          didn't, and both with the citywide change, rather than with their own past. Fixes often go to the worst places first,
+          which makes this a rough comparison, not proof of what worked.</p>
+        <label class="tag"><input type="checkbox" id="pgNone" ${onlyNone ? 'checked' : ''}>Only places with no fix in the data</label>
+        <div class="tablewrap"><table class="pg-table pg-places">
+          <tr><th scope="col">${pick}</th><th scope="col">Place</th><th scope="col">Fixes since ${pick}</th>
+            <th scope="col">Fatal or serious<br><span class="muted">then → now</span></th><th scope="col">Rank now</th></tr>
+          ${shown.map(x => `<tr><td>#${x.r}</td><td>${placeBtn(x.loc)}${x.d ? `<br><small class="muted">District ${x.d}</small>` : ''}</td>
+            <td>${x.fx && x.fx.length ? x.fx.map(f => `${esc(f.k)} (${f.y})`).join('<br>') : noneText}</td>
+            <td>${x.ksi} → ${x.ksi_now}</td><td>${x.now ? '#' + fmt(x.now) : '<span class="muted">no crashes</span>'}</td></tr>`).join('')}
+        </table></div>
+        <p class="note">"Fix" means something SDOT records with a date: head-start walk signals, protected left-turn signals, new
+          traffic signals, traffic circles, protected bike lanes, and finished sidewalk and neighborhood safety projects. Repaving,
+          signal timing, signs and paint aren't published with dates, so a place can have had work that doesn't show here.
+          SDOT's protected bike lane dates stop in 2021.</p>
+      </section>`;
+    }
+
+    // ---- 3. where serious crashes are vs where SDOT's published work is
+    let dim = 'district';
+    const RSE_ORDER = ['Highest Equity Priority', 'Second Highest', 'Middle', 'Second Lowest', 'Lowest'];
+    function needPart() {
+      const rows = P.need.filter(r => r.dim === dim);
+      if (dim === 'rse') rows.sort((a, b) => RSE_ORDER.indexOf(a.g) - RSE_ORDER.indexOf(b.g));
+      else rows.sort((a, b) => +a.g - +b.g);
+      const tot = k => rows.reduce((s, r) => s + (r[k] || 0), 0);
+      const K = tot('ksi'), F = tot('fixes'), PJ = tot('proj_planned');
+      const share = (v, t) => t ? Math.round(100 * v / t) : 0;
+      const bar = (v, t, c) => `<span class="pg-bar"><i style="width:${share(v, t)}%;background:${c}"></i></span><span class="pg-pct">${share(v, t)}%</span>`;
+      const member = g => { const c = (CTX.council || []).find(x => String(x.d) === g); return c && c.member ? `<br><small class="muted">${esc(c.member)}</small>` : ''; };
+      const name = r => dim === 'district' ? `District ${r.g}${member(r.g)}` : esc(r.g === 'Highest Equity Priority' ? 'Highest priority' : r.g);
+      return `<section class="pg-sec">
+        <h3>Where serious crashes happen, and where SDOT's work is</h3>
+        <div class="pg-dim" role="group" aria-label="Group by">
+          <button type="button" class="seg-btn ${dim === 'district' ? 'on' : ''}" data-dim="district" aria-pressed="${dim === 'district'}">By council district</button>
+          <button type="button" class="seg-btn ${dim === 'rse' ? 'on' : ''}" data-dim="rse" aria-pressed="${dim === 'rse'}">By the City's equity index</button>
+        </div>
+        ${dim === 'rse' ? `<p class="note">The City's Race and Social Equity Index groups census tracts into five levels; "highest priority"
+          is where the City says investment is needed most.</p>` : ''}
+        <div class="tablewrap"><table class="pg-table pg-need">
+          <tr><th scope="col"></th><th scope="col">Fatal and serious crashes</th><th scope="col">Fixes since ${P.since}</th>
+            <th scope="col">Planned projects</th><th scope="col">Top-50 places</th><th scope="col">…with no fix or project</th></tr>
+          ${rows.map(r => `<tr><td>${name(r)}</td><td>${bar(r.ksi, K, SEV.S.color)}</td><td>${bar(r.fixes, F, '#2a78d6')}</td>
+            <td>${bar(r.proj_planned, PJ, '#7b4fd0')}</td><td>${r.top50}</td><td>${r.top50_nothing}</td></tr>`).join('')}
+        </table></div>
+        <p class="note">Percentages are each group's share of the city total. Crashes: ${monthYear(P.now.d0)}–${throughMonth(P.now.d1)}, at places with a known location. Fixes: the dated
+          fixes listed above, at places with crashes, since ${P.since}. Planned projects: SDOT's published project maps (new sidewalks,
+          neighborhood safety projects, planned head-start walk signals). The City's budget data doesn't say where money is spent,
+          so this counts published fixes and projects, not dollars, and a large project counts the same as a small one.
+          "No fix or project": nothing dated since ${P.since} and nothing planned nearby in SDOT's published data.</p>
+      </section>`;
+    }
+
+    function draw() {
+      el.innerHTML = `<p class="note">Worked out from SDOT's crash reports since 2013 and SDOT's published records of what it built,
+        recalculated every week. Pick a place to see it on the map.</p>` + monthPart() + thenPart() + needPart();
+      const y = el.querySelector('#pgYear'); if (y) y.onchange = () => { pick = +y.value; draw(); el.querySelector('#pgYear').focus(); };
+      const n = el.querySelector('#pgNone'); if (n) n.onchange = () => { onlyNone = n.checked; draw(); el.querySelector('#pgNone').focus(); };
+      el.querySelectorAll('[data-dim]').forEach(b => (b.onclick = () => { dim = b.dataset.dim; draw(); el.querySelector(`[data-dim="${dim}"]`).focus(); }));
+    }
+    draw();
+  })();
+
   (function staleNotice() {
     const fetched = D.fetchedAt && new Date(D.fetchedAt.replace(' ', 'T'));
     if (!fetched || isNaN(fetched)) return;
@@ -2522,6 +2710,12 @@
       select(byId.get(1), false, null);
       check(await wait(() => document.querySelectorAll('#crashTable tr').length > 1), '#1 did not show its crash list');
       check(!!document.querySelector('#detailBody .dsec-street'), '#1 has no street section');
+      check(await wait(() => document.querySelectorAll('.rank-hist li').length >= 5), '#1 has no rank-over-the-years chart');
+      // "Is it getting fixed?": three sections, the worst places of a past year, and the need table
+      check(document.querySelectorAll('#progress .pg-sec').length === 3, 'progress view did not draw');
+      check(document.querySelectorAll('#progress .pg-places tr').length >= 51, 'progress: past worst-50 table is short');
+      check(document.querySelectorAll('#progress .pg-need tr').length >= 8, 'progress: district table is short');
+      check(D.priorities.filter(p => p.rank_month_ago).length >= 150, 'few places have last month\'s rank');
       const far = searchIdx[searchIdx.length - 1];
       selectLite(far);
       check(await wait(() => current && current.rank_ksi === far.rank && document.querySelectorAll('#crashTable tr').length > 1),

@@ -476,6 +476,9 @@ select row_number() over (order by score_ksi desc, crashes desc, location)      
        *
 from priorities;
 
+-- the ranking at earlier dates; what changed; need and published work by district (context only, not scored)
+.read pipeline/history.sql
+
 -- ---------------------------------------------------------------- validation
 -- 1) Out of sample: rank on earlier years only, then count the fatal/serious crashes that happened afterwards at each
 --    method's top 50. A ranking that finds lasting danger should catch more of them. Two splits, so one unusual split
@@ -549,8 +552,9 @@ create or replace table spot_export as
          fixes, vol_history, bus_trips, bus_routes, bus_stretch_id,
          sw_missing_tier, sw_poor_ft, sw_poor_assessed, proj_ids, proj_planned,
          crosswalks, crosswalks_midblock, crosswalk_school, crosswalk_controls, curb_ramps, curb_ramps_poor, bike_facilities,
-         school, school_ft, rse_quintile, rse_year, council_district, council_member, council_url, before_after
-  from ranked;
+         school, school_ft, rse_quintile, rse_year, council_district, council_member, council_url, before_after,
+         rank_years, rank_month_ago, rank_year_ago
+  from ranked left join place_history using (location);
 
 copy (
   select * from spot_export where location in (select location from export_set()) order by rank
