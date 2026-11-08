@@ -49,8 +49,9 @@
   <main>
     <aside id="panel">
       <div class="dtop ptop">
+        <button type="button" class="grab" aria-label="Show the list full screen"></button>
         <h2 id="panelTitle">Top 50 · Most likely to hurt people</h2>
-        <div class="dbtns"><button type="button" id="panelSearch" title="Back to the search box">Search</button><button type="button" id="panelMore" aria-expanded="false" title="Show more of the list">More</button></div>
+        <div class="dbtns"><button type="button" id="panelSearch" title="Back to the search box">Search</button></div>
       </div>
       <div id="panelBody">
       <section id="tab-priorities" class="tab active" role="tabpanel" aria-labelledby="tabbtn-priorities">
@@ -136,9 +137,10 @@
       <div id="resizeHandle" title="Drag to resize" aria-hidden="true"></div>
       <button id="expandDetail"class="edgebtn" type="button" title="Widen the details (E)" aria-label="Widen the details" aria-pressed="false">‹</button>
       <div class="dtop">
+        <button type="button" class="grab" aria-label="Show the details full screen"></button>
+        <button type="button" id="backDetail" aria-label="Back to the list">‹ List</button>
         <h2 id="detailTitle" tabindex="-1"></h2>
         <div class="dbtns">
-          <button id="sheetDetail" title="Show more" aria-label="Show more" aria-expanded="false">More</button>
           <button id="closeDetail" title="Close (Esc)" aria-label="Close">×</button>
         </div>
       </div>

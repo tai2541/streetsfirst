@@ -349,7 +349,7 @@
     const g = trafficOn ? tLayer : layer;
     if (!g.getLayers().length) return;
     const right = !detailEl.hidden && !isNarrow() ? detailEl.offsetWidth + 30 : 30;
-    const bottom = !detailEl.hidden && isNarrow() ? detailEl.offsetHeight + 20 : 30;
+    const bottom = isNarrow() ? cover + 20 : 30;
     flyBounds(g.getBounds(), { paddingTopLeft: [leftPad() + 30, 30], paddingBottomRight: [right, bottom], maxZoom: 15 });
   }
   const ShowAll = L.Control.extend({
@@ -634,63 +634,162 @@
     });
   })();
 
-  // Phone: the panel is a bottom sheet with a short "peek" height and a full height.
-  const sheetBtn = document.getElementById('sheetDetail');
-  function setSheet(full) {
-    detailEl.classList.toggle('full', full);
-    sheetBtn.textContent = full ? 'Less' : 'More';
-    sheetBtn.title = full ? 'Show less' : 'Show more';
-    sheetBtn.setAttribute('aria-label', full ? 'Show less' : 'Show more');
-    sheetBtn.setAttribute('aria-expanded', String(full));
+  // ---------- Phone: the list and the details are bottom sheets over a full-screen map ----------
+  // Three heights: "peek" (just the title bar, the map almost whole), half the screen, and the whole of it. Grab the title
+  // bar and slide; a flick carries on in its direction. The bar's handle is a button too (tap: up a step; at the top, back
+  // to half), for anyone who can't drag. Moves are transforms only, so they stay smooth on slow phones.
+  // Details opened from the list replace it in place ("‹ List"); opened from the map they rise to half over it ("×"),
+  // leaving the map live so nearby crash spots can still be tapped.
+  const sheetEase = 'transform .32s cubic-bezier(.22,.9,.24,1)';
+  const S = {
+    list: { el: panelEl, bar: panelEl.querySelector('.ptop'), body: document.getElementById('panelBody'), snap: 'half', anim: 0 },
+    detail: { el: detailEl, bar: detailEl.querySelector('.dtop'), body: document.getElementById('detailBody'), snap: 'half', anim: 0 },
+  };
+  let cover = 0;              // how much of the map the top sheet hides (px), for centring and fitting the map
+  let detailFrom = 'map';     // where the open details came from: 'map', 'list' or 'progress'
+  let lastTap = { where: 'map', t: 0 };
+  const fullH = () => mainEl.clientHeight;
+  const snapH = (s, snap) => snap === 'full' ? fullH() : snap === 'peek' ? s.bar.offsetHeight : Math.round(fullH() / 2);
+  const visH = s => Math.max(0, mainEl.getBoundingClientRect().bottom - s.el.getBoundingClientRect().top);
+  const detailUp = () => !detailEl.hidden;
+  function setCover(px) { cover = px; mainEl.style.setProperty('--cover', Math.round(px) + 'px'); }
+  function grabLabel(s) {
+    const g = s.bar.querySelector('.grab'), what = s === S.list ? 'list' : 'details';
+    g.setAttribute('aria-label', s.snap === 'peek' ? `Show more of the ${what}` : s.snap === 'half' ? `Show the ${what} full screen` : `Show less of the ${what}`);
   }
-  sheetBtn.onclick = () => setSheet(!detailEl.classList.contains('full'));
-  // Phone: the list half can expand up over the map too, the same way.
-  const panelMore = document.getElementById('panelMore');
-  function setListFull(full) {
-    mainEl.classList.toggle('list-full', full);
-    panelMore.textContent = full ? 'Less' : 'More';
-    panelMore.title = full ? 'Show less of the list' : 'Show more of the list';
-    panelMore.setAttribute('aria-expanded', String(full));
-    setTimeout(() => map.invalidateSize({ pan: false }), 50);
+  function rest(s, h) {
+    s.el.style.transition = 'none'; s.el.style.height = Math.round(h) + 'px'; s.el.style.transform = '';
+    s.body.inert = s.snap === 'peek';
   }
-  panelMore.onclick = () => setListFull(!mainEl.classList.contains('list-full'));
-  // Opening a place on a phone starts from half and half (the map shows where it is), whatever size the list was.
-  function resetSheets() { setSheet(false); if (mainEl.classList.contains('list-full')) setListFull(false); }
+  // Slide a sheet's top edge from its current place to height `to`; done() runs once it's there (unless interrupted).
+  function moveSheet(s, to, done, from) {
+    const tok = ++s.anim, H = fullH(), el = s.el;
+    if (from == null) from = visH(s);
+    if (reduceMotion || Math.abs(from - to) < 2) { rest(s, to); if (done) done(); return; }
+    el.style.transition = 'none'; el.style.height = H + 'px'; el.style.transform = `translateY(${H - from}px)`;
+    void el.offsetHeight;
+    el.style.transition = sheetEase; el.style.transform = `translateY(${H - to}px)`;
+    let over = false;
+    const fin = () => { if (over || tok !== s.anim) return; over = true; el.removeEventListener('transitionend', onEnd); rest(s, to); if (done) done(); };
+    const onEnd = e => { if (e.target === el && e.propertyName === 'transform') fin(); };
+    el.addEventListener('transitionend', onEnd); setTimeout(fin, 420);
+  }
+  function setSnap(s, snap, opts = {}) {
+    s.snap = snap; grabLabel(s);
+    const to = snapH(s, snap);
+    if (s === S.detail || !detailUp()) setCover(to);
+    // Details opened from the list stand in for it: the list takes the same height, ready for "‹ List".
+    if (s === S.detail && detailFrom !== 'map') { S.list.snap = snap; grabLabel(S.list); rest(S.list, snapH(S.list, S.list.snap)); }
+    if (opts.instant) { s.anim++; rest(s, to); } else moveSheet(s, to, opts.done, opts.from);
+  }
+  function cycle(s) { setSnap(s, s.snap === 'peek' ? 'half' : s.snap === 'half' ? 'full' : 'half'); }
 
-  // Phone: grab a sheet's title bar and slide it up or down with a thumb. It follows the finger, then settles at half the
-  // screen or the whole of it (a short drag that doesn't commit snaps back). More/Less do the same for anyone who can't drag.
-  function sheetDrag(bar, sheet, isFull, setFull) {
-    let id = null, y0 = 0, h0 = 0, dragging = false;
-    bar.addEventListener('pointerdown', e => {
-      if (!isNarrow() || e.button > 0 || e.target.closest('button, a, input, select')) return;
-      id = e.pointerId; y0 = e.clientY; h0 = sheet.getBoundingClientRect().height; dragging = false;
-      try { bar.setPointerCapture(id); } catch (err) { /* capture is a nicety; dragging still works */ }
+  function sheetDrag(s) {
+    let id = null, y0 = 0, h0 = 0, h = 0, dragging = false, samples = [], raf = 0, swallow = false;
+    const paint = () => { raf = 0; const H = fullH(); s.el.style.transform = `translateY(${H - h}px)`; if (s === S.detail || !detailUp()) setCover(h); };
+    s.bar.addEventListener('pointerdown', e => {
+      if (!isNarrow() || e.button > 0 || e.target.closest('button:not(.grab), a, input, select')) return;
+      id = e.pointerId; y0 = e.clientY; h0 = visH(s); dragging = false; samples = [[e.timeStamp, e.clientY]];
+      try { s.bar.setPointerCapture(id); } catch (err) { /* capture is a nicety; dragging still works */ }
     });
-    bar.addEventListener('pointermove', e => {
+    s.bar.addEventListener('pointermove', e => {
       if (e.pointerId !== id) return;
       const dy = e.clientY - y0;
-      if (!dragging) { if (Math.abs(dy) < 6) return; dragging = true; sheet.classList.add('dragging'); }
-      const max = mainEl.clientHeight;
-      sheet.style.height = Math.min(max, Math.max(max * 0.25, h0 - dy)) + 'px';
+      if (!dragging) {
+        if (Math.abs(dy) < 6) return;
+        dragging = true; s.anim++;               // a grab stops a slide where it is
+        const H = fullH();
+        s.el.style.transition = 'none'; s.el.style.height = H + 'px'; s.el.style.transform = `translateY(${H - h0}px)`;
+        s.body.inert = false; mainEl.classList.add('sheet-drag');
+      }
+      const peek = snapH(s, 'peek'), H = fullH();
+      let nh = h0 - dy;
+      if (nh < peek) nh = peek - Math.min(40, (peek - nh) * 0.3);   // resists below the title bar, never closes
+      h = Math.min(H, nh);
+      samples.push([e.timeStamp, e.clientY]); while (samples.length > 2 && e.timeStamp - samples[0][0] > 90) samples.shift();
+      if (!raf) raf = requestAnimationFrame(paint);
     });
     const end = e => {
       if (e.pointerId !== id) return;
       id = null;
       if (!dragging) return;
-      const dy = e.clientY - y0, max = mainEl.clientHeight;
-      const full = dy < -50 ? true : dy > 50 ? false : isFull();
-      const done = () => { sheet.classList.remove('dragging', 'settling'); sheet.style.height = ''; setFull(full); };
-      if (reduceMotion) { done(); return; }
-      // Slide to the chosen size, then hand over to the normal half/full layout.
-      sheet.classList.remove('dragging'); sheet.classList.add('settling');
-      void sheet.offsetHeight;
-      sheet.style.height = (full ? max : max / 2) + 'px';
-      setTimeout(done, 230);
+      dragging = false; swallow = true; setTimeout(() => (swallow = false), 0);
+      if (raf) { cancelAnimationFrame(raf); paint(); }
+      mainEl.classList.remove('sheet-drag');
+      const [t0, ya] = samples[0], [t1, yb] = samples[samples.length - 1];
+      const v = t1 > t0 ? (ya - yb) / (t1 - t0) : 0;   // px/ms, up is positive
+      const aim = h + v * 200;
+      const snap = ['peek', 'half', 'full'].reduce((a, b) => Math.abs(snapH(s, b) - aim) < Math.abs(snapH(s, a) - aim) ? b : a);
+      setSnap(s, snap, { from: h });
     };
-    bar.addEventListener('pointerup', end); bar.addEventListener('pointercancel', end);
+    s.bar.addEventListener('pointerup', end); s.bar.addEventListener('pointercancel', end);
+    // the click that ends a drag isn't a tap
+    s.bar.addEventListener('click', e => { if (swallow) { swallow = false; e.preventDefault(); e.stopPropagation(); } }, true);
+    s.bar.querySelector('.grab').addEventListener('click', () => { if (isNarrow()) cycle(s); });
   }
-  sheetDrag(document.querySelector('#panel .ptop'), panelEl, () => mainEl.classList.contains('list-full'), setListFull);
-  sheetDrag(document.querySelector('#detail .dtop'), detailEl, () => detailEl.classList.contains('full'), setSheet);
+  sheetDrag(S.list); sheetDrag(S.detail);
+
+  // Where the last tap was: a place picked in the list opens differently from one picked on the map.
+  document.addEventListener('click', e => {
+    const t = e.target;
+    lastTap = { where: t.closest('#panel') ? 'list' : t.closest('#progressSheet') ? 'progress' : t.closest('#detail') ? 'detail' : 'map', t: Date.now() };
+  }, true);
+  const backBtn = document.getElementById('backDetail');
+  backBtn.onclick = () => closeDetail(true);
+
+  // The details just opened (or changed place). Called before the map moves, so `cover` is already the new height.
+  function phoneDetailShown(wasHidden) {
+    if (!isNarrow()) return;
+    const d = S.detail, leaving = detailEl.classList.contains('leaving');
+    if (wasHidden || leaving) {
+      const tap = Date.now() - lastTap.t < 2000 ? lastTap.where : 'map';
+      detailFrom = tap === 'list' || tap === 'progress' ? tap : 'map';
+      const from = leaving ? visH(d) : 0;
+      detailEl.classList.remove('leaving', 'fade-out', 'push-in', 'from-list', 'from-progress');
+      if (detailFrom !== 'map') detailEl.classList.add('from-' + detailFrom);
+      backBtn.textContent = detailFrom === 'progress' ? '‹ Getting fixed?' : '‹ List';
+      backBtn.setAttribute('aria-label', detailFrom === 'progress' ? 'Back to Is it getting fixed?' : 'Back to the list');
+      const under = () => { if (detailUp() && !detailEl.classList.contains('leaving')) panelEl.classList.add('under'); };
+      if (detailFrom === 'map') {
+        setSnap(d, 'half', { from, done: under });
+      } else {
+        // in place of the list (or the "getting fixed" page, full screen), sliding in from the side
+        setSnap(d, detailFrom === 'progress' ? 'full' : S.list.snap === 'peek' ? 'half' : S.list.snap, { instant: true });
+        if (reduceMotion) under();
+        else { void detailEl.offsetWidth; detailEl.classList.add('push-in'); setTimeout(() => { detailEl.classList.remove('push-in'); under(); }, 260); }
+      }
+    } else if (d.snap === 'peek') setSnap(d, 'half');
+    else setCover(snapH(d, d.snap));
+    d.body.scrollTop = 0;
+  }
+  // The details were closed: hand the screen back to the list.
+  function phoneDetailHidden() {
+    if (!isNarrow()) return;
+    const d = S.detail;
+    panelEl.classList.remove('under');
+    rest(S.list, snapH(S.list, S.list.snap)); setCover(snapH(S.list, S.list.snap));
+    const clear = () => { detailEl.classList.remove('leaving', 'fade-out', 'push-in'); detailEl.style.height = ''; detailEl.style.transform = ''; };
+    if (reduceMotion) { d.anim++; clear(); return; }
+    detailEl.classList.add('leaving');   // keeps it drawn (though hidden) while it goes
+    if (detailFrom === 'map') moveSheet(d, 0, clear, visH(d));
+    else { const tok = ++d.anim; detailEl.classList.add('fade-out'); setTimeout(() => { if (tok === d.anim) clear(); }, 220); }
+  }
+  // Safety net: whatever hides the details, the list comes back.
+  new MutationObserver(() => { if (detailEl.hidden && !detailEl.classList.contains('leaving')) panelEl.classList.remove('under'); })
+    .observe(detailEl, { attributes: true, attributeFilter: ['hidden'] });
+
+  function applySheets() {
+    if (!isNarrow()) {
+      for (const s of Object.values(S)) { s.anim++; s.el.style.height = ''; s.el.style.transform = ''; s.el.style.transition = ''; s.body.inert = false; }
+      panelEl.classList.remove('under'); detailEl.classList.remove('leaving', 'fade-out', 'push-in', 'from-list', 'from-progress');
+      setCover(0); return;
+    }
+    rest(S.list, snapH(S.list, S.list.snap)); grabLabel(S.list); grabLabel(S.detail);
+    if (detailUp()) rest(S.detail, snapH(S.detail, S.detail.snap));
+    setCover(snapH(detailUp() ? S.detail : S.list, (detailUp() ? S.detail : S.list).snap));
+  }
+  window.addEventListener('resize', applySheets);
+  applySheets();
 
   // Phone: the views and the report button live in a menu under the header ("Crashes ▾"), to leave the screen to the
   // map and the list. Choosing a view closes it; so do Esc and a tap anywhere else.
@@ -866,7 +965,7 @@
     const inRange = fixes.filter(x => mIdx(x.d) >= 0).sort((a, b) => a.d.localeCompare(b.d));
     const before = fixes.filter(x => mIdx(x.d) < 0);
 
-    const W = Math.max(300, Math.round(width)), L = 34, R = 14, top = 22 + 16 * inRange.length;
+    const W = Math.max(240, Math.round(width)), L = 34, R = 14, top = 22 + 16 * inRange.length;
     const H1 = 110, H2 = 80, gap = 34, xb = top + H1 + gap + H2;
     const X = m => L + (W - L - R) * m / (6 * n), mid = i => X(6 * i + 3);
     const nice = v => v <= 4 ? 4 : v <= 6 ? 6 : v <= 10 ? 10 : Math.ceil(v / 5) * 5;
@@ -1091,7 +1190,8 @@
     let pt = map.project(latlng, zoom);
     if (!detailEl.hidden && !isNarrow()) pt = pt.add([(detailEl.offsetWidth || 440) / 2, 0]);
     if (!isNarrow()) pt = pt.subtract([leftPad() / 2, 0]);
-    // (phone: the sheet covers the list below the map, not the map, so no shift)
+    // phone: centre it in the map above the sheet (at most half the screen, so it's in view when the sheet comes down)
+    else pt = pt.add([0, Math.min(cover, fullH() / 2) / 2]);
     const c = map.unproject(pt, zoom);
     if (reduceMotion) map.setView(c, zoom, { animate: false }); else map.flyTo(c, zoom, { duration: 0.6 });
   }
@@ -1288,7 +1388,7 @@
       </div>`;
     const wasHidden = detailEl.hidden;
     detailEl.hidden = false; detailEl.classList.remove('home', 'place');
-    if (wasHidden) resetSheets();
+    phoneDetailShown(wasHidden);
     applyLayout();
     if (fly) flyVisible([p.lat, p.lon], 17);
     drawFocus(p, det);
@@ -1422,7 +1522,7 @@
           : 'Loading the full crash and request details…'}</p>
       </div>`;
     const wasHidden = detailEl.hidden;
-    detailEl.hidden = false; detailEl.classList.remove('home', 'place'); if (wasHidden) resetSheets(); applyLayout();
+    detailEl.hidden = false; detailEl.classList.remove('home', 'place'); phoneDetailShown(wasHidden); applyLayout();
     if (!noFly) flyVisible([s.lat, s.lon], 17);
     focus.clearLayers();
     L.circleMarker([s.lat, s.lon], { radius: 9, color: '#1d2430', weight: 3, fillColor: '#fff', fillOpacity: 0.9, interactive: false }).addTo(focus);
@@ -1433,12 +1533,12 @@
   function closeDetail(restoreFocus) {
     mainEl.classList.remove('split'); clearFocus();
     const wasLine = tSel; tSel = null;
-    if (isNarrow()) { detailEl.hidden = true; detailEl.classList.remove('home', 'place'); applyLayout(); }
+    if (isNarrow()) { detailEl.hidden = true; detailEl.classList.remove('home', 'place'); applyLayout(); phoneDetailHidden(); }
     else if (placeG) showPlace(placeG, true); else renderHome();
     tSel = wasLine;
     const right = isNarrow() ? 30 : detailEl.offsetWidth + 30;
     if (viewBefore) { if (reduceMotion) map.setView(viewBefore.c, viewBefore.z, { animate: false }); else map.flyTo(viewBefore.c, viewBefore.z, { duration: 0.6 }); }
-    else { const g = trafficOn ? tLayer : layer; if (g.getLayers().length) (reduceMotion ? map.fitBounds : map.flyToBounds).call(map, g.getBounds(), { paddingTopLeft: [leftPad() + 30, 30], paddingBottomRight: [right, 30], maxZoom: 15 }); }
+    else { const g = trafficOn ? tLayer : layer; if (g.getLayers().length) (reduceMotion ? map.fitBounds : map.flyToBounds).call(map, g.getBounds(), { paddingTopLeft: [leftPad() + 30, 30], paddingBottomRight: [right, isNarrow() ? cover + 20 : 30], maxZoom: 15 }); }
     viewBefore = null;
     if (tSel) { tSel = null; tLines.forEach(line => line.setStyle(lineStyle(line._t, false))); document.querySelectorAll('.tlist li.selected').forEach(li => li.classList.remove('selected')); }
     history.replaceState(null, '', location.pathname + location.search);
@@ -2242,10 +2342,10 @@
     document.getElementById('detailBody').innerHTML = M.detail(s);
     const wasHidden = detailEl.hidden;
     detailEl.hidden = false; detailEl.classList.remove('home', 'place');
-    if (wasHidden) resetSheets();
+    phoneDetailShown(wasHidden);
     applyLayout();
     const b = L.latLngBounds(flatPts(s.pts));
-    if (fly !== false) flyBounds(b, { paddingTopLeft: [leftPad() + 40, 40], paddingBottomRight: [!isNarrow() ? detailEl.offsetWidth + 40 : 40, 40], maxZoom: 16 });
+    if (fly !== false) flyBounds(b, { paddingTopLeft: [leftPad() + 40, 40], paddingBottomRight: [!isNarrow() ? detailEl.offsetWidth + 40 : 40, isNarrow() ? cover + 30 : 40], maxZoom: 16 });
     document.getElementById('detailBody').scrollTop = 0;
     document.getElementById('detailBody').onclick = e => {
       const o = e.target.closest('[data-open]'); if (!o) return;
@@ -2985,6 +3085,6 @@
   if (location.hash === '#selftest') { history.replaceState(null, '', location.pathname); selfTest(); }
   else if (!openFromHash()) {
     refreshHome();
-    if (layer.getLayers().length) map.fitBounds(layer.getBounds(), { paddingTopLeft: [leftPad() + 30, 30], paddingBottomRight: [isNarrow() ? 30 : detailEl.offsetWidth + 30, 30], maxZoom: 15 });
+    if (layer.getLayers().length) map.fitBounds(layer.getBounds(), { paddingTopLeft: [leftPad() + 30, 30], paddingBottomRight: [isNarrow() ? 30 : detailEl.offsetWidth + 30, isNarrow() ? cover + 20 : 30], maxZoom: 15 });
   }
 })();

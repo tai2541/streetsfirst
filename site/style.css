@@ -59,7 +59,7 @@ table.kv td:first-child { color: #52514e; white-space: nowrap; width: 1%; }
 #detailBody { border-radius: 0 0 10px 10px; flex: 1; min-height: 0; }
 #detail.split .dtop, #detail.split #detailBody { border-radius: 0; }
 .dbtns { display: flex; gap: 2px; margin-left: auto; flex: none; }
-#sheetDetail { display: none; }
+.grab, #backDetail { display: none; }
 .dbtns button { border: 0; background: none; font-size: 18px; line-height: 1; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; color: #5b6576; }
 .dbtns button:hover { background: #eef1f6; color: #1d2430; }
 #resizeHandle { position: absolute; left: 0; top: 0; bottom: 0; width: 7px; cursor: ew-resize; z-index: 3; }
@@ -180,9 +180,6 @@ td.planned, th.planned { background: #f6f8ff; }
 details summary { cursor: pointer; font-weight: 600; margin: 6px 0; }
 
 @media (max-width: 760px) {
-  main { flex-direction: column-reverse; }
-  #panel { width: 100%; max-width: none; height: 50%; }
-  #detail { left: 8px; right: 8px; width: auto !important; top: 70px; }
   #resizeHandle, #expandDetail, #expandPanel { display: none; }
 }
 
@@ -220,11 +217,7 @@ body.paused .top-mark .pulse { animation: none; transform: scale(1.7); opacity: 
   h1 { font-size: 16px; }
   .sub { font-size: 12px; }
   nav button { padding: 5px 9px; font-size: 13px; }
-  /* exactly the list's half of the screen, so the details replace the list completely (no strip of it showing) */
-  #detail { left: 0; right: 0; top: auto; bottom: 0; width: auto !important; height: 50%; max-height: none; border-radius: 12px 12px 0 0; }
-  #detail.full { height: 92%; }
-  #sheetDetail { display: inline-block; }
-  .map-legend { margin-bottom: 22px !important; }
+  .map-legend { margin-bottom: 10px !important; }
 }
 @container (max-width: 430px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
 
@@ -783,7 +776,6 @@ main.sheet-over .sheet { z-index: 1200; padding-right: 0; }
 .ptop h2 { font-size: 15px; margin: 4px 0 0; flex: 1; min-width: 0; }
 #panelSearch { width: auto; padding: 0 10px; font-size: 13.5px; font-weight: 600; color: #24408f; }
 #panelSearch[hidden] { display: none; }
-@media (min-width: 761px) { #panelMore { display: none; } }
 @media (max-width: 760px) { #panelSearch { display: none; } }
 /* only the body scrolls (like the details panel), so the scrollbar stays inside the rounded corners */
 #panelBody { flex: 1; min-height: 0; overflow-y: auto; }
@@ -805,20 +797,39 @@ main.sheet-over .sheet { z-index: 1200; padding-right: 0; }
   #detail.split .dtop { border-radius: 14px 14px 0 0; }
   #detail.split #detailBody { border-radius: 0 0 14px 14px; }
 }
+/* phone: the map fills the screen; the list and the details are sheets over its lower part, slid by a thumb on their
+   title bars (heights and slides are set by app.js; transforms only, so they stay smooth) */
 @media (max-width: 760px) {
-  #panel { position: relative; z-index: 1001; margin-top: -12px; border: 0; border-radius: 12px 12px 0 0;
-    box-shadow: 0 -6px 24px rgba(16,27,51,.18); }
-  .ptop { border-radius: 12px 12px 0 0; }
-  /* "More": the list or the details replace the map completely */
-  main.list-full #panel { position: absolute; inset: 0; height: auto; margin: 0; }
-  #detail.full { height: 100%; }
-  /* dragging a sheet with a thumb: it follows the finger, then slides to half or full */
-  #panel.dragging, #panel.settling { position: absolute; left: 0; right: 0; bottom: 0; margin: 0; z-index: 1001; }
-  #panel.settling, #detail.settling { transition: height .22s ease; }
-  .ptop, #detail .dtop { position: relative; padding-top: 16px; touch-action: none; cursor: grab; }
-  .ptop::before, #detail .dtop::before { content: ""; position: absolute; top: 6px; left: 50%; width: 38px; height: 4px;
-    margin-left: -19px; border-radius: 2px; background: #c3cad6; }
+  #map { position: absolute; inset: 0; }
+  #panel, #detail { position: absolute; left: 0; right: 0; bottom: 0; top: auto; margin: 0; width: auto !important;
+    height: 50%; max-height: none; border: 0; border-radius: 14px 14px 0 0; box-shadow: 0 -6px 24px rgba(16,27,51,.18); }
+  #panel { z-index: 1001; }
+  #detail { z-index: 1100; animation: none; }
+  .ptop, #detail .dtop { position: relative; padding-top: 22px; border-radius: 14px 14px 0 0; touch-action: none;
+    cursor: grab; -webkit-user-select: none; user-select: none; }
+  /* the handle: a button too (tap to step the height), for anyone who can't drag */
+  .grab { display: block; position: absolute; top: 0; left: 50%; width: 80px; height: 26px; margin-left: -40px; padding: 0;
+    border: 0; background: none; cursor: grab; touch-action: none; }
+  .grab::before { content: ""; position: absolute; top: 8px; left: 21px; width: 38px; height: 4px; border-radius: 2px; background: #c3cad6; }
+  .grab:focus-visible { outline: 2px solid #2f55c7; outline-offset: -3px; border-radius: 8px; }
+  /* details opened from the list stand in its place; the list waits underneath, scrolled where it was */
+  #panel.under { visibility: hidden; }
+  #detail[hidden].leaving { display: flex; pointer-events: none; }
+  #detail.push-in { animation: sheetIn .26s cubic-bezier(.22,.9,.24,1) both; }
+  #detail.fade-out { animation: sheetOut .2s ease both; }
+  #backDetail { flex: none; align-items: center; min-height: 36px; margin: -2px 2px 0 -6px; padding: 0 12px; border: 0;
+    border-radius: 999px; background: #eef2fc; color: #24408f; font: inherit; font-size: 14px; font-weight: 700;
+    white-space: nowrap; cursor: pointer; }
+  #backDetail:focus-visible { outline: 2px solid #2f55c7; outline-offset: 1px; }
+  #detail.from-list #backDetail, #detail.from-progress #backDetail { display: inline-flex; }
+  #detail.from-list #closeDetail, #detail.from-progress #closeDetail { display: none; }
+  /* the legend and credits ride just above the sheet */
+  #map .leaflet-bottom { bottom: var(--cover, 0px); transition: bottom .32s cubic-bezier(.22,.9,.24,1); }
+  main.sheet-drag #map .leaflet-bottom { transition: none; }
 }
+@keyframes sheetIn { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes sheetOut { to { opacity: 0; transform: translateX(28px); } }
+@media (prefers-reduced-motion: reduce) { #map .leaflet-bottom { transition: none; } #detail.push-in, #detail.fade-out { animation: none; } }
 /* narrow phones: six tabs don't fit in one row, so they sit in two rows of three, all visible (no sideways scroll) */
 @media (max-width: 600px) {
   header nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; overflow: visible; }
@@ -849,3 +860,6 @@ main { overflow: hidden; overflow: clip; }
   header.menu-open .report-head { order: 2; }
 }
 @media (prefers-reduced-motion: reduce) { .vm-caret { transition: none; } }
+/* small phones: charts shrink to fit rather than scroll sideways */
+#graphs svg, #detailBody svg.tchart { max-width: 100%; height: auto; }
+@media (max-width: 400px) { #detailBody .dtable { display: block; max-width: 100%; overflow-x: auto; } }
