@@ -1842,16 +1842,42 @@
       if (current) select(current, false, null, true);
     }
   }
+  // The list's title bar says what the list shows right now. It stays put while the list scrolls, so it still says
+  // what you're looking at after the settings above the list have scrolled away.
+  function panelBanner() {
+    const el = id => document.getElementById(id);
+    const tab = (document.querySelector('#panel .tab.active') || {}).id;
+    let t;
+    if (tab === 'tab-traffic' || tab === 'tab-walk') {
+      const tr = tab === 'tab-traffic', m = el(tr ? 'tmode' : 'smode').value;
+      const n = el(tr ? 'tlist' : 'slist').querySelectorAll(':scope > li').length;
+      t = 'Top ' + n + ' ' + (tr ? (m === 'bus' ? 'slow bus streets' : 'busiest streets') : (m === 'missing' ? 'missing sidewalks' : 'sidewalks in poor condition'));
+    } else {
+      const n = el('list').querySelectorAll('li[data-id]:not(.extra)').length, top = +el('topN').value;
+      const parts = [n ? (n < top ? n + (n === 1 ? ' place' : ' places') : 'Top ' + n) : 'No places match', el('mode').selectedOptions[0].text];
+      if (el('addrFilter').value) parts.push(el('addrFilter').selectedOptions[0].text);
+      [['onlyFatal', 'Someone died'], ['onlyOngoing', 'Repeat serious crashes'], ['noPlan', 'No published SDOT project']]
+        .forEach(([id, l]) => el(id).checked && parts.push(l));
+      t = parts.join(' · ');
+    }
+    el('panelTitle').textContent = t;
+    el('panelSearch').hidden = tab !== 'tab-priorities';
+  }
+  // Every redraw of a list updates the title, whatever caused it.
+  ['list', 'tlist', 'slist'].forEach(id => new MutationObserver(panelBanner).observe(document.getElementById(id), { childList: true }));
+  panelBanner();
+  document.getElementById('panelSearch').onclick = () => {
+    document.getElementById('panelBody').scrollTop = 0;
+    document.getElementById('search').focus({ preventScroll: true });
+  };
   function showTab(b) {
     setTabState(b);
     if (isNarrow() && b.scrollIntoView) b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     const sh = sheets.find(x => x.dataset.tab === b.dataset.tab);
     if (sh) { showSheet(sh); return; }
     hideSheets(); lastTab = b;
-    const long = b.querySelector('.tab-long');
-    // Same title as the desktop overview, so both layouts say the same thing.
-    document.getElementById('panelTitle').textContent = long ? long.textContent : b.textContent;
     document.querySelectorAll('#panel .tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
+    panelBanner();
     setLineView(b.dataset.tab === 'traffic' ? 'traffic' : b.dataset.tab === 'walk' ? 'walk' : null);
   }
   sheets.forEach(sh => (sh.querySelector('.bs-close').onclick = () => { showTab(lastTab); lastTab.focus(); }));

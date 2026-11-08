@@ -778,7 +778,13 @@ main.sheet-over .sheet { z-index: 1200; padding-right: 0; }
 }
 .pg-table .linkbtn { text-align: left; }
 /* the list looks like the details panel: a floating rounded card (desktop), a rounded sheet with the same title bar (phone) */
-.ptop { display: none; }
+/* the list's title bar (both layouts): what the list shows right now; Search on wide screens, More on phones */
+.ptop { display: flex; flex: none; }
+.ptop h2 { font-size: 15px; margin: 4px 0 0; flex: 1; min-width: 0; }
+#panelSearch { width: auto; padding: 0 10px; font-size: 13.5px; font-weight: 600; color: #24408f; }
+#panelSearch[hidden] { display: none; }
+@media (min-width: 761px) { #panelMore { display: none; } }
+@media (max-width: 760px) { #panelSearch { display: none; } }
 /* only the body scrolls (like the details panel), so the scrollbar stays inside the rounded corners */
 #panelBody { flex: 1; min-height: 0; overflow-y: auto; }
 @media (min-width: 761px) {
@@ -796,8 +802,7 @@ main.sheet-over .sheet { z-index: 1200; padding-right: 0; }
 @media (max-width: 760px) {
   #panel { position: relative; z-index: 1001; margin-top: -12px; border: 0; border-radius: 12px 12px 0 0;
     box-shadow: 0 -6px 24px rgba(16,27,51,.18); }
-  .ptop { display: flex; flex: none; border-radius: 12px 12px 0 0; }
-  .ptop h2 { font-size: 15px; margin: 4px 0 0; flex: 1; min-width: 0; }
+  .ptop { border-radius: 12px 12px 0 0; }
   /* "More": the list or the details replace the map completely */
   main.list-full #panel { position: absolute; inset: 0; height: auto; margin: 0; }
   #detail.full, main.list-full #detail { height: 100%; }
