@@ -30,6 +30,10 @@
       <h1>Streets First <span class="h1-place">· Seattle</span></h1>
       <p class="sub">Where streets hurt people most, and whether it's getting fixed. Pick a spot to see why.</p>
     </div>
+    <!-- Phone: the views and the report button fold into this menu, leaving the screen to the map and the list. -->
+    <button type="button" id="viewMenuBtn" class="view-menu-btn" aria-expanded="false" aria-controls="viewMenu"
+      title="Change view"><span id="viewMenuLabel">Crashes</span><span class="vm-caret" aria-hidden="true"></span></button>
+    <div id="viewMenu" class="view-menu">
     <a class="report-head" id="reportHead" href="https://www.seattle.gov/customer-service-bureau#popular" aria-haspopup="dialog">Report a problem to the City</a>
     <nav role="tablist" aria-label="Views">
       <button role="tab" id="tabbtn-priorities" data-tab="priorities" aria-controls="tab-priorities" aria-selected="true" class="active" title="Crash hot spots: where traffic crashes hurt people, from 5 years of police crash reports"><span class="tab-long tab-wide">Crash hot spots</span><span class="tab-short tab-mid">Crashes</span></button>
@@ -39,6 +43,7 @@
       <button role="tab" id="tabbtn-spending" data-tab="spending" aria-controls="budgetSheet" aria-selected="false" tabindex="-1"><span class="tab-long">SDOT capital budget</span><span class="tab-short">Budget</span></button>
       <button role="tab" id="tabbtn-about" data-tab="about" aria-controls="aboutSheet" aria-selected="false" tabindex="-1"><span class="tab-long">How it's scored</span><span class="tab-short">Method</span></button>
     </nav>
+    </div>
   </header>
 
   <main>

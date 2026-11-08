@@ -792,7 +792,13 @@ main.sheet-over .sheet { z-index: 1200; padding-right: 0; }
     box-shadow: 0 12px 40px rgba(16,27,51,.22), 0 2px 6px rgba(16,27,51,.08); }
   #map { position: absolute; inset: 0; }
   #map .leaflet-left { left: var(--panel-w, 416px); }
-  #panelEdge { top: 12px; bottom: 12px; left: calc(var(--panel-w) - 22px); }
+  /* centred on the list's right edge, like the details panel's tab on its left edge */
+  #panelEdge { top: 12px; bottom: 12px; left: calc(var(--panel-w) - 6px); }
+  /* both widened: the two panels meet in the middle as one surface, their tabs on the same line */
+  main.split #panel { border-radius: 14px 0 0 14px; }
+  main.split #detail.split { border-radius: 0 14px 14px 0; box-shadow: 0 12px 40px rgba(16,27,51,.22); border-left: 1px solid #e1e5ec; }
+  main.split #detail.split .dtop { border-radius: 0 14px 0 0; }
+  main.split #detail.split #detailBody { border-radius: 0 0 14px 0; }
   .sheet { left: calc(var(--panel-w, 416px) + 12px); }
   #detail.split { right: 16px; top: 12px; bottom: 12px; max-height: none; border-radius: 14px;
     box-shadow: 0 12px 40px rgba(16,27,51,.22), 0 2px 6px rgba(16,27,51,.08); }
@@ -805,7 +811,13 @@ main.sheet-over .sheet { z-index: 1200; padding-right: 0; }
   .ptop { border-radius: 12px 12px 0 0; }
   /* "More": the list or the details replace the map completely */
   main.list-full #panel { position: absolute; inset: 0; height: auto; margin: 0; }
-  #detail.full, main.list-full #detail { height: 100%; }
+  #detail.full { height: 100%; }
+  /* dragging a sheet with a thumb: it follows the finger, then slides to half or full */
+  #panel.dragging, #panel.settling { position: absolute; left: 0; right: 0; bottom: 0; margin: 0; z-index: 1001; }
+  #panel.settling, #detail.settling { transition: height .22s ease; }
+  .ptop, #detail .dtop { position: relative; padding-top: 16px; touch-action: none; cursor: grab; }
+  .ptop::before, #detail .dtop::before { content: ""; position: absolute; top: 6px; left: 50%; width: 38px; height: 4px;
+    margin-left: -19px; border-radius: 2px; background: #c3cad6; }
 }
 /* narrow phones: six tabs don't fit in one row, so they sit in two rows of three, all visible (no sideways scroll) */
 @media (max-width: 600px) {
@@ -817,3 +829,23 @@ main.sheet-over .sheet { z-index: 1200; padding-right: 0; }
 main { overflow: hidden; overflow: clip; }
 /* header: the project name, then the place in a lighter weight */
 .h1-place { font-weight: 600; color: #c9d4ea; }
+/* phone header: the views and the report button fold into a menu ("Crashes ▾"), leaving the screen to the map and list */
+.view-menu { display: contents; }
+.view-menu-btn { display: none; }
+@media (max-width: 760px) {
+  header { flex-wrap: nowrap; align-items: center; z-index: 1400; }
+  header > div:first-child { flex: 1 1 auto; }
+  .view-menu-btn { display: inline-flex; align-items: center; gap: 7px; flex: none; min-height: 40px; padding: 6px 14px;
+    border: 1px solid rgba(255,255,255,.28); border-radius: 999px; background: rgba(255,255,255,.1); color: #fff;
+    font: inherit; font-weight: 700; cursor: pointer; }
+  .vm-caret { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent;
+    border-top: 6px solid currentColor; transition: transform .15s; }
+  header.menu-open .vm-caret { transform: rotate(180deg); }
+  .view-menu-btn:focus-visible { outline: 3px solid #f2b632; outline-offset: 2px; }
+  .view-menu { display: none; }
+  header.menu-open .view-menu { display: flex; flex-direction: column; gap: 10px; position: absolute; left: 0; right: 0; top: 100%;
+    padding: 10px 12px 14px; background: linear-gradient(120deg, var(--navy) 0%, var(--navy2) 100%); box-shadow: 0 14px 28px rgba(0,0,0,.35); }
+  header.menu-open .view-menu nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; flex: none; }
+  header.menu-open .report-head { order: 2; }
+}
+@media (prefers-reduced-motion: reduce) { .vm-caret { transition: none; } }

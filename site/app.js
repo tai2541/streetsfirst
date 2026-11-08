@@ -588,7 +588,7 @@
     const split = expanded && leftExpanded;
     detailEl.classList.toggle('split', split);
     mainEl.classList.toggle('split', split && !detailEl.hidden);   // both edge tabs on one line: offset them
-    const w = split ? mapW() - 28 : expanded ? (widths.expanded || defaultExpanded()) : widths.normal;
+    const w = split ? mapW() - 16 : expanded ? (widths.expanded || defaultExpanded()) : widths.normal;
     detailEl.style.width = (split ? w : Math.min(Math.max(340, w), maxW())) + 'px';
     detailEl.classList.toggle('expanded', expanded);
     mainEl.style.setProperty('--detail-w', (detailEl.hidden ? 0 : detailEl.offsetWidth) + 'px');
@@ -646,13 +646,67 @@
   sheetBtn.onclick = () => setSheet(!detailEl.classList.contains('full'));
   // Phone: the list half can expand up over the map too, the same way.
   const panelMore = document.getElementById('panelMore');
-  panelMore.onclick = () => {
-    const full = mainEl.classList.toggle('list-full');
+  function setListFull(full) {
+    mainEl.classList.toggle('list-full', full);
     panelMore.textContent = full ? 'Less' : 'More';
     panelMore.title = full ? 'Show less of the list' : 'Show more of the list';
     panelMore.setAttribute('aria-expanded', String(full));
-    setTimeout(() => map.invalidateSize(), 50);
-  };
+    setTimeout(() => map.invalidateSize({ pan: false }), 50);
+  }
+  panelMore.onclick = () => setListFull(!mainEl.classList.contains('list-full'));
+  // Opening a place on a phone starts from half and half (the map shows where it is), whatever size the list was.
+  function resetSheets() { setSheet(false); if (mainEl.classList.contains('list-full')) setListFull(false); }
+
+  // Phone: grab a sheet's title bar and slide it up or down with a thumb. It follows the finger, then settles at half the
+  // screen or the whole of it (a short drag that doesn't commit snaps back). More/Less do the same for anyone who can't drag.
+  function sheetDrag(bar, sheet, isFull, setFull) {
+    let id = null, y0 = 0, h0 = 0, dragging = false;
+    bar.addEventListener('pointerdown', e => {
+      if (!isNarrow() || e.button > 0 || e.target.closest('button, a, input, select')) return;
+      id = e.pointerId; y0 = e.clientY; h0 = sheet.getBoundingClientRect().height; dragging = false;
+      try { bar.setPointerCapture(id); } catch (err) { /* capture is a nicety; dragging still works */ }
+    });
+    bar.addEventListener('pointermove', e => {
+      if (e.pointerId !== id) return;
+      const dy = e.clientY - y0;
+      if (!dragging) { if (Math.abs(dy) < 6) return; dragging = true; sheet.classList.add('dragging'); }
+      const max = mainEl.clientHeight;
+      sheet.style.height = Math.min(max, Math.max(max * 0.25, h0 - dy)) + 'px';
+    });
+    const end = e => {
+      if (e.pointerId !== id) return;
+      id = null;
+      if (!dragging) return;
+      const dy = e.clientY - y0, max = mainEl.clientHeight;
+      const full = dy < -50 ? true : dy > 50 ? false : isFull();
+      const done = () => { sheet.classList.remove('dragging', 'settling'); sheet.style.height = ''; setFull(full); };
+      if (reduceMotion) { done(); return; }
+      // Slide to the chosen size, then hand over to the normal half/full layout.
+      sheet.classList.remove('dragging'); sheet.classList.add('settling');
+      void sheet.offsetHeight;
+      sheet.style.height = (full ? max : max / 2) + 'px';
+      setTimeout(done, 230);
+    };
+    bar.addEventListener('pointerup', end); bar.addEventListener('pointercancel', end);
+  }
+  sheetDrag(document.querySelector('#panel .ptop'), panelEl, () => mainEl.classList.contains('list-full'), setListFull);
+  sheetDrag(document.querySelector('#detail .dtop'), detailEl, () => detailEl.classList.contains('full'), setSheet);
+
+  // Phone: the views and the report button live in a menu under the header ("Crashes ▾"), to leave the screen to the
+  // map and the list. Choosing a view closes it; so do Esc and a tap anywhere else.
+  const headerEl = document.querySelector('header'), menuBtn = document.getElementById('viewMenuBtn');
+  function setMenu(open, focusBack) {
+    headerEl.classList.toggle('menu-open', open);
+    menuBtn.setAttribute('aria-expanded', String(open));
+    if (open) (document.querySelector('nav [role=tab].active') || document.querySelector('nav [role=tab]')).focus();
+    else if (focusBack) menuBtn.focus();
+  }
+  menuBtn.onclick = () => setMenu(!headerEl.classList.contains('menu-open'));
+  document.getElementById('reportHead').addEventListener('click', () => setMenu(false));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && headerEl.classList.contains('menu-open')) { e.stopImmediatePropagation(); setMenu(false, true); }
+  }, true);
+  document.addEventListener('pointerdown', e => { if (headerEl.classList.contains('menu-open') && !headerEl.contains(e.target)) setMenu(false); });
 
   (function resizer() {
     const h = document.getElementById('resizeHandle');
@@ -1234,7 +1288,7 @@
       </div>`;
     const wasHidden = detailEl.hidden;
     detailEl.hidden = false; detailEl.classList.remove('home', 'place');
-    if (wasHidden) setSheet(false);
+    if (wasHidden) resetSheets();
     applyLayout();
     if (fly) flyVisible([p.lat, p.lon], 17);
     drawFocus(p, det);
@@ -1368,7 +1422,7 @@
           : 'Loading the full crash and request details…'}</p>
       </div>`;
     const wasHidden = detailEl.hidden;
-    detailEl.hidden = false; detailEl.classList.remove('home', 'place'); if (wasHidden) setSheet(false); applyLayout();
+    detailEl.hidden = false; detailEl.classList.remove('home', 'place'); if (wasHidden) resetSheets(); applyLayout();
     if (!noFly) flyVisible([s.lat, s.lon], 17);
     focus.clearLayers();
     L.circleMarker([s.lat, s.lon], { radius: 9, color: '#1d2430', weight: 3, fillColor: '#fff', fillOpacity: 0.9, interactive: false }).addTo(focus);
@@ -1813,6 +1867,10 @@
   const openSheet = () => sheets.find(x => x.classList.contains('open'));
   function setTabState(b) {
     tabs.forEach(x => { const on = x === b; x.classList.toggle('active', on); x.setAttribute('aria-selected', on); x.tabIndex = on ? 0 : -1; });
+    // phone menu: show the chosen view on its button, and close it
+    document.getElementById('viewMenuLabel').textContent = (b.querySelector('.tab-short') || b).textContent;
+    document.querySelector('header').classList.remove('menu-open');
+    document.getElementById('viewMenuBtn').setAttribute('aria-expanded', 'false');
   }
   function showSheet(el) {
     const cur = openSheet();
@@ -2184,7 +2242,7 @@
     document.getElementById('detailBody').innerHTML = M.detail(s);
     const wasHidden = detailEl.hidden;
     detailEl.hidden = false; detailEl.classList.remove('home', 'place');
-    if (wasHidden) setSheet(false);
+    if (wasHidden) resetSheets();
     applyLayout();
     const b = L.latLngBounds(flatPts(s.pts));
     if (fly !== false) flyBounds(b, { paddingTopLeft: [leftPad() + 40, 40], paddingBottomRight: [!isNarrow() ? detailEl.offsetWidth + 40 : 40, 40], maxZoom: 16 });
