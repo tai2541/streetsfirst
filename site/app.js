@@ -1849,7 +1849,8 @@
     if (sh) { showSheet(sh); return; }
     hideSheets(); lastTab = b;
     const long = b.querySelector('.tab-long');
-    document.getElementById('panelTitle').textContent = long ? long.textContent : b.textContent;
+    // Same title as the desktop overview, so both layouts say the same thing.
+    document.getElementById('panelTitle').textContent = (long ? long.textContent : b.textContent) + ': where to start';
     document.querySelectorAll('#panel .tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
     setLineView(b.dataset.tab === 'traffic' ? 'traffic' : b.dataset.tab === 'walk' ? 'walk' : null);
   }
