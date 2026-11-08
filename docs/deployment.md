@@ -37,6 +37,9 @@ GitHub Actions (Mondays ~2am Pacific, or the "Run workflow" button)
   by council district and equity index) and each place's rank over the years. Late police reports slightly revise past
   months, which is intended. Saving weekly snapshots is still worth adding later for things that aren't dated in the
   data (repair-request status, project stage changes).
+- **Branches:** work happens on `dev` (never published). Publishing = merge `dev` into `main` and push; every push to
+  `main` runs the weekly job (fetch, build, check, deploy). The Monday run keeps the data fresh between pushes, and
+  "Run workflow" on the Actions page does a manual rebuild (with the option to accept a big row-count change).
 - **Layout:** each city is published in its own folder (`dist/seattle/` -> streetsfirst.org/seattle/), so shared links
   keep working as cities are added. The top level (`root/index.html` + `root/go.js`) sends visitors to /seattle/, keeping
   any `#p=...` link; it can become a city picker later. `site/` is still the Seattle source, opened directly when working

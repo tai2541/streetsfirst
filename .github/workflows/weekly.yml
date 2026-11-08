@@ -3,9 +3,13 @@
 # Setup once: repository Settings -> Pages -> Source: "GitHub Actions".
 name: Weekly rebuild
 
+# Publishing = pushing to main. Day-to-day work happens on the dev branch, which never publishes; when a batch of
+# changes is ready, dev is merged into main and pushed, and this job builds and deploys it.
 on:
+  push:
+    branches: [main]
   schedule:
-    - cron: '0 10 * * 1'   # Mondays 10:00 UTC (2-3am Pacific)
+    - cron: '0 10 * * 1'   # Mondays 10:00 UTC (2-3am Pacific): fresh data each week even with no code changes
   workflow_dispatch:        # "Run workflow" button for a manual rebuild
     inputs:
       accept_counts:
