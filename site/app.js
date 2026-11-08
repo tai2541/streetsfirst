@@ -1,4 +1,4 @@
-/* Seattle Infrastructure Priority Map: front end. Data comes from window.SITE_DATA (data/data.js). */
+/* Streets First (Seattle): front end. Data comes from window.SITE_DATA (data/data.js). */
 (function () {
   const D = window.SITE_DATA;
   if (!D || !D.meta || !window.L) {   // data file or map library didn't load (network hiccup, blocked file)

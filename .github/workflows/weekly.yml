@@ -16,6 +16,9 @@ on:
 # GitHub turns off scheduled workflows after 60 days with no commits. The site shows a "data last updated" notice
 # after 14 days, so a stopped job is visible; re-enable it under Actions if that happens.
 
+env:
+  SITE_URL: https://streetsfirst.org   # the live site (custom domain on GitHub Pages)
+
 permissions:
   contents: read            # the build job only reads the repo; deploy gets the Pages permissions below
 
@@ -50,9 +53,8 @@ jobs:
       - name: Get last row counts from the live site
         if: ${{ !inputs.accept_counts }}
         run: |
-          $owner = '${{ github.repository_owner }}'.ToLower(); $repo = '${{ github.event.repository.name }}'
           New-Item -ItemType Directory -Force data\raw | Out-Null
-          try { Invoke-WebRequest "https://$owner.github.io/$repo/data/counts.json" -OutFile data\raw\counts.json -UseBasicParsing; Write-Host 'Got last counts.' }
+          try { Invoke-WebRequest "$env:SITE_URL/data/counts.json" -OutFile data\raw\counts.json -UseBasicParsing; Write-Host 'Got last counts.' }
           catch { Write-Host "No published counts yet (first run?): $($_.Exception.Message)" }
 
       - name: Fetch and build

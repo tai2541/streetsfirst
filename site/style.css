@@ -815,3 +815,5 @@ main.sheet-over .sheet { z-index: 1200; padding-right: 0; }
 }
 /* nothing inside the map area (a closed sheet waiting below, a panel's shadow) may scroll the page itself */
 main { overflow: hidden; overflow: clip; }
+/* header: the project name, then the place in a lighter weight */
+.h1-place { font-weight: 600; color: #c9d4ea; }
