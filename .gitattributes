@@ -1,0 +1,4 @@
+# Third-party files are kept byte-for-byte as published
+site/vendor/** -text
+*.woff2 binary
+*.png binary
