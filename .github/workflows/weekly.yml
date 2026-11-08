@@ -7,11 +7,17 @@ on:
   schedule:
     - cron: '0 10 * * 1'   # Mondays 10:00 UTC (2-3am Pacific)
   workflow_dispatch:        # "Run workflow" button for a manual rebuild
+    inputs:
+      accept_counts:
+        description: 'Accept a big change in a dataset''s row count (skip the 25% check this once)'
+        type: boolean
+        default: false
+
+# GitHub turns off scheduled workflows after 60 days with no commits. The site shows a "data last updated" notice
+# after 14 days, so a stopped job is visible; re-enable it under Actions if that happens.
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: read            # the build job only reads the repo; deploy gets the Pages permissions below
 
 concurrency:
   group: pages
@@ -39,25 +45,22 @@ jobs:
           & tools\duckdb\duckdb.exe -no-agent -c "install spatial;"
           if ($LASTEXITCODE -ne 0) { throw 'could not install the DuckDB spatial extension' }
 
-      # Last run's row counts, so the fetch can refuse a sudden 25% drop or jump in any dataset.
-      - name: Restore last row counts
-        uses: actions/cache/restore@v4
-        with:
-          path: data/raw/counts.json
-          key: counts-${{ github.run_id }}
-          restore-keys: counts-
+      # Last run's row counts, so the fetch can refuse a sudden 25% drop or jump in any dataset. Taken from the live site
+      # (published with each build), so they survive however long it's been since the last run.
+      - name: Get last row counts from the live site
+        if: ${{ !inputs.accept_counts }}
+        run: |
+          $owner = '${{ github.repository_owner }}'.ToLower(); $repo = '${{ github.event.repository.name }}'
+          New-Item -ItemType Directory -Force data\raw | Out-Null
+          try { Invoke-WebRequest "https://$owner.github.io/$repo/data/counts.json" -OutFile data\raw\counts.json -UseBasicParsing; Write-Host 'Got last counts.' }
+          catch { Write-Host "No published counts yet (first run?): $($_.Exception.Message)" }
 
       - name: Fetch and build
         run: powershell -ExecutionPolicy Bypass -File run.ps1
 
       - name: Check the built site
+        timeout-minutes: 10
         run: powershell -ExecutionPolicy Bypass -File pipeline/check.ps1 -Dir dist
-
-      - name: Save row counts
-        uses: actions/cache/save@v4
-        with:
-          path: data/raw/counts.json
-          key: counts-${{ github.run_id }}
 
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -66,6 +69,9 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

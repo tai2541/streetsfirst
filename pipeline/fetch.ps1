@@ -8,6 +8,7 @@ param(
   [string]$Since = (Get-Date -Day 1).AddMonths(-66).ToString('yyyy-MM-dd')
 )
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'   # Windows PowerShell downloads many times slower while drawing a progress bar
 $root = Split-Path -Parent $PSScriptRoot
 $raw  = Join-Path $root 'data\raw'
 $tmp  = Join-Path $root 'data\raw.tmp'
@@ -182,7 +183,12 @@ foreach ($k in $minimum.Keys) {
   }
 }
 $counts | ConvertTo-Json | Set-Content (Join-Path $tmp 'counts.json')
-Set-Content (Join-Path $tmp 'fetched_at.txt') (Get-Date).ToString('yyyy-MM-dd HH:mm')
-Remove-Item $raw -Recurse -Force -ErrorAction SilentlyContinue
-Rename-Item $tmp 'raw'
+Set-Content (Join-Path $tmp 'fetched_at.txt') (Get-Date).ToString('yyyy-MM-ddTHH:mmzzz')   # with the time zone (runners use UTC)
+# Swap without a moment with no data: old -> raw.old, new -> raw, then delete the old copy.
+$old = Join-Path $root 'data\raw.old'
+Remove-Item $old -Recurse -Force -ErrorAction SilentlyContinue
+if (Test-Path $raw) { Rename-Item $raw 'raw.old' }
+try { Rename-Item $tmp 'raw' }
+catch { if (Test-Path $old) { Rename-Item $old 'raw' }; throw }
+Remove-Item $old -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host 'Fetch OK.'

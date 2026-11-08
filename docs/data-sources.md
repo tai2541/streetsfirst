@@ -184,3 +184,27 @@ Context only, never scored. Built in `pipeline/context.sql`; fetched in `pipelin
 | Public schools | `Public_School/FeatureServer/0` (school types only; admin and closed sites dropped) | Nearest school within 1,000 ft, for spots and pins | Building point, not the school grounds. |
 | Race and Social Equity Index | `Race_and_Social_Equity_Composite_Index_Current/FeatureServer/0` | The census tract's composite level (of five), shown for context | The City's own index for prioritizing investment. Not part of the score. |
 | Council districts and members | `Council_District_Member_Info/FeatureServer/0` | "Bigger fixes": the district's council member and their page, for spots and pins | Members change after elections; the layer is the City's. The two citywide positions are mentioned, not listed. |
+
+## "Is it getting fixed?" view (2026-11)
+Built in `pipeline/history.sql` from the same crash records (2011 on) and SDOT's dated fixes. Nothing is stored between
+builds; every week re-derives it all.
+
+- **Past rankings:** the ranking is re-run as of 1 January of each year from 2018, on the 5 years of crashes before that
+  date (crashes only; requests didn't exist in the same form). Monthly re-runs for the last 12 months use today's method
+  exactly, so "this month" matches the map.
+- **Comparison years:** the most recent 5 full calendar years with complete police reports (a year counts once 6 months
+  have passed since it ended). Only years whose ranking window ends before those years start are offered, so the before
+  and after never overlap.
+- **What counts as a fix:** a dated change at or next to the place in SDOT's published data: a new signal, a leading
+  pedestrian interval, a traffic circle, a crosswalk or other dated feature, or an SDOT project (dated mid-year of its
+  year). Bus lanes are left out (they're for buses, not crash fixes). Speed humps and cushions have no install date in
+  SDOT's data, so they can't be dated and aren't counted.
+- **Groups:** each place is grouped by its first fix after the ranking date: before the comparison years, during them,
+  or no fix in SDOT's published data. Places ranked 51 to 150 the same year are shown for comparison, because the worst
+  places tend to drop back somewhat on their own. Changes are shown as percentages only when both counts are at least
+  30; otherwise as "N fewer/more". This shows what happened, not whether a fix caused it.
+- **Need vs published work:** by council district and by the City's Race and Social Equity Index, fatal and serious
+  crashes in the scored window, today's top 50, how many of those have no fix or published SDOT project nearby, and
+  dated fixes since the start of the scored years (head-start walk signals counted separately).
+- **Links:** `#p=<key>` opens a place (the key is a hash of its name, so it survives re-ranking; old `#loc=N` links still
+  work). `#progress` opens the view, `#progress=2018` a year, `#progress=d2` a council district's list.

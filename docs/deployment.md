@@ -16,8 +16,9 @@ GitHub Actions (Mondays ~2am Pacific, or the "Run workflow" button)
 ```
 - **To turn it on:** push the repository to GitHub, then Settings -> Pages -> Source: "GitHub Actions".
 - **Safety:** any failed step stops the job before deploy, so the live site keeps the last good build. The fetch
-  refuses a dataset that drops below its minimum or changes by more than 25% since last week (row counts carry over
-  between runs in the Actions cache). `check.ps1` opens `index.html#selftest`, which draws the map and list, opens
+  refuses a dataset that drops below its minimum or changes by more than 25% since the last run. Each build publishes
+  its row counts as `data/counts.json` on the live site, and the next run downloads them, so the check works however long
+  it has been. To accept a real big change once, run the workflow by hand with "accept_counts" ticked. `check.ps1` opens `index.html#selftest`, which draws the map and list, opens
   the #1 spot and a place outside the ranked list, and fails the build if any part doesn't show.
 - **Security:** no outside scripts: Leaflet and the font are vendored, and a Content-Security-Policy allows only this
   site plus the map tiles and the address-lookup services.
@@ -36,8 +37,6 @@ GitHub Actions (Mondays ~2am Pacific, or the "Run workflow" button)
   by council district and equity index) and each place's rank over the years. Late police reports slightly revise past
   months, which is intended. Saving weekly snapshots is still worth adding later for things that aren't dated in the
   data (repair-request status, project stage changes).
-- **Live layers:** fire/EMS 911 calls and drawbridge status are fetched by the browser
-  directly from Socrata at page load (CORS is allowed). The ranking stays precomputed.
 - **Domain:** optional custom domain on Pages.
 
 ## v3+: if it outgrows static

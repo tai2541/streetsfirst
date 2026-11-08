@@ -22,9 +22,9 @@
     <a class="report-head" id="reportHead" href="https://www.seattle.gov/customer-service-bureau#popular" aria-haspopup="dialog">Report a problem to the City</a>
     <nav role="tablist" aria-label="Views">
       <button role="tab" id="tabbtn-priorities" data-tab="priorities" aria-controls="tab-priorities" aria-selected="true" class="active" title="Crash hot spots: where traffic crashes hurt people, from 5 years of police crash reports"><span class="tab-long tab-wide">Crash hot spots</span><span class="tab-short tab-mid">Crashes</span></button>
-      <button role="tab" id="tabbtn-progress" data-tab="progress" aria-controls="progressSheet" aria-selected="false" tabindex="-1" title="What changed since last month, whether the worst places got fixed, and where SDOT's work is"><span class="tab-long">Is it getting fixed?</span><span class="tab-short">Progress</span></button>
       <button role="tab" id="tabbtn-traffic" data-tab="traffic" aria-controls="tab-traffic" aria-selected="false" tabindex="-1" title="Slow buses &amp; busy streets: typical weekdays, not live traffic"><span class="tab-long tab-wide">Slow buses &amp; busy streets</span><span class="tab-short tab-mid">Slow buses</span></button>
       <button role="tab" id="tabbtn-walk" data-tab="walk" aria-controls="tab-walk" aria-selected="false" tabindex="-1" title="Missing &amp; broken sidewalks, from SDOT records (not live)"><span class="tab-long tab-wide">Missing &amp; broken sidewalks</span><span class="tab-short tab-mid">Sidewalks</span></button>
+      <button role="tab" id="tabbtn-progress" data-tab="progress" aria-controls="progressSheet" aria-selected="false" tabindex="-1" title="What changed since last month, whether the worst places got fixed, and where SDOT's work is"><span class="tab-long">Is it getting fixed?</span><span class="tab-short">Getting fixed?</span></button>
       <button role="tab" id="tabbtn-spending" data-tab="spending" aria-controls="budgetSheet" aria-selected="false" tabindex="-1"><span class="tab-long">SDOT capital budget</span><span class="tab-short">Budget</span></button>
       <button role="tab" id="tabbtn-about" data-tab="about" aria-controls="aboutSheet" aria-selected="false" tabindex="-1"><span class="tab-long">How it's scored</span><span class="tab-short">Method</span></button>
     </nav>
@@ -32,6 +32,7 @@
 
   <main>
     <aside id="panel">
+      <button type="button" id="panelMore" class="panel-more" aria-expanded="false" title="Show more of the list">More</button>
       <section id="tab-priorities" class="tab active" role="tabpanel" aria-labelledby="tabbtn-priorities">
         <div id="citySummary" class="city-summary"></div>
         <div class="searchbox">
