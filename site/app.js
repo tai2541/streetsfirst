@@ -53,6 +53,46 @@
         this location (<b>${esc(place)}</b>) so you can paste it in.</div>
       <ul class="res-list">${RESOURCES.slice(0, 3).map(resItem).join('')}</ul>
       <details class="res-fold"><summary>More problem types</summary><ul class="res-list">${RESOURCES.slice(3).map(resItem).join('')}</ul></details></div>`;
+  // ---------- who to contact, nearby school (for any point: spots carry these from the build; pins look them up) ----------
+  const CTX = D.context || { council: [], schools: [] };
+  const inRing = (x, y, ring) => {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i], [xj, yj] = ring[j];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  };
+  const inPoly = (x, y, g) => (g.type === 'Polygon' ? [g.coordinates] : g.coordinates)
+    .some(poly => inRing(x, y, poly[0]) && !poly.slice(1).some(h => inRing(x, y, h)));
+  const councilAt = (lat, lon) => (CTX.council || []).find(c => c.geom && inPoly(lon, lat, c.geom)) || null;
+  const metersBetween = (a, b, c, d) => {
+    const k = Math.PI / 180, x = (d - b) * k * Math.cos((a + c) / 2 * k), y = (c - a) * k;
+    return 6371000 * Math.hypot(x, y);
+  };
+  const schoolNear = (lat, lon) => {   // nearest public school within 1,000 ft
+    let best = null;
+    (CTX.schools || []).forEach(([n, la, lo]) => { const m = metersBetween(lat, lon, +la, +lo); if (m <= 305 && (!best || m < best.m)) best = { name: n, m }; });
+    return best;
+  };
+  const schoolName = n => String(n).toLowerCase().replace(/\b\w/g, c => c.toUpperCase()).replace(/\bK-8\b/i, 'K-8');
+  // The council member for a place, the City's equity index (spots only), and a print button.
+  function civicBox(c, rse) {
+    if (!c) return '';
+    return `<div class="civic">
+      <div><b>Bigger fixes</b> (redesigns, signals, sidewalks) are paid for through the City budget, which the City Council
+        votes on. The council member for this district: <b>${esc(c.member || '—')}</b> (District ${c.d})${c.url
+          ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">Their page ↗</a>` : ''}. Seattle also has two citywide
+        council members (Positions 8 and 9).</div>
+      ${rse && rse.q ? `<div class="note">The City's Race and Social Equity Index for this census tract: <b>${esc(({ 'Highest Equity Priority': 'highest equity priority',
+          'Second Highest': 'second-highest equity priority', 'Middle': 'middle', 'Second Lowest': 'second-lowest equity priority',
+          'Lowest': 'lowest equity priority' })[rse.q] || rse.q)}</b> (of five levels${rse.y ? `, ${rse.y} index` : ''}).
+        The City uses it to help decide where to invest first. Shown for context; it isn't part of this site's score.</div>` : ''}
+      <button type="button" class="linkbtn print-btn">Print or save this summary</button>
+    </div>`;
+  }
+  document.addEventListener('click', e => { if (e.target.closest && e.target.closest('.print-btn')) window.print(); });
+
   const toast = msg => {
     let t = document.getElementById('toast');
     if (!t) { t = document.createElement('div'); t.id = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
@@ -169,8 +209,9 @@
       return { short: `${p.ped_after_lpi} pedestrian crashes since ${from} (head-start signal ${y})`,
         long: `SDOT added a head-start walk signal here in ${y || 'an unknown year'}. From ${from} to ${monthYear(meta.window_to)},
           ${p.ped_after_lpi} crashes involving pedestrians were reported (${p.ped_turn_after_lpi || 0} with a turning vehicle, the kind
-          this signal targets). Crash data from before the signal isn't loaded, so this doesn't show whether it helped, only that
-          pedestrians are still being hit here.` };
+          this signal targets). ${(p.before_after || []).some(b => b.m === 'ped')
+            ? 'For the years before and after the signal, see "Before and after" below.'
+            : 'Crash data from far enough before the signal isn\'t available here, so this doesn\'t show whether it helped, only that pedestrians are still being hit here.'}` };
     }
     const first = p.sdot_hcl_years && p.sdot_hcl_years[0];
     if (first && first <= +meta.window_from.slice(0, 4) && p.ksi_after_hcl >= 2)
@@ -628,6 +669,27 @@
     tipEl.style.left = x + 'px'; tipEl.style.top = (e.clientY + 14) + 'px';
   });
 
+  // When crashes happen: 3-hour blocks through the day, from the time in each police report.
+  function todChart(crashes) {
+    const known = crashes.filter(c => c.h != null);
+    if (!known.length) return '<div class="note">These police reports don\'t include a time.</div>';
+    const start = ['12am', '3am', '6am', '9am', '12pm', '3pm', '6pm', '9pm'];
+    const range = ['midnight–3am', '3–6am', '6–9am', '9am–noon', 'noon–3pm', '3–6pm', '6–9pm', '9pm–midnight'];
+    const bins = start.map((l, i) => ({ l, r: range[i], n: known.filter(c => Math.floor(c.h / 3) === i).length }));
+    const max = Math.max(1, ...bins.map(b => b.n)), H = 90;
+    const top = bins.reduce((a, b) => (b.n > a.n ? b : a));
+    const weekend = crashes.filter(c => c.w >= 6).length, unknown = crashes.length - known.length;
+    return `
+      <div class="cols tod" style="height:${H + 34}px" role="img" aria-label="Crashes by time of day. ${esc(bins.map(b => `${b.r}: ${b.n}`).join('; '))}">
+        ${bins.map(b => `<div class="col" data-tip="${esc(`<b>${b.r}</b><br>${plural(b.n, 'crash', 'crashes')}`)}">
+          <span class="cap">${b.n || ''}</span>
+          <div class="stack">${b.n ? `<div class="seg" style="height:${Math.round(H * b.n / max)}px;background:${SEV.P.color};border-radius:4px 4px 0 0"></div>` : ''}</div>
+          <span class="yr">${b.l}</span></div>`).join('')}
+      </div>
+      <div class="note">${known.length >= 5 ? `Most often ${top.r} (${top.n} of ${known.length}). ` : ''}${weekend} of ${crashes.length} on a weekend.
+        Each bar is 3 hours, from the time in the police report${unknown ? `; ${unknown} ${unknown === 1 ? 'report has' : 'reports have'} no time` : ''}.</div>`;
+  }
+
   function yearChart(crashes) {
     const y0 = +meta.collisions_from.slice(0, 4), y1 = +meta.collisions_to.slice(0, 4);
     const years = []; for (let y = y0; y <= y1; y++) years.push(y);
@@ -734,6 +796,8 @@
       if (rate(b0, yb) && rate(a0, ya)) ba = '<p class="tc-ba"><b>Before the ' + esc(what) + ':</b> ' + rate(b0, yb) + ' crashes a year (' + sev(b0) + ' fatal or serious in ' + yb.toFixed(1) + ' years). ' +
         '<b>After:</b> ' + rate(a0, ya) + ' a year (' + sev(a0) + ' fatal or serious in ' + ya.toFixed(1) + ' years). ' +
         (ya < 2 ? "That's under 2 years, too short to tell a real change from normal ups and downs." : 'Crash counts swing from year to year, so treat a small change as a hint, not proof.') + '</p>';
+      else if ((p.before_after || []).length) ba = '<p class="tc-ba">This chart starts in ' + monthYear(meta.window_from) + '; for the years before the ' + esc(what) +
+        ', see "Before and after" under What SDOT has done here.</p>';
       else ba = '<p class="tc-ba">Not enough time on one side of the ' + esc(what) + ' to compare before and after.</p>';
     }
     return '<div class="legend"><span><i style="background:' + SEV.I.color + '"></i>All crashes</span>' +
@@ -765,6 +829,34 @@
   }
 
   // Street context from SDOT's street network, traffic counts and Vision Zero layers.
+  function crosswalkText(p) {
+    if (!p.crosswalks) return p.addr_type === 'I' ? 'none' : 'none on this block';
+    const ctl = { SIGNAL: 'traffic signal', STOPSIGN: 'stop sign', 'RFB-BCN': 'flashing beacon', 'FLSH-BCN': 'flashing light' };
+    const bits = [];
+    if (p.crosswalks_midblock) bits.push(`${p.crosswalks_midblock} mid-block`);
+    if (p.crosswalk_school) bits.push('school crosswalk');
+    const c = (p.crosswalk_controls || []).map(k => ctl[k]).filter(Boolean);
+    if (c.length) bits.push('with ' + c.join(', '));
+    return `${p.crosswalks}${bits.length ? ` <span class="muted">(${bits.join('; ')})</span>` : ''}`;
+  }
+
+  // Crashes in equal periods before and after something SDOT built here, next to the citywide change.
+  function beforeAfter(p) {
+    const L = p.before_after || [];
+    if (!L.length) return '';
+    const what = { ped: 'crashes involving people walking', bike: 'crashes involving people biking', left: 'left-turn crashes', all: 'crashes' };
+    const span = days => { const mo = Math.round(days / 30.44); return mo >= 12 && mo % 12 === 0 ? plural(mo / 12, 'year', 'years') : plural(mo, 'month', 'months'); };
+    const city = (b, a) => { if (!b) return ''; const ch = Math.round(100 * (a / b - 1));
+      return ch === 0 ? 'stayed about the same' : `went ${ch < 0 ? 'down' : 'up'} ${Math.abs(ch)}%`; };
+    return `<h4 class="proj-h">Before and after</h4>
+      <ul class="ba-list">${L.map(x => `<li><b>${esc(x.k)}</b> (${monthYear(x.d)}): ${what[x.m]} here, ${span(x.days)} before:
+        <b>${x.b}</b>; ${span(x.days)} after: <b>${x.a}</b>.
+        <span class="muted">Citywide, the same kind of crash ${city(x.cb, x.ca)} over the same periods.</span></li>`).join('')}</ul>
+      <div class="note">Counts this small can swing a lot from one period to the next, and fixes often go in right after a bad
+        stretch, so some drop afterwards is expected either way. This shows what happened, not whether the fix caused it.
+        Older crashes (from 2011) come from the same SDOT data; the month the work happened is left out.</div>`;
+  }
+
   function streetInfo(p) {
     const pci = p.pavement_min;
     const pciLabel = pci == null ? 'not rated' : `${pci}/100 (${pci >= 70 ? 'good' : pci >= 40 ? 'fair' : 'poor'})`;
@@ -775,7 +867,13 @@
       ${row('Speed limit', p.speed_limit ? p.speed_limit + ' mph <span class="muted">(highest nearby)</span>' : '—')}
       ${row('Traffic', volumeText(p))}
       ${row('Pavement', pciLabel + (pci != null ? ' <span class="muted">(worst block here)</span>' : ''))}
+      ${p.crosswalks != null ? row('Marked crosswalks', crosswalkText(p)) : ''}
+      ${p.addr_type === 'I' && p.crosswalks != null ? row('Curb ramps', p.curb_ramps
+          ? `${p.curb_ramps}${p.curb_ramps_poor ? `, <b>${p.curb_ramps_poor} rated poor</b>` : ', none rated poor'}` : 'none in SDOT data') : ''}
+      ${p.crosswalks != null ? row('Bike facility', p.bike_facilities && p.bike_facilities.length ? esc(p.bike_facilities.join(', ')) : 'none') : ''}
+      ${p.school ? row('Nearby school', `${esc(schoolName(p.school))} <span class="muted">(about ${fmt(Math.round(p.school_ft / 10) * 10)} ft)</span>`) : ''}
     </table>
+    ${p.crosswalks != null ? `<div class="note">Crosswalks, curb ramps and bike facilities from SDOT's street asset data; nearby schools (within 1,000 ft) from the City's public school list.</div>` : ''}
     ${p.state_route || p.structure ? `<div class="note">${p.state_route ? `${esc(p.state_route)} is a state highway: WSDOT shares responsibility with the city.` : ''}
       ${p.structure ? 'This is a bridge, ramp or tunnel, which may be owned by WSDOT.' : ''}</div>` : ''}`;
   }
@@ -801,6 +899,7 @@
     const kinds = [...new Set(projs.map(j => j.kind))];
     return `${still ? `<p class="callout">${esc(still.long)}</p>` : ''}
       ${items.length ? `<ul>${items.map(i => `<li>${i}</li>`).join('')}</ul>` : '<div class="note">Nothing recorded in the SDOT layers this site reads.</div>'}
+      ${beforeAfter(p)}
       <h4 class="proj-h">SDOT projects published nearby</h4>
       ${projs.length ? `<ul class="proj-list">${projs.map(j => `<li>${projHtml(j)}</li>`).join('')}</ul>
         <div class="note">From ${kinds.map(k => esc(PROJ_SRC[k]())).join(' and ')}. "Nearby" means within about
@@ -1020,6 +1119,8 @@
         </div>
         <div class="chips dchips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</div>
         ${reportBox(p.name)}
+        ${civicBox(p.council_district ? { d: p.council_district, member: p.council_member, url: p.council_url } : councilAt(p.lat, p.lon),
+                   { q: p.rse_quintile, y: p.rse_year })}
       </div>
       <div id="graphs" class="graphs"></div>
       <div class="dcols">
@@ -1058,7 +1159,8 @@
       const g = document.getElementById('graphs'); if (!g || g.hidden) return;
       const w = g.clientWidth; if (Math.abs(w - (g._w || 0)) < 8 && g.innerHTML) return; g._w = w;
       g.innerHTML = '<div class="gcol"><h3 class="gh">Crashes and repair reports over time</h3>' + timeChart(det, p, Math.min(w - 34, 760)) + '</div>' +
-        '<div class="gcol"><h3 class="gh">Crashes by year</h3>' + yearChart(det.crashes) + '</div>';
+        '<div class="gcol"><h3 class="gh">Crashes by year</h3>' + yearChart(det.crashes) + '</div>' +
+        '<div class="gcol"><h3 class="gh">Time of day</h3>' + todChart(det.crashes) + '</div>';
     };
     renderGraphs();
     if (!keepFocus) { document.getElementById('detailBody').scrollTop = 0; document.getElementById('detailTitle').focus({ preventScroll: true }); }
@@ -1364,7 +1466,8 @@
       <div class="pin-head place-head">${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}</div>
       <div class="place-acts">${pinActions(g)}</div>
       <p class="home-lead">Within a quarter mile${g.name ? '' : ` of ${esc(g.label)}`} (about a 5-minute walk),
-        from police crash reports ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}.</p>
+        from police crash reports ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}.
+        ${(sch => sch ? `Nearest public school: <b>${esc(schoolName(sch.name))}</b> (about ${distText(sch.m)}).` : '')(schoolNear(g.lat, g.lon))}</p>
       <div class="stat-grid home-stats">${stat(fmt(nb.crashes), 'crashes')}${stat(fmt(nb.ksi), 'of them killed or seriously hurt someone')}${stat(fmt(nb.pb), 'involved people walking or biking')}</div>
       <section class="hsec hsec-top"><h3>Places with crashes nearby</h3>
         ${list.length ? `<ol class="home-top">${list.map((n, i) => `<li><button type="button" class="home-card" data-near="${i}">
@@ -1376,6 +1479,7 @@
             ` : ''}places outside the ranked list are on the map as small grey dots.</div>`
           : '<p class="note">No crashes reported within a quarter mile in these years.</p>'}</section>
       ${reportBox(g.label)}
+      ${civicBox(councilAt(g.lat, g.lon))}
     </div>`;
     body.scrollTop = 0; body.onchange = null;
     body.onclick = e => {

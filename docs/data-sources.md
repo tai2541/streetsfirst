@@ -135,7 +135,7 @@ All read by `pipeline/fetch.ps1`, joined in `pipeline/traffic.sql`. Context only
 | Arterial traffic volumes, 2015–newest | ArcGIS `YYYY_Arterial_Traffic_Volumes` (one service per year; layer id and field names vary) | Busiest streets; traffic history per spot and street | Yearly layers re-publish old counts for streets not recounted (2022: ~125 of 1,930 new). History uses each count's own date (`START_DATE` / `COUNTSTART`); undated records dropped; repeated identical values hidden. Most streets have only ~2 real counts in 10 years, so there is no "fastest-growing" ranking. |
 | King County Metro GTFS timetable | https://metro.kingcounty.gov/GTFS/google_transit.zip | Where buses lose time at rush hour | The Wednesday in the next 90 days with the most trips after holiday exceptions. Stretches between timed stops (median ~1.2 mi; a few blocks downtown). Hourly average run time; baseline = mean of the 2 quickest hours (usually late night); ranking adds up every trip's time above that baseline, per mile. Includes boarding time. Inside Seattle; stretches under 0.25 mi not ranked (minute-rounded times). |
 | Seattle Bus Volumes | ArcGIS `Seattle_Bus_Volumes` | Buses a weekday at each spot | Metro trips per street link. |
-| Speed humps, speed cushions | ArcGIS `Speed_Humps_(Active)`, `Speed_Cushions_(Active)` | "What SDOT has done here" | Linked by street segment key. Install dates exist but aren't used yet. |
+| Speed humps, speed cushions | ArcGIS `Speed_Humps_(Active)`, `Speed_Cushions_(Active)` | "What SDOT has done here" | Linked by street segment key. Install dates exist but aren't used yet (not fetched). |
 | Radar speed signs | ArcGIS `Radar_Speed_Signs_CDL` | Same | No dates. PLANNED shown as planned; TEMPOUTSVC dropped. |
 | Protected bike lanes | ArcGIS `ProtectedBikeLanes` | Same, plus fix line on the timeline | `DATE_COMPLETED`; status CONST = under construction. |
 | Transit (bus) lanes | ArcGIS `Transit_Lanes` layer 1 | Same | `InstallationDate` (175 of 1,174 dated); removed lanes skipped. |
@@ -149,7 +149,7 @@ All read by `pipeline/fetch.ps1`, joined in `pipeline/traffic.sql`. Context only
 
 Never fetched: owner or parcel fields (PROPERTY_OWNER_RESPONSIBILITY, NEAREST_PARCEL_ID_NUMBER and similar). The map is about
 streets, not singling out homes. Candidates for later: Substandard Sidewalks (layer 19), Enhanced Street Crossings (layer 17),
-Curb_Ramps_(Active), Marked_Crosswalks_(Active), School_Walking_Boundaries.
+School_Walking_Boundaries. (Curb ramps and marked crosswalks are now used; see below.)
 
 ## Added for SDOT's planned projects (2026-11)
 Shown on the map (layer "SDOT planned & recent projects"), in each crash spot's "What SDOT has done" section, on the
@@ -169,3 +169,18 @@ Checked and not used:
 - **Bike_Imp_Data**: no dates or status (can't tell planned from built); last edited 2024.
 - No public layer ties a capital budget line (MC-TR-C…) to a location or gives per-project costs. Two programs share a name
   with a project map (MC-TR-C058 New Sidewalk Program, MC-TR-C154 NISPP); the budget tab shows them side by side only.
+
+## Added for street context, before/after and who to contact (2026-11)
+Context only, never scored. Built in `pipeline/context.sql`; fetched in `pipeline/fetch.ps1` section 4b1.
+
+| Data | Layer | Used for | Notes |
+|---|---|---|---|
+| Crash time of day | `SDOT_Collisions_All_Years_1` field `INCDTTM` | "Time of day" chart per spot | Time as written in the police report; about 20% of reports have no time and are counted as such. No midnight pile-up, so no placeholder times found. |
+| Older crashes, 2011 to the scored years | Same layer, fetched as `crashhist_*` (fewer fields) | "Before and after" around things SDOT built with a date | Intersections matched to today's places by SDOT's intersection key, blocks by name (split roadways merged the same way); ~78% of older crashes land on a place scored today. Equal periods up to 3 years each side, the month of the work skipped, at least 1 year each side. Shown next to the citywide change in the same kind of crash over the same periods. Shows what happened, not whether the fix caused it. |
+| Marked crosswalks | `Marked_Crosswalks_(Active)/FeatureServer/0`, in service | "The street": count, mid-block, school crosswalks, controls | Within 100 ft of an intersection or 40 ft of a block's street line. |
+| Curb ramps | `Curb_Ramps_(Active)/FeatureServer/0`, in service | "The street" (intersections): count, how many rated poor | The `ADA_COMPLIANT` field's codes aren't documented, so compliance isn't shown; condition only. |
+| Bike facilities (all types) | `SDOT_Bike_Facilities/FeatureServer/2`, in service | "The street": protected, buffered, painted, uphill lane, greenway, sharrows, trail | Intersections: any within 60 ft. Blocks: only a facility running along at least half the block. |
+| Traffic circles | `Traffic_Circles_view/FeatureServer/0`, in service | "What SDOT has done here" (with install date) and before/after | Within 100 ft of an intersection. |
+| Public schools | `Public_School/FeatureServer/0` (school types only; admin and closed sites dropped) | Nearest school within 1,000 ft, for spots and pins | Building point, not the school grounds. |
+| Race and Social Equity Index | `Race_and_Social_Equity_Composite_Index_Current/FeatureServer/0` | The census tract's composite level (of five), shown for context | The City's own index for prioritizing investment. Not part of the score. |
+| Council districts and members | `Council_District_Member_Info/FeatureServer/0` | "Bigger fixes": the district's council member and their page, for spots and pins | Members change after elections; the layer is the City's. The two citywide positions are mentioned, not listed. |

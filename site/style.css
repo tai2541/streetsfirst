@@ -689,3 +689,25 @@ body.sheet-open #expandPanel, body.sheet-open #expandDetail, body.sheet-open #pa
 .place-head { margin: 0 0 6px; }
 .place-acts .pin-actions { margin: 0 0 10px; }
 .place-acts .report-btn { color: #fff; }
+
+/* who to contact (council member), equity index note, print button */
+.civic { margin: 10px 0 4px; padding: 10px 12px; border: 1px solid #d9dce6; border-radius: 10px; background: #f7f8fb; font-size: 13.5px; line-height: 1.5; }
+.civic .note { margin-top: 6px; }
+.civic .print-btn { margin-top: 6px; }
+.ba-list li { margin-bottom: 6px; }
+.cols.tod .col .yr { font-size: 10.5px; }
+
+/* Print or save a spot's summary: just the details panel, every section open */
+@media print {
+  html, body, main { height: auto !important; overflow: visible !important; position: static !important; display: block !important; }
+  body * { visibility: hidden !important; }
+  #detail, #detail * { visibility: visible !important; }
+  main > *:not(#detail) { display: none !important; }
+  body > *:not(main) { display: none !important; }
+  #detail { position: static !important; width: 100% !important; height: auto !important;
+            max-height: none !important; overflow: visible !important; box-shadow: none !important; border: 0 !important; transform: none !important; }
+  #detailBody { overflow: visible !important; height: auto !important; max-height: none !important; }
+  .dsec.collapsed .dsec-b { display: block !important; }
+  .print-btn, #closeDetail, #expandDetail, .res-fold, .fbar, [data-more] { display: none !important; }
+  .civic a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 10px; color: #555; word-break: break-all; }
+}

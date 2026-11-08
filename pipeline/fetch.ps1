@@ -49,8 +49,13 @@ $gis = 'https://services.arcgis.com/ZOyb2t4B0UYuYNYH/arcgis/rest/services'
 
 # ---- 1. SDOT collisions ----
 Get-ArcGISLayer "$gis/SDOT_Collisions_All_Years_1/FeatureServer/0" `
-  'INCKEY,INTKEY,LOCATION,ADDRTYPE,INCDATE,MAXSEVERITYDESC,PERSONCOUNT,PEDCOUNT,PEDCYLCOUNT,VEHCOUNT,INJURIES,SERIOUSINJURIES,FATALITIES,WEATHER,ROADCOND,LIGHTCOND,ST_COLDESC,SPEEDING,UNDERINFL' `
+  'INCKEY,INTKEY,LOCATION,ADDRTYPE,INCDATE,INCDTTM,MAXSEVERITYDESC,PERSONCOUNT,PEDCOUNT,PEDCYLCOUNT,VEHCOUNT,INJURIES,SERIOUSINJURIES,FATALITIES,WEATHER,ROADCOND,LIGHTCOND,ST_COLDESC,SPEEDING,UNDERINFL' `
   'collisions' "INCDATE >= DATE '$Since'"
+# Older crashes (2011 up to the scored years), fewer fields: only for "before and after" around things SDOT built.
+# Never scored. Named crashhist so the collisions_* files above stay the scored set.
+Get-ArcGISLayer "$gis/SDOT_Collisions_All_Years_1/FeatureServer/0" `
+  'INCKEY,INTKEY,LOCATION,ADDRTYPE,INCDATE,MAXSEVERITYDESC,PEDCOUNT,PEDCYLCOUNT,ST_COLDESC' `
+  'crashhist' "INCDATE >= DATE '2011-01-01' AND INCDATE < DATE '$Since'"
 
 # ---- 2. Find It Fix It requests: infrastructure types only (no encampment/parking/etc.) ----
 $types = @(
@@ -110,6 +115,20 @@ Get-ArcGISLayer "$gis/Seattle_City_Council_Districts/FeatureServer/0" 'C_DISTRIC
 Get-ArcGISLayer "$gis/Traffic_Signal_Assemblies_(Active)/FeatureServer/0" `
   'INTKEY,UNITDESC,INSTALL_DATE,PEDSIGNALYN,PEDAUDIODEVICEYN,LTPROTECTEDYN,LTFIRSTINSTALLDT,LASTSIGNALOPTDT' 'signals'
 
+# ---- 4b1. What's on the street (context only, never scored): marked crosswalks, curb ramps, bike facilities of
+# every type, traffic circles; nearby public schools; the City's Race and Social Equity Index (by census tract);
+# and each council district's member, for "who to contact".
+Get-ArcGISLayer "$gis/Marked_Crosswalks_(Active)/FeatureServer/0" `
+  'UNITDESC,SEGKEY,MARKING_TYPE,SCHOOL,MIDBLOCK_CROSSWALK,CROSSWALK_CONTROL,INSTALL_DATE' 'crosswalks' "CURRENT_STATUS = 'INSVC'"
+Get-ArcGISLayer "$gis/Curb_Ramps_(Active)/FeatureServer/0" 'INT_UNITDESC,CONDITION,INSTALL_DATE' 'curbramps' "CURRENT_STATUS = 'INSVC'"
+Get-ArcGISLayer "$gis/SDOT_Bike_Facilities/FeatureServer/2" 'UNITDESC,SEGKEY,CATEGORY,INSTALL_DATE' 'bikefac' "CURRENT_STATUS = 'INSVC'"
+Get-ArcGISLayer "$gis/Traffic_Circles_view/FeatureServer/0" 'INTKEY,UNITDESC,INSTALL_DATE' 'circles' "CURRENT_STATUS = 'INSVC'"
+Get-ArcGISLayer "$gis/Public_School/FeatureServer/0" 'NAME,SCHOOL,TYPE,GRADE' 'schools' `
+  "TYPE IN ('Elementary','Middle School','High School','Option Elementary','Option High School','K-8')"
+Get-ArcGISLayer "$gis/Race_and_Social_Equity_Composite_Index_Current/FeatureServer/0" `
+  'GEOID,NAMELSAD,COMPOSITE_QUINTILE,COMPOSITE_PERCENTILE,INDEX_YEAR' 'rse'
+Get-ArcGISLayer "$gis/Council_District_Member_Info/FeatureServer/0" 'C_DISTRICT,DISPLAY_NAME,Name,Website' 'council'
+
 # ---- 4b2. Sidewalks: SDOT's own priorities for missing sidewalks (Seattle Transportation Plan, Tier 1 = highest)
 # and sidewalks SDOT rated poor or very poor. Owner and parcel fields are not fetched (no singling out homes).
 Get-ArcGISLayer "$gis/Seattle_Transportation_Plan_Pedestrian_Element/FeatureServer/18" `
@@ -150,7 +169,8 @@ Write-Host "gtfs stops: $($counts['gtfs_stops'])"
 $minimum = @{ collisions = 20000; requests = 50000; budget = 10000; streets = 20000; volumes = 1000
               hin = 50; hcl = 100; lpi = 500; signals = 800; districts = 7; hoods_main = 15; hoods_sub = 80
               volhist_years = 8; humps = 50; cushions = 30; radar = 30; bikelanes = 200; buslanes = 500; busvol = 2000; gtfs_stops = 3000
-              sw_missing = 8000; sw_poor = 1500; proj_sidewalk = 20; proj_nispp = 5 }
+              sw_missing = 8000; sw_poor = 1500; proj_sidewalk = 20; proj_nispp = 5
+              crashhist = 50000; crosswalks = 4000; curbramps = 25000; bikefac = 1500; circles = 500; schools = 70; rse = 150; council = 7 }
 $volatile = @('proj_sidewalk', 'proj_nispp')   # small project lists: big swings are normal
 $prev = @{}
 $prevFile = Join-Path $raw 'counts.json'

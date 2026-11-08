@@ -70,6 +70,8 @@ select
   LIGHTCOND                                as light_cond,
   WEATHER                                  as weather,
   ST_COLDESC                               as coll_type,
+  -- time of day as written in the police report (null when the report has no time)
+  hour(try_strptime(INCDTTM, '%m/%d/%Y %I:%M:%S %p')) as hour,
   SPEEDING = 'Y'                           as speeding,
   coordinates[1]                           as lon,
   coordinates[2]                           as lat
@@ -443,6 +445,8 @@ from all_types a left join scored s using (location);
 .read pipeline/sidewalks.sql
 -- SDOT's published project maps: planned and recently finished work (context only, not scored)
 .read pipeline/projects.sql
+-- what's on the street, nearby school, equity index, council district, before/after (context only, not scored)
+.read pipeline/context.sql
 
 -- ---------------------------------------------------------------- final ranking
 create or replace table priorities as
@@ -539,7 +543,9 @@ create or replace table spot_export as
          wet_crashes, dark_crashes, unlit_crashes, road_known, light_known,
          first_crash, last_crash, requests, request_types,
          fixes, vol_history, bus_trips, bus_routes, bus_stretch_id,
-         sw_missing_tier, sw_poor_ft, sw_poor_assessed, proj_ids, proj_planned
+         sw_missing_tier, sw_poor_ft, sw_poor_assessed, proj_ids, proj_planned,
+         crosswalks, crosswalks_midblock, crosswalk_school, crosswalk_controls, curb_ramps, curb_ramps_poor, bike_facilities,
+         school, school_ft, rse_quintile, rse_year, council_district, council_member, council_url, before_after
   from ranked;
 
 copy (
@@ -567,7 +573,7 @@ copy (
                            when 'Injury Collision' then 'I' when 'Property Damage Only Collision' then 'P' else 'U' end,
       't': c.coll_type, 'pd': c.peds, 'cy': c.cyclists,
       'inj': c.injuries, 'ser': c.serious_injuries, 'fat': c.fatalities,
-      'rd': c.road_cond, 'lt': c.light_cond, 'wx': c.weather, 'sp': c.speeding,
+      'rd': c.road_cond, 'lt': c.light_cond, 'wx': c.weather, 'sp': c.speeding, 'h': c.hour, 'w': isodow(c.date),
       'n': c.date >= we() or c.date < ws()
       -- no per-crash coordinates: SDOT snaps every crash to the intersection or block midpoint
     } order by c.date desc, c.id) as crashes
@@ -598,7 +604,7 @@ select c.location, list(to_json([to_json(c.date),
                                  when 'Injury Collision' then 'I' when 'Property Damage Only Collision' then 'P' else 'U' end),
          to_json(c.coll_type), to_json(c.peds), to_json(c.cyclists), to_json(c.injuries), to_json(c.serious_injuries),
          to_json(c.fatalities), to_json(c.road_cond), to_json(c.light_cond), to_json(c.weather), to_json(c.speeding),
-         to_json(c.date >= we() or c.date < ws())]) order by c.date desc, c.id) as k
+         to_json(c.date >= we() or c.date < ws()), to_json(c.hour), to_json(isodow(c.date))]) order by c.date desc, c.id) as k
 from collisions c join more_rows using (location) group by c.location;
 
 create or replace table more_req_ids as
@@ -627,7 +633,7 @@ copy (
   )
   select rows.cell, {
     'c': (select json_keys(j) from more_rows limit 1),
-    'kc': ['d', 's', 't', 'pd', 'cy', 'inj', 'ser', 'fat', 'rd', 'lt', 'wx', 'sp', 'n'],
+    'kc': ['d', 's', 't', 'pd', 'cy', 'inj', 'ser', 'fat', 'rd', 'lt', 'wx', 'sp', 'n', 'h', 'w'],
     'qc': ['d', 't', 'st', 'a', 'lat', 'lon'],
     'r': rows.r, 'k': rows.k, 'l': rows.l, 'q': coalesce(q.q, [])
   } as data
@@ -709,6 +715,16 @@ copy (
     (select list({'k': k, 'v': v} order by k) from weights)       as weights,
     (select list({'type': type, 'w': w} order by w desc, type) from request_weights) as request_weights
 ) to 'site/data/meta.json' (format json, array false);
+
+-- Council districts with their members, and public schools: so a pin or searched address can show them too.
+copy (
+  select {
+    'council': (select list({'d': district, 'member': member, 'url': url,
+                 'geom': ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(geom, 40), 'EPSG:2926', 'EPSG:4326'))::json} order by district) from council),
+    'schools': (select list([name, round(ST_Y(ST_Transform(geom, 'EPSG:2926', 'EPSG:4326')), 5)::varchar,
+                             round(ST_X(ST_Transform(geom, 'EPSG:2926', 'EPSG:4326')), 5)::varchar] order by name) from schools)
+  } as ctx
+) to 'site/data/context.json' (format json, array false);
 
 -- City outline (council districts merged), simplified to ~40 ft, so the map shows exactly the area covered.
 copy (
