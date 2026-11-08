@@ -243,6 +243,10 @@ s as (select p.location,
         min(s.pci) as pavement_min
       from loc_pts p join streets s on ST_DWithin(p.geom, s.geom, 60)
       where ST_Distance(p.geom, s.geom) <= p.r
+        -- a freeway or ramp passing over or beside a place isn't its street (it gave downtown corners I-5's 60 mph),
+        -- unless the place is that ramp
+        and (s.unitdesc = p.location
+             or not regexp_matches(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''), '^(I ?5|I ?90|I ?405|SR ?[0-9]+)( |$)| RP( |$)'))
       group by p.location),
 len as (select unitdesc as location, max(ST_Length(geom)) as block_ft from streets group by unitdesc),
 h as (select p.location, min(case h.priority when 'High' then 1 when 'Mid' then 2 when 'Low' then 3 end) as hin_level
@@ -257,7 +261,7 @@ lp as (select p.location,
        where a.addr_type = 'I' group by p.location),
 sg as (select a.location, bool_or(ped_signal) ped_signal, bool_or(ped_audio) ped_audio,
               bool_or(lt_protected) lt_protected, min(lt_installed) filter (where lt_protected) lt_installed,
-              min(installed) signal_installed
+              max(installed) signal_installed   -- the newest signal install (a new or rebuilt signal)
        -- matched by SDOT's intersection key, or by place (within 80 ft) when the key differs, e.g. merged split roadways
        from locations_all a join loc_pts p using (location)
        join signals g on g.intkey = a.intkey or (a.addr_type = 'I' and g.geom is not null and ST_DWithin(p.geom, g.geom, 80))
@@ -391,7 +395,7 @@ select e.*, x.addr_type, x.intkey, x.speed_limit, x.art_class,
   case x.hin_level when 1 then 'High' when 2 then 'Mid' when 3 then 'Low' end as sdot_hin,
   x.hcl_years as sdot_hcl_years,
   x.area, x.neighborhood,
-  x.lpi_status, x.lpi_installed, x.lpi_planned, x.signalized, x.ped_signal, x.ped_audio, x.lt_protected, x.lt_installed,
+  x.lpi_status, x.lpi_installed, x.lpi_planned, x.signalized, x.ped_signal, x.ped_audio, x.lt_protected, x.lt_installed, x.signal_installed,
   a.lon, a.lat,
   -- state facilities: WSDOT owns or shares responsibility
   -- Aurora Ave N is SR 99 and Lake City Way NE is SR 522, although SDOT classes them as city arterials.
@@ -482,15 +486,27 @@ select *,
 from b;
 
 create or replace table ranked as
+-- Intersections and stretches between them are ranked separately, the way SDOT lists High Collision Locations: they
+-- aren't alike. Tested on earlier years, judging long stretches per 1,000 ft caught fewer later deaths and serious
+-- injuries (long stretches really do keep producing them), so every place keeps its full score.
+-- rank_type is the place's rank among its own kind. `rank` interleaves the two lists (intersection #1, stretch #1,
+-- intersection #2, ...), so "rank <= 50" is the top 25 of each and every list below keeps one order.
 -- Scores are rounded for ranking: sums done in parallel can differ in the last digit from build to build, which would
 -- let equal scores swap places instead of falling to the tie-breaks.
-select row_number() over (order by round(score_ksi, 9) desc, crashes desc, location)       as rank,
-       row_number() over (order by round(expected_harm, 9) desc, crashes desc, location)   as rank_noboost,
+with a as (
+  select *, addr_type = 'I' as is_int,
+    score_ksi as score_rank
+  from priorities
+),
+b as (select *, row_number() over (partition by is_int order by round(score_rank, 9) desc, crashes desc, location) as rank_type from a)
+select 2 * rank_type - case when is_int then 1 else 0 end                               as rank,
+       2 * row_number() over (partition by is_int order by round(expected_harm, 9) desc, crashes desc, location)
+         - case when is_int then 1 else 0 end                                               as rank_noboost,
        row_number() over (order by round(score_fatal, 9) desc, crashes desc, location)     as rank_fatal,
        case when score_risk is not null
             then row_number() over (partition by score_risk is null order by round(score_risk, 12) desc, crashes desc, location) end as rank_risk,
        *
-from priorities;
+from b;
 
 -- the ranking at earlier dates; what changed; need and published work by district (context only, not scored)
 .read pipeline/history.sql
@@ -509,6 +525,13 @@ methods as (
   union all select 'old_reliability', location, row_number() over (order by round(harm * crashes / (crashes + 3), 9) desc, crashes desc, location) from train
   union all select 'crash_count', location, row_number() over (order by crashes desc, harm desc, location) from train
   union all select 'ksi_count', location, row_number() over (order by ksi desc, crashes desc, location) from train
+  -- the site's ranking: intersections and stretches ranked apart, the two lists interleaved
+  union all select 'expected_split', location, 2 * rt - case when is_int then 1 else 0 end from (
+    select t.location, x.addr_type = 'I' as is_int,
+      row_number() over (partition by x.addr_type = 'I' order by
+        round(t.expected_harm, 9) desc,
+        t.crashes desc, t.location) as rt
+    from train t join loc_context x using (location))
 )
 select m as method,
   coalesce(sum(t.ksi) filter (where rk <= 50), 0)::int  as future_ksi_50,
@@ -542,16 +565,26 @@ from sets group by m;
 -- ---------------------------------------------------------------- exports for the site
 create or replace macro export_set() as table
   select * from ranked where rank <= 200 or rank_risk <= 200
-     or killed >= 2;   -- places where 2 or more people died are always shown, whatever their rank
+     or killed >= 2   -- places where 2 or more people died are always shown, whatever their rank
+     -- each council district's own top 25 intersections and top 25 stretches (and top 25 for how busy it is),
+     -- so the list filtered to one district is complete
+     or location in (select location from (
+          select location,
+            row_number() over (partition by council_district, addr_type = 'I' order by rank) as n_ksi,
+            row_number() over (partition by council_district, rank_risk is null order by rank_risk) as n_risk,
+            rank_risk
+          from ranked where council_district is not null)
+        where n_ksi <= 25 or (rank_risk is not null and n_risk <= 25));
 
 -- Map areas for the on-demand detail files: a grid of about 1.1 km x 1.1 km cells.
 create or replace macro cell_of(lat, lon) as floor(lat / 0.01)::int || '_' || floor(-lon / 0.015)::int;
 
 -- Every place's site fields (the same columns for the ranked spots and, loaded on demand, for every other place).
 create or replace table spot_export as
-  select rank, rank_noboost, rank_fatal, rank_risk, location, addr_type, round(lon, 6) lon, round(lat, 6) lat,
+  select rank, rank_type, rank_noboost, rank_fatal, rank_risk, location, addr_type, round(lon, 6) lon, round(lat, 6) lat,
          cell_of(lat, lon) as cell,
-         round(score_ksi, 1) score_ksi, round(score_fatal, 1) score_fatal, round(score_risk, 1) score_risk,
+         round(score_ksi, 1) score_ksi,
+         round(score_fatal, 1) score_fatal, round(score_risk, 1) score_risk,
          round(harm, 1) harm, round(expected_harm, 1) expected_harm, round(eb_weight, 3) eb_weight,
          round(ksi_harm, 1) ksi_harm, round(block_ft) block_ft, round(ref_other_harm_per_known, 2) ref_other_harm_per_known,
          ref_group, ref_n, round(ref_ksi_share, 4) ref_ksi_share, round(ref_ksi_harm_per_crash, 2) ref_ksi_harm_per_crash,
@@ -566,7 +599,7 @@ create or replace table spot_export as
          wet_crashes, dark_crashes, unlit_crashes, road_known, light_known,
          first_crash, last_crash, requests, request_types,
          fixes, vol_history, bus_trips, bus_routes, bus_stretch_id,
-         sw_missing_tier, sw_poor_ft, sw_poor_assessed, proj_ids, proj_planned,
+         sw_missing_tier, sw_poor_ft, sw_poor_assessed, proj_ids, proj_planned, cip, signal_installed,
          crosswalks, crosswalks_midblock, crosswalk_school, crosswalk_controls, curb_ramps, curb_ramps_poor, bike_facilities,
          school, school_ft, rse_quintile, rse_year, council_district, council_member, council_url, before_after,
          rank_years, rank_month_ago, rank_year_ago
@@ -669,6 +702,8 @@ copy (
     (select fatal from collisions_dropped)                  as dropped_fatal,
     (select count(*) from requests)                         as requests,
     (select count(*) from locations)                        as locations_scored,
+    (select count(*) from locations where addr_type = 'I')  as intersections_scored,
+    (select count(*) from locations where addr_type <> 'I') as stretches_scored,
     (select list({'mode': mode, 'on_hin': on_hin, 'on_hin_high': on_hin_high, 'sdot_hcl_recent': sdot_hcl_recent} order by mode)
      from sdot_agreement)                                   as sdot_agreement,
     (select round(count(*) filter (where sdot_hin is not null) * 1.0 / count(*), 3) from locations where crashes >= 10) as busy_share_on_hin,
@@ -694,11 +729,9 @@ copy (
     (select round(sum(ksi) filter (where rank <= 50) * 1.0 / sum(ksi), 3) from ranked) as top50_ksi_share,
     (select sum(ksi) filter (where rank <= 50) from ranked) as top50_ksi,
     (select sum(ksi) from ranked) as city_ksi_crashes,
-    -- looking ahead: the top 50 ranked on the first 3 years, and their share of the next 2 years' KSI crashes
-    (select sum(t.ksi) from (select location from eb_in(ws(), (select test_start from scoring_window))
-                             order by expected_harm desc, crashes desc, location limit 50) top
-       join (select location, count(*) ksi from collisions where date >= (select test_start from scoring_window) and date < we()
-               and severity in ('Fatal Collision', 'Serious Injury Collision') group by location) t using (location)) as forward_top50_ksi,
+    -- looking ahead: the top 50 ranked on the first 3 years (the site's rule, so the validation's own number), and
+    -- their share of the next 2 years' KSI crashes
+    (select future_ksi_50 from validation where method = 'expected_split') as forward_top50_ksi,
     (select count(*) from collisions where date >= ws() and date < we() and peds + cyclists > 0
        and severity = 'Fatal Collision') as city_ped_bike_fatal,
     (select count(*) from collisions where date >= ws() and date < we() and severity = 'Unknown'

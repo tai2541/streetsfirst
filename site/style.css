@@ -78,6 +78,8 @@ body.resizing { user-select: none; cursor: ew-resize; }
   70%  { transform: scale(2.7); opacity: 0; }
   100% { transform: scale(2.7); opacity: 0; }
 }
+/* stretches between intersections: a rounded bar, so #1 stretch and #1 intersection can't be confused */
+.top-mark.stretch .core, .top-mark.stretch .pulse { left: 3px; top: 10px; width: 34px; height: 20px; border-radius: 6px; line-height: 20px; }
 .top-mark:hover .core { box-shadow: 0 0 0 2px #fff, 0 0 18px 8px rgba(179, 20, 27, .7); }
 .top-mark.faded .pulse { animation: none; opacity: 0; }
 @media (prefers-reduced-motion: reduce) {
@@ -95,6 +97,8 @@ body.resizing { user-select: none; cursor: ew-resize; }
 .map-legend i { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 1.5px #fff, 0 0 0 2.5px rgba(0,0,0,.08); }
 .map-legend .lg-top .core { display: block; width: 16px; height: 16px; border-radius: 50%; background: #b3141b; color: #fff;
   font: 700 9px/16px system-ui, sans-serif; text-align: center; box-shadow: 0 0 6px 2px rgba(179,20,27,.5); }
+.map-legend .lg-top.stretch .core { width: 22px; height: 13px; border-radius: 4px; line-height: 13px; }
+.map-legend .lg-shape[hidden] { display: none; }
 
 
 /* collapsible sections */

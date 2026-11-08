@@ -158,7 +158,7 @@
       ? d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'unknown')(D.fetchedAt && new Date(D.fetchedAt.replace(' ', 'T')))}.`;
 
   const scoreText = p => (mode === 'risk' ? `${p.score.toFixed(1)} <small>per million vehicles</small>` : `${fmt(Math.round(p.score))} <small>pts</small>`);
-  const topShare = rank => { const s = (100 * rank) / N; return s < 1 ? `top ${Math.max(0.1, Math.ceil(s * 10) / 10)}%` : s <= 50 ? `top ${Math.ceil(s)}%` : 'lower half'; };
+  const topShare = rank => { const s = (100 * kRank(rank)) / kindCount(rank); return s < 1 ? `top ${Math.max(0.1, Math.ceil(s * 10) / 10)}%` : s <= 50 ? `top ${Math.ceil(s)}%` : 'lower half'; };
 
   // ---------- reasons: plain-language chips, most important first ----------
   function reasons(p) {
@@ -304,6 +304,8 @@
   map.createPane('projects'); map.getPane('projects').style.zIndex = 420;
   const PROJ_COLOR = '#5b3fd1';
   const projLayer = L.layerGroup();
+  // Planned head-start walk signals are always shown: they're points, light on the map, and say where SDOT means to act.
+  const lpiLayer = L.layerGroup().addTo(map);
   PJ.list.forEach(j => {
     const done = j.stage === 'done';
     const style = { pane: 'projects', color: PROJ_COLOR, weight: done ? 3 : 4, opacity: done ? 0.45 : 0.9, dashArray: done ? null : '6 5', lineCap: 'round' };
@@ -312,7 +314,7 @@
     if (!shape) return;
     shape.bindPopup(`<div class="proj-pop">${projHtml(j)}<div class="muted proj-src">From ${esc(PROJ_SRC[j.kind]())}.
       Not tied to a budget line: SDOT doesn't publish costs on these maps.</div></div>`, { maxWidth: 300 });
-    shape.addTo(projLayer);
+    shape.addTo(j.kind === 'lpi' && j.stage !== 'done' ? lpiLayer : projLayer);
   });
   const projOn = () => map.hasLayer(projLayer);
   try { if (localStorage.getItem('ipm.projects') === '1') projLayer.addTo(map); } catch { /* storage unavailable */ }
@@ -366,6 +368,19 @@
   new ShowAll().addTo(map);
   // Tiers differ by color AND outline, so they don't rely on hue alone.
   const tier = r => (r <= 10 ? 0 : r <= 25 ? 1 : r <= 50 ? 2 : 3);
+  // Crash places: intersections and stretches between them are ranked separately, then interleaved (#1 intersection,
+  // #1 stretch, #2 intersection, ...), so an odd overall rank is an intersection and an even one a stretch.
+  const kindOf = r => (r % 2 ? 'intersection' : 'stretch');
+  const kindsOf = r => (r % 2 ? 'intersections' : 'stretches');
+  const kRank = r => Math.ceil(r / 2);
+  const rankTxt = (r, long = true) => (r == null ? '–' : `#${fmt(kRank(r))}${long ? ' ' + kindOf(r) : ''}`);
+  const tierN = k => (k <= 5 ? 0 : k <= 12 ? 1 : k <= 25 ? 2 : 3);
+  const tierK = r => tierN(kRank(r));
+  // A place as shown in the list: its rank among its own kind (or, with a district picked, within the district).
+  const shownN = p => p.dr ?? (mode === 'ksi' ? kRank(p.rank) : p.rank);
+  const pTier = p => (p.rank == null ? 3 : mode === 'ksi' ? tierN(shownN(p)) : tier(shownN(p)));
+  const pRank = (p, long = true) => (p.rank == null ? '—' : `#${fmt(shownN(p))}${mode === 'ksi' && long ? ' ' + kindOf(p.rank) : ''}`);
+  const kindCount = r => (r % 2 ? meta.intersections_scored : meta.stretches_scored) || N;
   const TIERS = [
     { color: '#b3141b' },
     { color: '#e0561f', stroke: '#6b1f04', weight: 2.5 },
@@ -392,17 +407,17 @@
       d.innerHTML = `
         <button type="button" class="lg-toggle" aria-expanded="${!small}">Map key</button>
         <div class="lg-body">
-        <div class="lg-safety"><span class="lg-top"><span class="core">1</span></span>Top 10</div>
-        <div class="lg-safety">${sw(1)}11–25</div>
-        <div class="lg-safety">${sw(2)}26–50</div>
-        <div class="lg-safety">${sw(3)}51+</div>
+        <div class="lg-safety"><span class="lg-top"><span class="core">1</span></span><span class="lg-shape"><span class="lg-top stretch"><span class="core">1</span></span></span><span class="lg-tl"></span></div>
+        <div class="lg-safety">${sw(1)}<span class="lg-tl"></span></div>
+        <div class="lg-safety">${sw(2)}<span class="lg-tl"></span></div>
+        <div class="lg-safety">${sw(3)}<span class="lg-tl"></span></div>
         <div class="lg-safety"><i style="background:#fff;box-shadow:inset 0 0 0 3px #7a0c10"></i>Repeated deaths</div>
         ${[0, 1, 2].map(t => `<div class="lg-traffic"><b class="lg-tline" style="background:${TIERS[t].color};height:${7 - t}px"></b>${['Top 10', '11–25', '26–50'][t]}</div>`).join('')}
         <div class="lg-traffic"><b class="lg-tline" style="background:#8a94a6;height:2px"></b>Others</div>
         <div><b class="lg-line"></b>Seattle city limits (area covered)</div>
         <div class="lg-proj"><b class="lg-pline"></b>SDOT project: planned or in design</div>
         <div class="lg-proj"><b class="lg-pline done"></b>SDOT project: completed</div>
-        <div class="lg-proj"><b class="lg-ppt"></b>Head-start walk signal planned</div>
+        <div><b class="lg-ppt"></b>Head-start walk signal planned</div>
         <button type="button" class="pausebtn" aria-pressed="${paused}">${paused ? 'Play' : 'Pause'} animation</button>
         </div>`;
       d.querySelector('.lg-toggle').onclick = e => {
@@ -418,6 +433,13 @@
     }
   });
   const legendCtl = new Legend().addTo(map);
+  // Tier labels: by rank among each kind for the main ranking (circles = intersections, bars = stretches); one list for "how busy".
+  const legendTiers = () => {
+    const ksi = mode === 'ksi', c = legendCtl.getContainer();
+    const l = ksi ? ['Top 5 of each: intersections, stretches', '6–12 of each', '13–25 of each', '26+'] : ['Top 10', '11–25', '26–50', '51+'];
+    c.querySelectorAll('.lg-tl').forEach((e, i) => { e.textContent = l[i]; });
+    c.querySelectorAll('.lg-shape').forEach(e => { e.hidden = !ksi; });
+  };
   map.on('dragstart', () => {
     if (!matchMedia('(max-width: 760px)').matches) return;
     const d = legendCtl.getContainer(); d.classList.add('collapsed'); d.querySelector('.lg-toggle').setAttribute('aria-expanded', 'false');
@@ -430,9 +452,20 @@
     const onlyFatal = document.getElementById('onlyFatal').checked;
     const ongoing = document.getElementById('onlyOngoing').checked;
     const noPlan = document.getElementById('noPlan').checked;
-    const keep = p => (!type || p.addr_type === type || (type === 'B' && p.addr_type === 'A'))
+    const dist = +document.getElementById('distFilter').value || 0;
+    const keep = p => (!dist || p.council_district === dist) && (!type || p.addr_type === type || (type === 'B' && p.addr_type === 'A'))
         && (!onlyFatal || p.killed > 0) && (!ongoing || p.ksi_years >= 3) && (!noPlan || !(p.proj_ids && p.proj_ids.length));
-    const rows = D.priorities.filter(p => p.rank != null && p.rank <= 200).filter(keep).slice(0, n);
+    // With a district picked, places are ranked again within it: each kind apart (one list for "how busy"), up to 25
+    // each, the depth the data file carries for every district.
+    D.priorities.forEach(p => { p.dr = null; });
+    let pool;
+    if (dist) {
+      const c = {};
+      pool = D.priorities.filter(p => p.rank != null && p.council_district === dist).filter(p => {
+        const k = mode === 'ksi' ? p.rank % 2 : 0; c[k] = (c[k] || 0) + 1; p.dr = c[k]; return c[k] <= 25;
+      }).sort((a, b) => a.dr - b.dr || (b.rank % 2) - (a.rank % 2));
+    } else pool = D.priorities.filter(p => p.rank != null && p.rank <= 200);
+    const rows = pool.filter(keep).slice(0, n);
     // Spots where 2+ people died are never left off, even when their predicted-harm rank is low.
     const inRows = new Set(rows.map(p => p.rank_ksi));
     const extra = D.priorities.filter(p => p.killed >= 2 && !inRows.has(p.rank_ksi) && keep(p))
@@ -445,30 +478,31 @@
     const { rows, extra } = currentRows();
     const maxScore = Math.max(...rows.map(r => r.score), 1);
 
-    layer.clearLayers(); markers = {};
+    layer.clearLayers(); markers = {}; legendTiers();
     extra.forEach(p => {
       const m = L.circleMarker([p.lat, p.lon], EXTRA_STYLE);
-      m.bindTooltip(`${p.rank ? '#' + fmt(p.rank) + ' ' : ''}${esc(p.name)}: ${p.killed} people killed`, { direction: 'top', offset: [0, -4] })
+      m.bindTooltip(`${p.rank ? pRank(p) + ' · ' : ''}${esc(p.name)}: ${p.killed} people killed`, { direction: 'top', offset: [0, -4] })
         .on('click', () => pickSpot(p, true, null));
       m._p = p; m.addTo(layer); markers[p.rank_ksi] = m;
     });
     // Draw lower ranks first so higher ranks sit on top.
     [...rows].reverse().forEach(p => {
-      const t = TIERS[tier(p.rank)];
-      const m = p.rank <= 10
+      const t = TIERS[pTier(p)];
+      // numbered: circles for intersections, rounded bars for stretches (the two lists share numbers)
+      const m = pTier(p) === 0
         ? L.marker([p.lat, p.lon], {
-            zIndexOffset: 1000 - p.rank, riseOnHover: true, keyboard: true, title: `#${p.rank} ${p.name}`, alt: `#${p.rank} ${p.name}`,
+            zIndexOffset: 1000 - p.rank, riseOnHover: true, keyboard: true, title: `${pRank(p)} ${p.name}`, alt: `${pRank(p)} ${p.name}`,
             icon: L.divIcon({
-              className: 'top-mark', iconSize: [40, 40], iconAnchor: [20, 20],
+              className: 'top-mark' + (mode === 'ksi' && p.rank % 2 === 0 ? ' stretch' : ''), iconSize: [40, 40], iconAnchor: [20, 20],
               html: `<span class="pulse" style="animation-delay:-${(p.rank * 0.37).toFixed(2)}s"></span>
-                     <span class="core">${p.rank}</span>`
+                     <span class="core">${shownN(p)}</span>`
             })
           })
         : L.circleMarker([p.lat, p.lon], {
             radius: 5 + 9 * Math.sqrt(Math.max(0, p.score) / maxScore), color: t.stroke, weight: t.weight,
             fillColor: t.color, fillOpacity: 0.85
           });
-      m.bindTooltip(`#${p.rank} ${esc(p.name)}`, { direction: 'top', offset: [0, p.rank <= 10 ? -14 : -4] })
+      m.bindTooltip(`${pRank(p)} ${esc(p.name)}`, { direction: 'top', offset: [0, pTier(p) === 0 ? -14 : -4] })
         .on('click', () => pickSpot(p, true, m.getElement && m.getElement()));
       m._p = p; m.addTo(layer); markers[p.rank_ksi] = m;
     });
@@ -476,16 +510,18 @@
     const list = document.getElementById('list');
     const card = (p, isExtra, i) => {
       const chips = reasons(p).slice(0, 3);
-      const rk = p.rank != null ? '#' + fmt(p.rank) : '—';
-      // movement since last month (recommended ranking only); shown under the points, spoken in full
-      const mv = mode === 'ksi' && p.rank != null ? (p.rank_month_ago ? p.rank_month_ago - p.rank : null) : 0;
+      const rk = p.rank != null ? `#${fmt(shownN(p))}` : '—';
+      const kind = mode === 'ksi' && p.rank != null ? (p.rank % 2 ? 'Intersection' : 'Stretch') : '';
+      const city = p.dr ? `#${fmt(mode === 'ksi' ? kRank(p.rank) : p.rank)} citywide` : '';
+      // movement since last month (recommended ranking, citywide list only); shown under the points, spoken in full
+      const mv = mode === 'ksi' && p.rank != null && !p.dr ? (p.rank_month_ago ? kRank(p.rank_month_ago) - kRank(p.rank) : null) : 0;
       const move = mv == null ? '<span class="mv new"><span aria-hidden="true">new</span><span class="sr-only">, new in the list this month</span></span>'
         : mv >= 1 ? `<span class="mv up"><span aria-hidden="true">▲${mv}</span><span class="sr-only">, up ${mv} since last month</span></span>`
         : mv <= -1 ? `<span class="mv down"><span aria-hidden="true">▼${-mv}</span><span class="sr-only">, down ${-mv} since last month</span></span>` : '';
       return `
-      <li data-id="${p.rank_ksi}" class="${isExtra ? 'extra' : (p.rank <= 10 ? 'top10 ' : '') + 't' + tier(p.rank)}" style="--i:${Math.min(i || 0, 15)}">
+      <li data-id="${p.rank_ksi}" class="${isExtra ? 'extra' : (pTier(p) === 0 ? 'top10 ' : '') + 't' + pTier(p)}" style="--i:${Math.min(i || 0, 15)}">
         <button type="button" class="card">
-          <span class="row1"><span class="rank">${rk}</span><span class="loc">${esc(p.name)}${p.area ? `<span class="hood">${esc(p.area)}</span>` : ''}</span>
+          <span class="row1"><span class="rank">${rk}</span><span class="loc">${esc(p.name)}${p.area || city || kind ? `<span class="hood">${esc([kind, p.area, city].filter(Boolean).join(' · '))}</span>` : ''}</span>
             <span class="score">${p.score != null ? scoreText(p) : ''}${move}</span></span>
           <span class="chips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</span>
           ${sdotRow(p)}
@@ -511,7 +547,7 @@
   const isExtraMarker = m => m.options && m.options.fillColor === EXTRA_STYLE.fillColor && m.options.radius === EXTRA_STYLE.radius;
   function highlight(p, on) {
     const m = markers[p.rank_ksi]; if (!m) return;
-    const base = isExtraMarker(m) ? EXTRA_STYLE : TIERS[tier(p.rank)];
+    const base = isExtraMarker(m) ? EXTRA_STYLE : TIERS[pTier(p)];
     if (m.setStyle) { m.setStyle({ weight: on ? 4 : (base.weight || EXTRA_STYLE.weight), color: on ? '#1d2430' : (base.stroke || base.color) }); if (on) m.bringToFront(); }
     else { m.setZIndexOffset(on ? 6000 : (current && current.rank_ksi === p.rank_ksi ? 5000 : 1000 - p.rank)); const el = m.getElement(); if (el) el.classList.toggle('hl', on); }
     if (on) m.openTooltip(); else m.closeTooltip();
@@ -894,26 +930,26 @@
     const yy = y => "'" + String(y).slice(2);
     const cells = ys.map(y => ({ l: `${yy(y - 5)}–${yy(y - 1)}`, sr: `Ranked on crashes from ${y - 5} to ${y - 1}`, r: got.get(y) }))
       .concat([{ l: 'Now', sr: `Now, on crashes from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}`, r: now }]);
-    const cls = r => r == null ? 'none' : 't' + tier(r) + (r > 200 ? ' low' : '');
-    const in50 = cells.filter(c => c.r && c.r <= 50).length;
+    const cls = r => r == null ? 'none' : 't' + tierK(r) + (kRank(r) > 100 ? ' low' : '');
+    const in50 = cells.filter(c => c.r && kRank(c.r) <= 25).length;
     const fixes = [];
     if (p.lpi_status === 'Existing' && p.lpi_installed) fixes.push({ d: p.lpi_installed, k: 'Head-start walk signal' });
     if (p.lt_protected && p.lt_installed) fixes.push({ d: p.lt_installed, k: 'Protected left turn' });
     (p.fixes || []).filter(f => f.d && f.s === 'Built' && f.k !== 'Bus lane').forEach(f => fixes.push({ d: f.d, k: f.k }));
     const recent = fixes.filter(f => +f.d.slice(0, 4) >= ys[0] - 1).sort((a, b) => a.d.localeCompare(b.d));
-    const m = p.rank_month_ago, mv = m && now ? m - now : 0;
-    return `<div class="legend rh-legend" aria-hidden="true">${[['t0', 'Top 10'], ['t1', '11–25'], ['t2', '26–50'], ['t3', '51+']].map(([c, l]) =>
+    const m = p.rank_month_ago, mv = m && now ? kRank(m) - kRank(now) : 0;
+    return `<div class="legend rh-legend" aria-hidden="true">${[['t0', 'Top 5'], ['t1', '6–12'], ['t2', '13–25'], ['t3', '26+']].map(([c, l]) =>
         `<span><i class="rh-${c}"></i>${l}</span>`).join('')}</div>
       <ol class="rank-hist" style="--n:${cells.length}" aria-label="Rank over the years, by 5-year periods of crashes">
-        ${cells.map(c => `<li class="${cls(c.r)}" data-tip="${esc(`<b>${c.sr}</b><br>${c.r ? 'Ranked #' + fmt(c.r) : 'No crashes'}`)}">
-          <span class="sr-only">${esc(c.sr)}: ${c.r ? 'ranked ' + fmt(c.r) : 'no crashes'}.</span>
-          <b aria-hidden="true">${c.r ? '#' + fmt(c.r) : '–'}</b><span aria-hidden="true">${c.l}</span></li>`).join('')}
+        ${cells.map(c => `<li class="${cls(c.r)}" data-tip="${esc(`<b>${c.sr}</b><br>${c.r ? 'Ranked ' + rankTxt(c.r) : 'No crashes'}`)}">
+          <span class="sr-only">${esc(c.sr)}: ${c.r ? 'ranked ' + rankTxt(c.r) : 'no crashes'}.</span>
+          <b aria-hidden="true">${c.r ? rankTxt(c.r, false) : '–'}</b><span aria-hidden="true">${c.l}</span></li>`).join('')}
       </ol>
-      <div class="note">${in50 ? `In the top 50 in ${in50} of these ${cells.length} periods. ` : ''}${m
-        ? (mv === 0 ? 'Same overall rank as a month ago. ' : `Overall rank ${mv > 0 ? 'up' : 'down'} ${plural(Math.abs(mv), 'place', 'places')} since last month (was #${fmt(m)}). `) : ''}
+      <div class="note">${in50 ? `Among the top 25 ${kindsOf(now || 1)} in ${in50} of these ${cells.length} periods. ` : ''}${m
+        ? (mv === 0 ? 'Same overall rank as a month ago. ' : `Overall rank ${mv > 0 ? 'up' : 'down'} ${plural(Math.abs(mv), 'place', 'places')} since last month (was ${rankTxt(m)}). `) : ''}
         ${recent.length ? 'Fixes: ' + recent.map(f => `${esc(f.k)} (${monthYear(f.d)})`).join(', ') + '. ' : ''}
         Each period is ranked the same way as today, but on crashes only: repair requests aren't available that far back, so
-        "Now" can differ a little from the #${fmt(p.rank ?? p.rank_ksi)} above. "–": no crashes in those years.</div>`;
+        "Now" can differ a little from the ${rankTxt(p.rank_ksi)} above. "–": no crashes in those years.</div>`;
   }
 
   function yearChart(crashes) {
@@ -1119,6 +1155,8 @@
       else items.push(`<b>${esc(f.k)}</b>${f.n > 1 ? ` (${f.n})` : ''}${f.d ? ' since ' + monthYear(f.d) : ''}.`);
     });
     if (p.addr_type === 'I' && !p.signalized) items.push('No traffic signal in SDOT\'s signal data.');
+    else if (p.signalized && p.signal_installed && +p.signal_installed.slice(0, 4) >= 1990)
+      items.push(`<b>Traffic signal</b> installed or last rebuilt in ${p.signal_installed.slice(0, 4)} (SDOT signal data).`);
     const still = stillDangerous(p);
     // Planned and recent projects from SDOT's published project maps (the planned walk signal is already listed above).
     const projs = projectsAt(p).filter(j => j.kind !== 'lpi'), lpiPlanned = projectsAt(p).some(j => j.kind === 'lpi');
@@ -1136,8 +1174,12 @@
       : `<div class="note">None on SDOT's published project maps (new sidewalks, neighborhood safety projects, head-start walk
           signals). SDOT may have other plans here, such as paving or corridor projects, that it doesn't publish on a map.</div>`}
       ${projToggleBtn()}
-      <div class="note">From SDOT signal, Vision Zero, traffic-calming, bike-lane, bus-lane and project-map data. Repaving and
-        large corridor redesigns aren't linked: SDOT doesn't publish a current map of them.</div>`;
+      ${(p.cip || []).length ? `<h4 class="proj-h">In SDOT's capital budget</h4>
+        <ul class="proj-list">${p.cip.map(c => `<li><b>${esc(c.t)}</b> <span class="muted">· ${esc(c.c)}</span> — money budgeted ${c.y0 === c.y1 ? 'in ' + c.y0 : `${c.y0}–${c.y1}`}.</li>`).join('')}</ul>
+        <div class="note">Matched by the street named in the project's title, in the City's adopted budget. The budget doesn't say
+          which blocks a project covers, so it may or may not reach this spot, and it isn't counted as a fix here.</div>` : ''}
+      <div class="note">From SDOT signal, Vision Zero, traffic-calming, bike-lane, bus-lane and project-map data, and the City's capital
+        budget. Repaving isn't linked: SDOT doesn't publish a current map of it.</div>`;
   }
 
   function countBy(arr, f) {
@@ -1271,10 +1313,10 @@
     const st = [p.speed_limit ? `${p.speed_limit} mph` : '', (p.street_type || '').toLowerCase(), p.volume ? `${fmt(p.volume)} vehicles a weekday` : ''].filter(Boolean);
     if (st.length) parts.push(st.join(', ').replace(/^./, c => c.toUpperCase()) + '.');
     const rk = p.rank_ksi;
-    const line2 = `Ranks <b>#${fmt(rk)}</b> of ${fmt(N)} crash locations (${topShare(rk)})` +
-      (p.rank_risk ? `, and #${fmt(p.rank_risk)} once you account for how busy it is` : '') + '.';
-    const why = p.killed >= 2 && rk > 50
-      ? `<p class="callout">${p.killed} people died here. It ranks #${fmt(rk)} because the ranking estimates where people are most
+    const line2 = `Ranks <b>#${fmt(kRank(rk))}</b> of ${fmt(kindCount(rk))} ${kindsOf(rk)} with crashes (${topShare(rk)})` +
+      (p.rank_risk ? `, and #${fmt(p.rank_risk)} of all places once you account for how busy it is` : '') + '.';
+    const why = p.killed >= 2 && kRank(rk) > 25
+      ? `<p class="callout">${p.killed} people died here. It ranks ${rankTxt(rk)} because the ranking estimates where people are most
           likely to be hurt next, and this spot has few other crashes (${p.crashes} in total), which gives the model little history to tell whether the
           danger here will continue, so it leans on what's typical for similar streets. That may understate it: repeated deaths can mean traffic moves at deadly speeds. It's always listed
           so it isn't overlooked.</p>` : '';
@@ -1292,12 +1334,12 @@
       <p class="note">Own-record weight = crashes ÷ (crashes + ${k}). Raw crash harm before blending: ${fmt(Math.round(p.harm))}.</p>
       <p><b>Score ${fmt(Math.round(p.score_ksi))}</b> = expected harm × repair boost ${(1 + p.request_boost).toFixed(2)}
         <span class="muted">(${plural(p.scored_requests, 'safety-related request')} since ${monthYear(meta.requests_scored_from)})</span>.
-        Without the boost it would rank #${p.rank_noboost}.</p>`;
+        Without the boost it would rank ${rankTxt(p.rank_noboost)}.</p>`;
     const riskLine = p.score_risk != null
       ? `<p><b>Risk ${p.score_risk.toFixed(1)} per million vehicles</b> = expected harm ${fmt(Math.round(p.expected_harm))} ÷
           (${fmt(Math.max(p.volume, weight('risk_vol_floor')))} vehicles a weekday × 365 × 5 years ÷ 1 million).</p>`
       : `<p class="note">Not ranked for risk: ${p.volume ? `fewer than ${weight('risk_min_crashes')} crashes` : 'no SDOT traffic count'}.</p>`;
-    const ranks = `<p class="note">Ranks: #${p.rank_ksi} most likely to hurt people · ${p.rank_risk ? '#' + p.rank_risk : 'unranked'} for how busy it is.</p>`;
+    const ranks = `<p class="note">Ranks: ${rankTxt(p.rank_ksi)} most likely to hurt people · ${p.rank_risk ? '#' + p.rank_risk : 'unranked'} for how busy it is.</p>`;
     return (mode === 'risk' ? riskLine + ksiLine : ksiLine + riskLine) + ranks;
   }
   const groupName = g => {
@@ -1349,7 +1391,7 @@
          <h3><button type="button" class="dsec-h" aria-expanded="${!collapsed[id]}" aria-controls="sec-${id}">${title}</button></h3>
          <div class="dsec-b" id="sec-${id}">${html}</div></section>`;
     const chips = reasons(p).filter(r => !(r.cls === 'conf' && p.crashes < 5));   // the note under the summary says it
-    document.getElementById('detailTitle').innerHTML = `<span class="drank">#${fmt(p.rank ?? p.rank_ksi)}</span> ${esc(p.name)}`;
+    document.getElementById('detailTitle').innerHTML = `<span class="drank" title="${esc(mode === 'risk' && p.rank != null ? 'Rank once you account for how busy it is' : rankTxt(p.rank_ksi))}">${mode === 'risk' && p.rank != null ? '#' + fmt(p.rank) : rankTxt(p.rank_ksi, false)}</span> ${esc(p.name)}`;
     document.getElementById('detailBody').innerHTML = `
       <div class="dhead">
         ${p.neighborhood ? `<div class="where">${esc(p.neighborhood)}${p.area && p.area !== p.neighborhood ? ` <span class="muted">· ${esc(p.area)}</span>` : ''}</div>` : ''}
@@ -1518,7 +1560,7 @@
     opener = document.getElementById('search');
     history.replaceState(null, '', '#p=' + keyOf(s.name));
     markCurrent();
-    document.getElementById('detailTitle').innerHTML = `<span class="drank">#${fmt(s.rank)}</span> ${esc(niceName(s.name))}`;
+    document.getElementById('detailTitle').innerHTML = `<span class="drank" title="${esc(rankTxt(s.rank))}">${rankTxt(s.rank, false)}</span> ${esc(niceName(s.name))}`;
     document.getElementById('detailBody').innerHTML = `
       <div class="dhead">
         ${s.hood ? `<div class="where">${esc(s.hood)}${s.area && s.area !== s.hood ? ` <span class="muted">· ${esc(s.area)}</span>` : ''}</div>` : ''}
@@ -1526,7 +1568,7 @@
           <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${s.lat},${s.lon}" target="_blank" rel="noopener">Street View ↗</a> · ${copyLoc(niceName(s.name))}</div>
         ${reportBox(niceName(s.name))}
         <p class="verdict">${plural(s.crashes, 'crash', 'crashes')} from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}${s.ksi ? `; ${s.ksi} killed or seriously injured someone` : ''}${s.pb ? `; ${s.pb} involved people walking or biking` : ''}.</p>
-        <p class="verdict2">Ranks <b>#${fmt(s.rank)}</b> of ${fmt(N)} crash locations (${topShare(s.rank)}).</p>
+        <p class="verdict2">Ranks <b>#${fmt(kRank(s.rank))}</b> of ${fmt(kindCount(s.rank))} ${kindsOf(s.rank)} with crashes (${topShare(s.rank)}).</p>
         <p class="note">${state === 'failed'
           ? 'The full crash and request details for this place couldn’t be loaded. Check your connection and try again.'
           : 'Loading the full crash and request details…'}</p>
@@ -1563,7 +1605,9 @@
     opener = null;
   }
   document.getElementById('closeDetail').onclick = () => closeDetail(true);
-  ['topN', 'addrFilter', 'onlyFatal', 'onlyOngoing', 'noPlan'].forEach(id => (document.getElementById(id).onchange = () => { render(); refreshHome(); }));
+  // picking a district (or going back to all of Seattle) frames its places
+  document.getElementById('distFilter').addEventListener('change', () => setTimeout(showAll, 0));
+  ['topN', 'addrFilter', 'distFilter', 'onlyFatal', 'onlyOngoing', 'noPlan'].forEach(id => (document.getElementById(id).onchange = () => { render(); refreshHome(); }));
 
   function weight(k) { const w = meta.weights.find(x => x.k === k); return w ? w.v : '?'; }
 
@@ -1601,7 +1645,7 @@
     sList.innerHTML = sHits.map((s, i) => s.addr
       ? `<li role="option" id="sr-${i}" data-i="${i}" class="addr-opt"><span>📍 Find this address on the map: <b>${esc(s.text)}</b><small class="pin-privacy">Looked up with Esri’s address search. You can then add it to your pins, which are saved only on this device.</small></span></li>`
       : `<li role="option" id="sr-${i}" data-i="${i}">
-        <span>${esc(niceName(s.name))}${s.area ? `<small class="hood">${esc(s.area)}</small>` : ''}</span><small>#${fmt(s.rank)} · ${plural(s.crashes, 'crash', 'crashes')}</small></li>`).join('') +
+        <span>${esc(niceName(s.name))}${s.area ? `<small class="hood">${esc(s.area)}</small>` : ''}</span><small>${rankTxt(s.rank)} · ${plural(s.crashes, 'crash', 'crashes')}</small></li>`).join('') +
       (!nPlaces ? `<li class="none">No scored crash spot by that name.${sHits.some(x => x.addr) ? ' Use the address option above to see crashes nearby.' : ' Only places with a reported crash are scored.'}</li>` : '');
     sList.hidden = false; sInput.setAttribute('aria-expanded', 'true');
   }
@@ -1729,7 +1773,7 @@
     nb.all.forEach(({ x }) => {
       if (markers[x.rank]) return;
       L.circleMarker([x.lat, x.lon], { radius: 5, color: '#fff', weight: 1.5, fillColor: '#6b7586', fillOpacity: 0.9 })
-        .bindTooltip(`#${fmt(x.rank)} ${esc(niceName(x.name))}: ${plural(x.crashes, 'crash', 'crashes')}`, { direction: 'top', offset: [0, -4] })
+        .bindTooltip(`${rankTxt(x.rank)} · ${esc(niceName(x.name))}: ${plural(x.crashes, 'crash', 'crashes')}`, { direction: 'top', offset: [0, -4] })
         .on('click', () => openNear(x)).addTo(nearLayer);
     });
   }
@@ -1750,7 +1794,7 @@
       <div class="stat-grid home-stats">${stat(fmt(nb.crashes), 'crashes')}${stat(fmt(nb.ksi), 'of them killed or seriously hurt someone')}${stat(fmt(nb.pb), 'involved people walking or biking')}</div>
       <section class="hsec hsec-top"><h3>Places with crashes nearby</h3>
         ${list.length ? `<ol class="home-top">${list.map((n, i) => `<li><button type="button" class="home-card" data-near="${i}">
-            <span class="hc-rank" style="background:${TIERS[tier(n.x.rank)].color}">#${fmt(n.x.rank)}</span>
+            <span class="hc-rank" style="background:${TIERS[tierK(n.x.rank)].color}" title="${rankTxt(n.x.rank)}">${rankTxt(n.x.rank, false)}</span>
             <span class="hc-main"><span class="hc-name">${esc(niceName(n.x.name))}</span>
               <span class="hc-sub">${plural(n.x.crashes, 'crash', 'crashes')}${n.x.ksi ? ` · ${n.x.ksi} killed or seriously hurt someone` : ''}</span></span>
             <span class="hc-val">${distText(n.m)}</span></button></li>`).join('')}</ol>
@@ -1839,7 +1883,7 @@
     const html = `<div class="pin-pop"><div class="pin-head"><div class="pin-title">📍 ${esc(title)}</div>${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}${g.picked ? `<div class="pin-addr">Spot picked on the map${g.name ? '' : ' · nearest address'}</div>` : ''}${g.preview ? '<div class="pin-addr">Not saved yet</div>' : ''}</div>
       <div class="pin-near">${nb.crashes
         ? `<p>Within a quarter mile, ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}: <b>${plural(nb.crashes, 'crash', 'crashes')}</b>${nb.ksi ? `, <b>${nb.ksi} killed or seriously hurt someone</b>` : ', none killed or seriously hurt anyone'}${nb.pb ? `, ${nb.pb} with people walking or biking` : ''}.</p>
-          Highest-ranked places nearby:<ul>${nb.worst.map(n => `<li><button type="button" class="linkbtn" data-open="${n.x.rank}">#${fmt(n.x.rank)} ${esc(niceName(n.x.name))}</button>
+          Highest-ranked places nearby:<ul>${nb.worst.map(n => `<li><button type="button" class="linkbtn" data-open="${n.x.rank}">${rankTxt(n.x.rank)} · ${esc(niceName(n.x.name))}</button>
             <span class="muted">${distText(n.m)}</span></li>`).join('')}</ul>`
         : 'No reported crashes within a quarter mile in the last five years.'}</div>
       <details class="pin-res" data-loc="${esc(g.label)}"><summary>Report a problem here</summary>${resourceList()}</details>
@@ -2025,6 +2069,7 @@
     } else {
       const n = el('list').querySelectorAll('li[data-id]:not(.extra)').length, top = +el('topN').value;
       const parts = [n ? (n < top ? n + (n === 1 ? ' place' : ' places') : 'Top ' + n) : 'No places match', el('mode').selectedOptions[0].text];
+      if (el('distFilter').value) parts.push(el('distFilter').selectedOptions[0].text);
       if (el('addrFilter').value) parts.push(el('addrFilter').selectedOptions[0].text);
       [['onlyFatal', 'Someone died'], ['onlyOngoing', 'Repeat serious crashes'], ['noPlan', 'No published SDOT project']]
         .forEach(([id, l]) => el(id).checked && parts.push(l));
@@ -2339,7 +2384,7 @@
   }
 
   const safetyList = list => list.length
-    ? `<ul class="tight">${list.slice(0, 8).map(p => `<li><button type="button" class="linkbtn" data-open="${p.rank_ksi}">#${p.rank} ${esc(p.name)}</button>
+    ? `<ul class="tight">${list.slice(0, 8).map(p => `<li><button type="button" class="linkbtn" data-open="${p.rank_ksi}">${rankTxt(p.rank_ksi)} · ${esc(p.name)}</button>
         <span class="muted">· ${plural((p.killed ?? 0) + (p.seriously_injured ?? 0), 'person', 'people')} killed or seriously hurt</span></li>`).join('')}</ul>
        ${list.length > 8 ? `<div class="note">and ${list.length - 8} more in the safety top 200.</div>` : ''}`
     : '<div class="note">None of the safety top 200 are along here.</div>';
@@ -2535,12 +2580,12 @@
       <p class="note">Why isn't this the default? Total harm counts every person hurt. A busy street with many injuries
         affects more people than a quiet one with a high rate.</p>`;
     const V = (meta.validation || []).reduce((o, a) => (o[a.method] = a, o), {});
-    const vname = { expected: 'This site (expected harm)', old_reliability: 'Previous version of this site', crash_count: 'Most crashes',
+    const vname = { expected_split: 'This site (intersections and stretches ranked apart)', expected: 'Expected harm, one list for both', old_reliability: 'Previous version of this site', crash_count: 'Most crashes',
                     raw_harm: 'Crash harm, no blending', ksi_count: 'Most fatal/serious crashes' };
     const dayBefore = d => new Date(new Date(d + 'T12:00:00') - 864e5).toISOString().slice(0, 10);
     const span = (x, y) => `${monthYear(x)}–${monthYear(y)}`;
     const two = !!meta.test2_from;
-    const ex2 = V.expected || {}, cc = V.crash_count || {};
+    const ex2 = V.expected_split || V.expected || {}, cc = V.crash_count || {}, one = V.expected || {};
     const validation = `
       <h3>Does it predict anything?</h3>
       <p>The test: rank spots using only earlier years, then count the fatal and serious crashes that happened afterwards at
@@ -2554,12 +2599,17 @@
       <table class="vtable"><thead>
         <tr><th scope="col" rowspan="2">Method</th><th scope="colgroup" colspan="2">Test 1</th>${two ? '<th scope="colgroup" colspan="2">Test 2</th>' : ''}</tr>
         <tr><th scope="col">Top 50</th><th scope="col">Top 200</th>${two ? '<th scope="col">Top 50</th><th scope="col">Top 200</th>' : ''}</tr></thead><tbody>
-        ${(meta.validation || []).map(v => `<tr class="${v.method === 'expected' ? 'total' : ''}"><td>${vname[v.method] || v.method}</td><td>${v.k50}</td><td>${v.k200}</td>${two ? `<td>${v.b50}</td><td>${v.b200}</td>` : ''}</tr>`).join('')}
+        ${(meta.validation || []).map(v => `<tr class="${v.method === 'expected_split' ? 'total' : ''}"><td>${vname[v.method] || v.method}</td><td>${v.k50}</td><td>${v.k200}</td>${two ? `<td>${v.b50}</td><td>${v.b200}</td>` : ''}</tr>`).join('')}
       </tbody></table>
       <p class="note">Ranking on fatal/serious crashes alone does worst: they're rare enough that a place's count swings a lot from year to year, so past counts alone say little about what comes next.
         Blending them with crash counts came out ahead in ${two ? 'both tests' : 'this test'}, but narrowly: ${two
           ? `${ex2.k50} and ${ex2.b50} in the top 50, against ${cc.k50} and ${cc.b50} for simply counting crashes`
           : `${ex2.k50} in the top 50, against ${cc.k50} for simply counting crashes`}. Read the ranking as a strong guide, not a precise forecast.</p>
+      ${V.expected_split && V.expected ? `<p class="note">Ranking intersections and stretches apart, the way SDOT lists its High Collision
+        Locations, keeps them from competing with each other, and half of every top list is stretches. It does as well in the top 50
+        (${ex2.k50}${two ? ' and ' + ex2.b50 : ''}, against ${one.k50}${two ? ' and ' + one.b50 : ''} for one combined list) but catches fewer in the
+        top 200 (${ex2.k200}${two ? ' and ' + ex2.b200 : ''}, against ${one.k200}${two ? ' and ' + one.b200 : ''}): further down, a combined list would hold more
+        intersections, where most serious crashes happen. We also tested judging long stretches per 1,000 ft; it did worse, so every place keeps its full score.</p>` : ''}
       <p class="note">Test 1 was also used to choose the method, so it flatters it a little${two ? '; Test 2 was added afterwards as a check' : ''}. The repair-request
         boost isn't included in either. Spots that rank high after a bad stretch usually improve somewhat on their own (regression to
         the mean): the blending evens out the fatal/serious share where numbers are small, but not the crash count itself.</p>`;
@@ -2784,10 +2834,10 @@
           <tr><th scope="col">Rank in ${pick}</th><th scope="col">Place</th><th scope="col">All crashes ${then}</th>
             <th scope="col">Killed or seriously hurt<br><span class="muted">${then} → ${cmpSpan}</span></th>
             <th scope="col">Fixes since ${y0(Y.d0)}</th><th scope="col">Rank today</th></tr>
-          ${more('places', shown, 10, x => `<tr><td>#${x.r}</td><th scope="row">${placeBtn(x.loc)}${x.d ? `<br><small class="muted">District ${x.d}</small>` : ''}${x.state
+          ${more('places', shown, 10, x => `<tr><td>${rankTxt(x.r)}</td><th scope="row">${placeBtn(x.loc)}${x.d ? `<br><small class="muted">District ${x.d}</small>` : ''}${x.state
               ? `<br><small class="pg-state">State highway (${esc(x.state)}): WSDOT shares responsibility</small>` : ''}</th>
             <td>${x.c}</td><td>${x.ksi} → ${x.ksi_cmp}</td><td>${fixCell(x)}</td>
-            <td>${x.now ? '#' + fmt(x.now) : '<span class="muted">no crashes</span>'}</td></tr>`).replace(/<li class="pg-more">([\s\S]*?)<\/li>/, '<tr class="pg-more"><td colspan="6">$1</td></tr>')}
+            <td>${x.now ? rankTxt(x.now) : '<span class="muted">no crashes</span>'}</td></tr>`).replace(/<li class="pg-more">([\s\S]*?)<\/li>/, '<tr class="pg-more"><td colspan="6">$1</td></tr>')}
         </table>`)}
         <p class="note">"Fix" means something SDOT publishes with a date: head-start walk signals (the walk light turns on a few seconds
           before the green), protected left-turn arrows, new traffic signals, traffic circles, protected bike lanes, and finished new
@@ -2800,14 +2850,15 @@
     // ---- 2. since last month
     function monthPart() {
       const ins = M.moves.filter(m => m.in50 === 'in'), outs = M.moves.filter(m => m.in50 === 'out');
-      const up = M.moves.filter(m => !m.in50 && m.was - m.now >= 5), down = M.moves.filter(m => !m.in50 && m.now - m.was >= 5);
-      const arrow = m => !m.was ? 'new' : m.was > m.now ? `▲${m.was - m.now}` : `▼${m.now - m.was}`;
-      const row = m => `<li><span class="pg-l1"><span class="pg-rk">#${fmt(m.now)}</span> ${placeBtn(m.loc)}</span>
-        <span class="pg-l2">${m.was ? `${arrow(m)}: was #${fmt(m.was)} a month ago` : 'not ranked a month ago'}</span></li>`;
+      const dk = m => kRank(m.was) - kRank(m.now);   // moves among the place's own kind
+      const up = M.moves.filter(m => !m.in50 && m.was && dk(m) >= 3), down = M.moves.filter(m => !m.in50 && m.was && -dk(m) >= 3);
+      const arrow = m => !m.was ? 'new' : dk(m) > 0 ? `▲${dk(m)}` : `▼${-dk(m)}`;
+      const row = m => `<li><span class="pg-l1"><span class="pg-rk">${rankTxt(m.now)}</span> ${placeBtn(m.loc)}</span>
+        <span class="pg-l2">${m.was ? `${arrow(m)}: was ${rankTxt(m.was, false)} a month ago` : 'not ranked a month ago'}</span></li>`;
       const group = (title, arr, empty) => `<div class="pg-group"><h4>${title}</h4>${arr.length
         ? `<ul class="pg-list">${arr.map(row).join('')}</ul>` : `<p class="note">${empty}</p>`}</div>`;
       const T = M.recent_ksi_total || {};
-      const rkTxt = r => r.rank && r.rank <= 500 ? ` · ranked #${fmt(r.rank)}` : '';
+      const rkTxt = r => r.rank && kRank(r.rank) <= 250 ? ` · ranked ${rankTxt(r.rank)}` : '';
       return `<section class="pg-sec" id="pg-month">
         <h3>Since last month</h3>
         <p class="lead">The ranking now covers crashes through <b>${throughMonth(M.d_now)}</b>. A month ago it went through
@@ -2865,7 +2916,7 @@
             <td>${r.top50}</td><td>${r.top50_nothing}</td></tr>`).join('')}
         </table>`)}
         ${sel ? `<div class="pg-open" id="pgOpen"><h4>${esc(gName(sel.g))}: top-50 places ${dim === 'district' ? linkBtn('progress=d' + sel.g) : ''}</h4>
-          ${(sel.list || []).length ? `<ul class="pg-list">${sel.list.map(x => `<li><span class="pg-l1"><span class="pg-rk">#${x.r}</span> ${placeBtn(x.loc)}</span>
+          ${(sel.list || []).length ? `<ul class="pg-list">${sel.list.map(x => `<li><span class="pg-l1"><span class="pg-rk">${rankTxt(x.r)}</span> ${placeBtn(x.loc)}</span>
             <span class="pg-l2">${status(x)}</span></li>`).join('')}</ul>` : '<p class="note">None of today\'s top 50 are here.</p>'}</div>` : ''}
         <p class="note">Crashes: ${monthYear(P.window.d0)}–${throughMonth(P.window.d1)}. Fixes: the dated fixes listed above, at places with
           crashes, since ${P.since}; head-start walk signals are shown on their own because SDOT has added hundreds of them, mostly downtown.
@@ -2997,7 +3048,7 @@
     const titleEl = document.getElementById('detailTitle'), body = document.getElementById('detailBody');
     renderGraphs = () => {};
     const card = (it, i) => `<li><button type="button" class="home-card" data-home="${i}">
-        <span class="hc-rank" style="background:${TIERS[tier(it.rank)].color}">#${it.rank}</span>
+        <span class="hc-rank" style="background:${TIERS[it.t].color}"${it.title ? ` title="${esc(it.title)}"` : ''}>${it.rk}</span>
         <span class="hc-main"><span class="hc-name">${esc(it.name)}</span><span class="hc-sub">${esc(it.sub)}</span></span>
         <span class="hc-val">${it.val}</span></button></li>`;
     let items, title, lead, middle = '';
@@ -3006,7 +3057,7 @@
       title = 'Crash hot spots';
       lead = 'Nothing picked yet. Click a dot on the map or a place in the list, or search an address, to see why it ranks.';
       items = top.slice(0, 3).map(p => ({
-        rank: p.rank, name: p.name, sub: [p.area, plural(p.crashes, 'crash', 'crashes')].filter(Boolean).join(' · '),
+        rk: pRank(p, false), t: pTier(p), title: pRank(p), name: p.name, sub: [mode === 'ksi' && p.rank != null ? kindOf(p.rank).replace(/^./, c => c.toUpperCase()) : '', p.area, plural(p.crashes, 'crash', 'crashes')].filter(Boolean).join(' · '),
         val: `<b>${(p.killed ?? 0) + (p.seriously_injured ?? 0)}</b>killed or seriously hurt`, open: () => select(p, true, null) }));
       if (!n) middle = '<p class="note">No spots match these filters. Turn a filter off to see more.</p>';
       const arterial = top.filter(p => /arterial/i.test(p.street_type || '')).length;
@@ -3034,7 +3085,7 @@
       const M = curMode();
       title = view === 'traffic' ? 'Slow buses & busy streets' : 'Missing & broken sidewalks';
       lead = 'Nothing picked yet. Click a line on the map or a street in the list to see the details.';
-      items = M.items().slice(0, 3).map(t => ({ rank: M.rank(t), name: M.name(t), sub: M.sub(t), val: M.score(t), open: () => selectTraffic(t, true) }));
+      items = M.items().slice(0, 3).map(t => ({ rk: '#' + M.rank(t), t: tier(M.rank(t)), name: M.name(t), sub: M.sub(t), val: M.score(t), open: () => selectTraffic(t, true) }));
     }
     const pinsHtml = pins.length ? `<section class="hsec hsec-pins"><h3>Your pins</h3><ul class="home-pins">${pins.map(g => {
         const nb = nearbySpots(g.lat, g.lon);

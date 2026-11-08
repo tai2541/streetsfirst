@@ -75,12 +75,17 @@ select h.id, h.location, h.crashes, h.ksi,
 from h join g using (id, ref_group);
 
 -- Ranks. Yearly: crashes alone. Monthly: with each place's current request boost (m0 is then exactly today's ranking).
+-- Intersections and stretches ranked apart, the two lists interleaved: the same rule as today's.
 create or replace table hist_rank as
-select e.id, e.location, e.crashes, e.ksi, e.expected_harm,
-  row_number() over (partition by e.id order by
-    round(e.expected_harm * (1 + case when p.kind = 'month' then coalesce(r.request_boost, 0) else 0 end), 9) desc,
-    e.crashes desc, e.location) as rk
-from hist_eb e join hist_periods p using (id) left join ranked r using (location);
+with s as (
+  select e.id, e.location, e.crashes, e.ksi, e.expected_harm, coalesce(hp.addr_type, 'B') = 'I' as is_int,
+    e.expected_harm * (1 + case when p.kind = 'month' then coalesce(r.request_boost, 0) else 0 end) as sc
+  from hist_eb e join hist_periods p using (id) left join ranked r using (location)
+  left join hist_places hp using (location)
+)
+select id, location, crashes, ksi, expected_harm,
+  2 * row_number() over (partition by id, is_int order by round(sc, 9) desc, crashes desc, location) - case when is_int then 1 else 0 end as rk
+from s;
 
 -- Per place: rank on each 1 January, a month ago, and a year ago (for the place's detail panel and the list).
 create or replace table place_history as
@@ -101,9 +106,9 @@ select distinct location, k, d, year(d) as y from (
   union all
   select location, kind, d from loc_fix_hits where d is not null and status = 'Built' and kind <> 'Bus lane'
   union all
-  select l.location, 'New traffic signal', g.installed
-  from locations_all l join signals g on g.intkey = l.intkey
-  where l.addr_type = 'I' and g.installed >= date '1990-01-01'
+  -- the same signal date the place's page shows (so a "fix" here is always one a reader can see there)
+  select location, 'Traffic signal installed or rebuilt', signal_installed
+  from locations where addr_type = 'I' and signal_installed >= date '1990-01-01'
   union all
   select l.location, case j.kind when 'sidewalk' then 'New sidewalk' when 'safety' then 'Neighborhood safety project'
                                  else 'Head-start walk signal' end, make_date(j.year, 7, 1)

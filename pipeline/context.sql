@@ -69,8 +69,16 @@ select f.properties.COMPOSITE_QUINTILE as quintile, f.properties.INDEX_YEAR as y
 from (select unnest(features) f from read_json('data/raw/rse_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
+-- A district's member is named only if the City Clerk's list of serving members (Legistar, fetched the same day)
+-- includes them; with no list (fetch failed), the map's names are used as they are.
+create or replace table council_now as
+select lower(trim(OfficeRecordFullName)) as n
+from read_json('data/raw/legistar_council.json', columns = {'OfficeRecordFullName': 'VARCHAR'});
 create or replace table council as
-select f.properties.C_DISTRICT::int as district, f.properties.Name as member, f.properties.Website as url, gj_geom(f.geometry) as geom
+select f.properties.C_DISTRICT::int as district,
+       case when not exists (select 1 from council_now) or lower(trim(f.properties.Name)) in (select n from council_now)
+            then f.properties.Name end as member,
+       f.properties.Website as url, gj_geom(f.geometry) as geom
 from (select unnest(features) f from read_json('data/raw/council_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
@@ -79,10 +87,12 @@ with sch as (   -- nearest public school within 1,000 ft
   select p.location, arg_min(s.name, {'d': ST_Distance(p.geom, s.geom), 'n': s.name}) as school, min(ST_Distance(p.geom, s.geom)) as school_ft
   from loc_pts p join schools s on ST_DWithin(p.geom, s.geom, 1000) group by p.location),
 -- (a point exactly on a boundary is in two areas: take the lower-numbered one, every build)
-eq as (select p.location, min({'q': r.quintile, 'y': r.yr}) as e
-       from loc_pts p join rse r on ST_Within(p.geom, r.geom) group by p.location),
-cd as (select p.location, min({'d': c.district, 'm': c.member, 'u': c.url}) as c
-       from loc_pts p join council c on ST_Within(p.geom, c.geom) group by p.location)
+-- A place just outside every district (streets on the city limit, e.g. N 145th St) takes the nearest one within
+-- 300 ft: the district whose residents use that street.
+eq as (select p.location, arg_min({'q': r.quintile, 'y': r.yr}, {'d': ST_Distance(p.geom, r.geom), 'q': r.quintile}) as e
+       from loc_pts p join rse r on ST_DWithin(p.geom, r.geom, 300) group by p.location),
+cd as (select p.location, arg_min({'d': c.district, 'm': c.member, 'u': c.url}, {'x': ST_Distance(p.geom, c.geom), 'd': c.district}) as c
+       from loc_pts p join council c on ST_DWithin(p.geom, c.geom, 300) group by p.location)
 select l.location, sch.school, round(sch.school_ft) as school_ft, eq.e.q as rse_quintile, eq.e.y as rse_year,
        cd.c.d as council_district, cd.c.m as council_member, cd.c.u as council_url
 from locations l left join sch using (location) left join eq using (location) left join cd using (location);

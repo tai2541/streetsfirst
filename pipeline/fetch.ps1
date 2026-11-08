@@ -129,6 +129,14 @@ Get-ArcGISLayer "$gis/Public_School/FeatureServer/0" 'NAME,SCHOOL,TYPE,GRADE' 's
 Get-ArcGISLayer "$gis/Race_and_Social_Equity_Composite_Index_Current/FeatureServer/0" `
   'GEOID,NAMELSAD,COMPOSITE_QUINTILE,COMPOSITE_PERCENTILE,INDEX_YEAR' 'rse'
 Get-ArcGISLayer "$gis/Council_District_Member_Info/FeatureServer/0" 'C_DISTRICT,DISPLAY_NAME,Name,Website' 'council'
+# Who is on the Council today, from the City Clerk's legislative records (Legistar). The district map above isn't always
+# updated when a member changes, so the site names a district's member only when this list confirms they're serving.
+# If this list can't be fetched, the build goes on without the check.
+$today = (Get-Date).ToString('yyyy-MM-dd')
+$leg = "https://webapi.legistar.com/v1/seattle/OfficeRecords?`$filter=OfficeRecordBodyName eq 'City Council' and " +
+       "OfficeRecordStartDate le datetime'$today' and OfficeRecordEndDate ge datetime'$today'"
+try { Get-WithRetry $leg (Join-Path $raw 'legistar_council.json') 60 }
+catch { Write-Host "  council member list unavailable ($($_.Exception.Message)); names from the district map are shown unchecked"; '[]' | Set-Content (Join-Path $raw 'legistar_council.json') }
 
 # ---- 4b2. Sidewalks: SDOT's own priorities for missing sidewalks (Seattle Transportation Plan, Tier 1 = highest)
 # and sidewalks SDOT rated poor or very poor. Owner and parcel fields are not fetched (no singling out homes).

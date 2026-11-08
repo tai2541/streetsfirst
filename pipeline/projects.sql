@@ -67,6 +67,61 @@ create or replace table locations as
 select l.*, coalesce(j.proj_ids, []::bigint[]) as proj_ids, coalesce(j.proj_planned, false) as proj_planned
 from locations l left join loc_proj j using (location);
 
+-- ---------------------------------------------------------------- budget projects named for a street
+-- SDOT's capital budget gives project titles and dollars by year, but no locations. A title that names a street
+-- ("Aurora Avenue North Safety Improvements") is matched to the scored places on that street, automatically, with no
+-- list kept by hand. The project's exact limits aren't published, so the site shows it as "a budget project named for
+-- this street", never as a fix at the place. Rules: street names are compared in one spelling (Avenue = Ave,
+-- North = N, ...); a direction written after the name must match exactly (1st Ave NE is not 1st Ave S); a direction
+-- written before a named street may be left out (Madison St covers E Madison St); and when a title names a
+-- neighborhood ("Northgate ..."), only places in that neighborhood match. Projects with money in the last two budget
+-- years or later.
+create or replace macro street_norm(s) as
+  trim(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(replace(regexp_replace(' ' || upper(s) || ' ', '[^A-Z0-9]+', ' ', 'g'), ' ', '  '), ' AVENUE | AV ', ' AVE ', 'g'), ' STREET ', ' ST ', 'g'), ' BOULEVARD ', ' BLVD ', 'g'), ' PLACE ', ' PL ', 'g'), ' DRIVE ', ' DR ', 'g'), ' ROAD ', ' RD ', 'g'), ' NORTHEAST ', ' NE ', 'g'), ' NORTHWEST ', ' NW ', 'g'), ' SOUTHEAST ', ' SE ', 'g'), ' SOUTHWEST ', ' SW ', 'g'), ' NORTH ', ' N ', 'g'), ' SOUTH ', ' S ', 'g'), ' EAST ', ' E ', 'g'), ' WEST ', ' W ', 'g'), ' MARTIN +LUTHER +KING ', ' M L KING ', 'g'), ' +', ' ', 'g'));
+
+create or replace table loc_cip as
+with cip as (
+  select pid, arg_max(title, {'y': year, 't': title}) as title, min(year) as y0, max(year) as y1
+  from (select year, amount,
+               coalesce(nullif(regexp_extract(project, '^(MC-TR-C[0-9]+)', 1), ''), code) as pid,
+               trim(regexp_replace(project, '^MC-TR-C[0-9]+\s*-\s*', '')) as title
+        from capital_budget where dept = 'Seattle Department of Transportation' and amount > 0)
+  group by pid having max(year) >= year(current_date) - 1
+),
+cipn as (select *, ' ' || street_norm(title) || ' ' as tn from cip),
+hood_names as (select distinct upper(n) as hn from (select area as n from hoods union select neighborhood from hoods) where length(n) >= 5),
+cip_hoods as (select c.pid, list(street_norm(h.hn)) as hns from cipn c join hood_names h on c.tn like '% ' || street_norm(h.hn) || ' %' group by c.pid),
+streets_at as (   -- the streets a place is on: a block's own street, or both streets of an intersection
+  select distinct location, street_norm(s) as s
+  from (select location, unnest(string_split(regexp_replace(location, ' BETWEEN .*$', ''), ' AND ')) as s from locations)
+),
+cand0 as (        -- each street, and for a named street with a leading direction, the name without it
+  select location, s as full_s, s as m, false as dropped from streets_at where s like '% %'
+  union
+  select location, s, regexp_replace(s, '^(N|S|E|W|NE|NW|SE|SW) ', ''), true from streets_at
+  where regexp_matches(s, '^(N|S|E|W|NE|NW|SE|SW) [A-Z]') and regexp_replace(s, '^(N|S|E|W|NE|NW|SE|SW) ', '') like '% %'
+),
+ambiguous as (    -- a name used with more than one leading direction (E Harrison St, W Harrison St) can't drop it
+  select m from cand0 where dropped group by m having count(distinct full_s) > 1
+),
+cand as (select * from cand0 where not dropped or m not in (select m from ambiguous)),
+hits as (
+  select distinct k.location, c.pid, c.title, c.y0, c.y1
+  from cand k join cipn c on c.tn like '% ' || k.m || ' %'
+  join locations l using (location)
+  left join cip_hoods h on h.pid = c.pid
+  where (h.hns is null or list_has_any(h.hns, [street_norm(coalesce(l.area, '')), street_norm(coalesce(l.neighborhood, ''))]))
+    -- a direction written after the street in the title must be the place's own (1st Ave S is not 1st Ave)
+    and not regexp_matches(c.tn, ' ' || k.m || ' (N|S|E|W|NE|NW|SE|SW) ')
+    -- a bridge, viaduct or tunnel project is about that structure, so only places on a structure match it
+    and (not regexp_matches(c.tn, ' (BRIDGE|VIADUCT|TUNNEL|SPAN) ') or l.structure)
+)
+select location, list({'c': pid, 't': title, 'y0': y0, 'y1': y1} order by y1 desc, pid) as cip
+from hits group by location;
+
+create or replace table locations as
+select l.*, j.cip from locations l left join loc_cip j using (location);
+
 -- Missing-sidewalk blocks SDOT already has a sidewalk project for: the project's line runs along most of the block
 -- (three quarters of the block within 30 ft of it), or SDOT's block name matches exactly. Names alone miss projects with
 -- typos or multi-block "FROM ... TO" names, so the shape is the main test.
