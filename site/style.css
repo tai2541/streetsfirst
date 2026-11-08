@@ -786,3 +786,9 @@ main.sheet-over .sheet { z-index: 1200; padding-right: 0; }
   main.list-full #panel { height: 88%; }
 }
 @media (max-width: 760px) { main.list-full #detail { height: 88%; } }
+/* narrow phones: six tabs don't fit in one row, so they sit in two rows of three, all visible (no sideways scroll) */
+@media (max-width: 600px) {
+  header nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; overflow: visible; }
+  header nav.more-right { -webkit-mask-image: none; mask-image: none; }
+  header nav button { padding: 7px 4px; text-align: center; }
+}
