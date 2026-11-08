@@ -1,0 +1,74 @@
+# Weekly rebuild: fetch fresh city data, score it, check the result, publish to GitHub Pages.
+# A failed fetch check, build or page self-test stops the job, and the site keeps the last good version.
+# Setup once: repository Settings -> Pages -> Source: "GitHub Actions".
+name: Weekly rebuild
+
+on:
+  schedule:
+    - cron: '0 10 * * 1'   # Mondays 10:00 UTC (2-3am Pacific)
+  workflow_dispatch:        # "Run workflow" button for a manual rebuild
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get DuckDB (pinned)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force tools\duckdb | Out-Null
+          Invoke-WebRequest 'https://github.com/duckdb/duckdb/releases/download/v2.0.0/duckdb-cli-windows-amd64.tar.gz' -OutFile duckdb.tar.gz -UseBasicParsing
+          # Refuse a download that doesn't match the pinned release.
+          if ((Get-FileHash duckdb.tar.gz -Algorithm SHA256).Hash -ne '91663C2F36C2A334B0E5E639006D8C29C29E013AF0C477D80BB931DF68870312') { throw 'DuckDB download does not match the pinned checksum' }
+          tar -xzf duckdb.tar.gz -C tools\duckdb
+          if (-not (Test-Path tools\duckdb\duckdb.exe)) { throw 'duckdb.exe not found in the download' }
+          & tools\duckdb\duckdb.exe -no-agent -c "install spatial;"
+          if ($LASTEXITCODE -ne 0) { throw 'could not install the DuckDB spatial extension' }
+
+      # Last run's row counts, so the fetch can refuse a sudden 25% drop or jump in any dataset.
+      - name: Restore last row counts
+        uses: actions/cache/restore@v4
+        with:
+          path: data/raw/counts.json
+          key: counts-${{ github.run_id }}
+          restore-keys: counts-
+
+      - name: Fetch and build
+        run: powershell -ExecutionPolicy Bypass -File run.ps1
+
+      - name: Check the built site
+        run: powershell -ExecutionPolicy Bypass -File pipeline/check.ps1 -Dir dist
+
+      - name: Save row counts
+        uses: actions/cache/save@v4
+        with:
+          path: data/raw/counts.json
+          key: counts-${{ github.run_id }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

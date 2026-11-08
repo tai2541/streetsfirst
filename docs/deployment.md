@@ -4,16 +4,23 @@
 - `run.ps1` fetches the data, runs the DuckDB scoring (`pipeline/build.sql`) and writes `site/data/data.js`. It also writes `site/data/more/`: one small script per map area (about 1.1 km square) with the full crash and request details for every place outside the ranked lists. The site loads an area's file only when someone opens a place there; publish the folder with the rest of `site/`.
 - `site/index.html` opens directly in a browser. No server is needed.
 
-## v2: public, static, rebuilt weekly
+## v2: public, static, rebuilt weekly (set up: `.github/workflows/weekly.yml`)
 The site has no backend. Everything a visitor needs is precomputed into static files.
 Weekly is enough: the scored window moves once a month (it ends ~3 months before the newest crash), so only repair
 requests and the newest unscored crashes change in between.
 
 ```
-GitHub Actions (weekly cron, ~2am Pacific)
-  -> fetch city data -> DuckDB build -> site/data/*.json
-  -> deploy site/ to GitHub Pages (or Cloudflare Pages)
+GitHub Actions (Mondays ~2am Pacific, or the "Run workflow" button)
+  -> pinned DuckDB (checksum-verified) -> fetch.ps1 (row-count checks) -> build.sql -> dist/
+  -> check.ps1 (file sizes + page self-test in headless Edge) -> deploy dist/ to GitHub Pages
 ```
+- **To turn it on:** push the repository to GitHub, then Settings -> Pages -> Source: "GitHub Actions".
+- **Safety:** any failed step stops the job before deploy, so the live site keeps the last good build. The fetch
+  refuses a dataset that drops below its minimum or changes by more than 25% since last week (row counts carry over
+  between runs in the Actions cache). `check.ps1` opens `index.html#selftest`, which draws the map and list, opens
+  the #1 spot and a place outside the ranked list, and fails the build if any part doesn't show.
+- **Security:** no outside scripts: Leaflet and the font are vendored, and a Content-Security-Policy allows only this
+  site plus the map tiles and the address-lookup services.
 - **Don't commit the data each week:** a rebuild rewrites ~25 MB of files under `site/data/`. Build and publish them as
   the Pages artifact instead of committing them, or the repository grows by over a gigabyte a year.
 - **Caching:** `run.ps1` puts a short fingerprint of each file's contents in its address (`data/data.js?v=...`,
@@ -21,8 +28,8 @@ GitHub Actions (weekly cron, ~2am Pacific)
   returning visitors reuse them; a changed file has a new address, so browsers fetch it right away. After editing
   `app.js` or `style.css` by hand, re-run `run.ps1` (or the weekly job) to refresh the fingerprints.
 - **Cost:** free on both GitHub Pages and Cloudflare Pages.
-- **Pipeline portability:** DuckDB runs on Linux runners. Port `fetch.ps1` to a
-  cross-platform script (PowerShell 7 works on Linux, or switch to Python/Node).
+- **Pipeline portability:** the job runs on a Windows runner with Windows PowerShell, same as local. Moving to Linux
+  runners later means porting `fetch.ps1`/`run.ps1` to PowerShell 7 or Node.
 - **History:** commit or upload a dated snapshot of the scores each night, e.g. to a
   `history/` branch or object storage. That enables "what changed since last month"
   views and tracking whether flagged spots ever get fixed.

@@ -48,6 +48,7 @@ foreach ($line in [IO.File]::ReadLines((Join-Path $PSScriptRoot 'data\more.ndjso
 }
 Write-Host "Wrote $n area files to site\data\more"
 
+# Publishable copy: dist/ is site/ plus versioned addresses. site/ stays the clean source (open site/index.html locally).
 # Cache-busting: each file's address in index.html carries a short fingerprint of its contents (data.js?v=3f9a...).
 # Browsers can then keep a file as long as they like and still get the new one as soon as it changes, because a
 # changed file has a new address. Unchanged files keep their fingerprint, so returning visitors don't download them.
@@ -62,11 +63,14 @@ $dataTag = Get-Tag @($dataJs, (Join-Path $PSScriptRoot 'data\more.ndjson'))
 [IO.File]::AppendAllText($dataJs, "window.SITE_DATA.version = '$dataTag';`n", $utf8)
 $appTag = Get-Tag @(Join-Path $PSScriptRoot 'site\app.js')
 $cssTag = Get-Tag @(Join-Path $PSScriptRoot 'site\style.css')
-$idx = Join-Path $PSScriptRoot 'site\index.html'
+$dist = Join-Path $PSScriptRoot 'dist'
+if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
+Copy-Item (Join-Path $PSScriptRoot 'site') $dist -Recurse
+$idx = Join-Path $dist 'index.html'
 $html = [IO.File]::ReadAllText($idx)
 $html = $html -replace 'src="data/data\.js(\?v=[0-9a-f]*)?"', "src=`"data/data.js?v=$dataTag`""
 $html = $html -replace 'src="app\.js(\?v=[0-9a-f]*)?"', "src=`"app.js?v=$appTag`""
 $html = $html -replace 'href="style\.css(\?v=[0-9a-f]*)?"', "href=`"style.css?v=$cssTag`""
 [IO.File]::WriteAllText($idx, $html, $utf8)
-Write-Host "File versions: data $dataTag, app $appTag, style $cssTag"
+Write-Host "File versions: data $dataTag, app $appTag, style $cssTag. Publishable copy in dist\"
 Write-Host "Done. Open site\index.html"

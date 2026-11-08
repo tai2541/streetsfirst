@@ -65,14 +65,20 @@ nearby infrastructure repair requests, and shows the SDOT capital budget through
 1. Download the DuckDB CLI (v2.0.0, `duckdb-cli-windows-amd64`) from
    https://github.com/duckdb/duckdb/releases and put `duckdb.exe` in `tools/duckdb/`.
 2. Run `powershell -ExecutionPolicy Bypass -File run.ps1` to fetch the data (about a minute)
-   and build. Add `-SkipFetch` to rebuild from data already downloaded.
+   and build. Add `-SkipFetch` to rebuild from data already downloaded. If DuckDB says the spatial
+   extension is missing, run `tools\duckdb\duckdb.exe -c "install spatial;"` once.
 3. Open `site/index.html` in a browser.
+4. Optional: `powershell -ExecutionPolicy Bypass -File pipeline/check.ps1` checks the build (data sizes, plus a
+   self-test of the page in headless Edge or Chrome). The weekly job won't publish a build that fails it.
 
 ## Layout
 ```
 pipeline/fetch.ps1   download raw city data -> data/raw/   (git-ignored)
 pipeline/build.sql   DuckDB: clean, score, export          (weights at the top)
-run.ps1              fetch + build + write site/data/data.js and site/data/more/ (per-area details, loaded on click)
-site/                static web page (Leaflet map)
+run.ps1              fetch + build + write site/data/data.js and site/data/more/ (per-area details, loaded on click),
+                     then dist/ (the publishable copy, with versioned file addresses)
+pipeline/check.ps1   checks a build before publishing; site/index.html#selftest runs the page self-test
+.github/workflows/   weekly rebuild -> check -> GitHub Pages
+site/                static web page (Leaflet map; Leaflet and the font are vendored, no outside scripts)
 docs/                data sources, deployment plan
 ```

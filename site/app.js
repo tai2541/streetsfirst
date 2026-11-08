@@ -2506,8 +2506,34 @@
     };
   }
 
+  // ---------- self-test (index.html#selftest): used by pipeline/check.ps1 before publishing ----------
+  // Checks the page draws, a ranked spot opens with its crash list (from its area file), a place outside the ranked list
+  // opens in full, and the address lookup data is present. The result goes in the page title for a headless browser.
+  async function selfTest() {
+    const fails = [], wait = async (ok, ms = 8000) => { for (let t = 0; t < ms && !ok(); t += 100) await new Promise(r => setTimeout(r, 100)); return ok(); };
+    const check = (ok, what) => { if (!ok) fails.push(what); };
+    try {
+      check(N > 1000, `only ${N} places scored`);
+      check(D.priorities.length >= 200, `only ${D.priorities.length} ranked spots`);
+      check(searchIdx.length === N, `search index has ${searchIdx.length} of ${N} places`);
+      check(document.querySelectorAll('#list li[data-id]').length >= 10, 'ranked list did not draw');
+      check(document.querySelectorAll('.leaflet-interactive').length >= 10, 'map markers did not draw');
+      check((CTX.council || []).length >= 1, 'no council districts');
+      select(byId.get(1), false, null);
+      check(await wait(() => document.querySelectorAll('#crashTable tr').length > 1), '#1 did not show its crash list');
+      check(!!document.querySelector('#detailBody .dsec-street'), '#1 has no street section');
+      const far = searchIdx[searchIdx.length - 1];
+      selectLite(far);
+      check(await wait(() => current && current.rank_ksi === far.rank && document.querySelectorAll('#crashTable tr').length > 1),
+        `#${far.rank} (outside the ranked list) did not open in full`);
+      closeDetail(false);
+    } catch (e) { fails.push('error: ' + e.message); }
+    document.title = fails.length ? 'SELFTEST FAIL: ' + fails.join('; ') : 'SELFTEST PASS';
+  }
+
   ready = true;
-  if (!openFromHash()) {
+  if (location.hash === '#selftest') { history.replaceState(null, '', location.pathname); selfTest(); }
+  else if (!openFromHash()) {
     refreshHome();
     if (layer.getLayers().length) map.fitBounds(layer.getBounds(), { paddingTopLeft: [30, 30], paddingBottomRight: [isNarrow() ? 30 : detailEl.offsetWidth + 30, 30], maxZoom: 15 });
   }
