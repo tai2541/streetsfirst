@@ -1207,7 +1207,7 @@
     if (moreCache.has(cell)) return Promise.resolve(moreCache.get(cell));
     if (!moreWait.has(cell)) moreWait.set(cell, new Promise((res, rej) => {
       const sc = document.createElement('script');
-      sc.src = `data/more/${cell}.js`;
+      sc.src = `data/more/${cell}.js${D.version ? `?v=${D.version}` : ''}`;   // the fingerprint, so a new build is fetched fresh
       sc.onload = () => { moreWait.delete(cell); moreCache.has(cell) ? res(moreCache.get(cell)) : rej(new Error('empty')); };
       sc.onerror = () => { moreWait.delete(cell); sc.remove(); rej(new Error('failed')); };
       document.head.appendChild(sc);
