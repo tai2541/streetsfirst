@@ -18,8 +18,8 @@ where f.geometry is not null and f.properties.Tier is not null and coalesce(f.pr
 
 create or replace table sw_missing_blocks as
 select row_number() over (order by tier, score desc, ft desc, segkey) as id, *
-from (select segkey, any_value(block) as block, min(tier) as tier, max(score) as score, max(safety_sc) as safety_sc,
-             max(equity_sc) as equity_sc, max(school_sc) as school_sc, max(transit_sc) as transit_sc, any_value(art) as art,
+from (select segkey, min(block) as block, min(tier) as tier, max(score) as score, max(safety_sc) as safety_sc,
+             max(equity_sc) as equity_sc, max(school_sc) as school_sc, max(transit_sc) as transit_sc, min(art) as art,
              count(*) as sides, round(max(ST_Length(geom))) as ft, ST_Union_Agg(geom) as geom
       from sw_missing group by segkey);
 
@@ -35,14 +35,14 @@ where f.geometry is not null;
 
 create or replace table sw_poor_blocks as
 select row_number() over (order by poor_ft + very_poor_ft desc, very_poor_ft desc, segkey) as id, *
-from (select segkey, any_value(block) as block,
+from (select segkey, min(block) as block,
              round(coalesce(sum(ST_Length(geom)) filter (where cond = 'VERY-POOR'), 0)) as very_poor_ft,
              round(coalesce(sum(ST_Length(geom)) filter (where cond = 'POOR'), 0)) as poor_ft,
              min(assessed) as assessed_from, max(assessed) as assessed_to, ST_Union_Agg(geom) as geom
       from sw_poor group by segkey);
 
 -- neighborhood at the middle of each block
-create or replace macro sw_hood(g) as (select arg_min(h.neighborhood, ST_Distance(ST_PointOnSurface(g), h.geom))
+create or replace macro sw_hood(g) as (select arg_min(h.neighborhood, {'d': ST_Distance(ST_PointOnSurface(g), h.geom), 'n': h.neighborhood})
                                        from hoods h where ST_DWithin(ST_PointOnSurface(g), h.geom, 300));
 
 -- ---------------------------------------------------------------- at each safety location

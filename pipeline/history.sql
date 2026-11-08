@@ -17,8 +17,11 @@ select location, date, severity, peds, cyclists from collisions;
 -- Places, including ones with crashes only in earlier years (no crashes in the current 5 years).
 create or replace table hist_places as
 with old as (
-  select location, mode(addr_type) as addr_type, avg(lon) as lon, avg(lat) as lat
-  from crash_hist where lon is not null group by location)
+  select location, arg_max(addr_type, {'n': n, 't': addr_type}) as addr_type,
+         sum(slon) / sum(n) as lon, sum(slat) / sum(n) as lat
+  from (select location, addr_type, count(*) as n, sum(lon) as slon, sum(lat) as slat
+        from crash_hist where lon is not null group by all)
+  group by location)
 select coalesce(a.location, o.location) as location, coalesce(a.addr_type, o.addr_type) as addr_type,
        coalesce(a.lon, o.lon) as lon, coalesce(a.lat, o.lat) as lat,
        a.location is not null as current,
@@ -51,7 +54,7 @@ with c as (
     * (case when f.peds + f.cyclists > 0 and f.severity in ('Fatal Collision', 'Serious Injury Collision', 'Injury Collision')
             then wt('ped_bike_mult') else 1 end)
     * (case when f.severity = 'Fatal Collision'
-            then power(wt('fatal_growth'), row_number() over (partition by p.id, f.location, f.severity = 'Fatal Collision' order by f.date) - 1)
+            then power(wt('fatal_growth'), row_number() over (partition by p.id, f.location, f.severity = 'Fatal Collision' order by f.date, f.peds, f.cyclists) - 1)
             else 1 end) as pts
   from crash_full f join hist_periods p on f.date >= p.d0 and f.date < p.d1
 ),
@@ -75,7 +78,7 @@ from h join g using (id, ref_group);
 create or replace table hist_rank as
 select e.id, e.location, e.crashes, e.ksi, e.expected_harm,
   row_number() over (partition by e.id order by
-    e.expected_harm * (1 + case when p.kind = 'month' then coalesce(r.request_boost, 0) else 0 end) desc,
+    round(e.expected_harm * (1 + case when p.kind = 'month' then coalesce(r.request_boost, 0) else 0 end), 9) desc,
     e.crashes desc, e.location) as rk
 from hist_eb e join hist_periods p using (id) left join ranked r using (location);
 
@@ -129,7 +132,7 @@ with t as (
 ),
 f as (
   select t.yr, t.location, min(pf.d) as first_fix,
-    list({'k': pf.k, 'y': pf.y} order by pf.d) as fixes
+    list({'k': pf.k, 'y': pf.y} order by pf.d, pf.k) as fixes
   from t join place_fixes pf on pf.location = t.location and pf.d >= t.d0
   group by t.yr, t.location
 )
@@ -183,8 +186,8 @@ where f.d >= (select max(date) from collisions) - interval 365 day and f.d <= cu
 -- ---------------------------------------------------------------- (3) need and published work, by district and equity index
 create or replace table proj_area as
 select j.id, j.kind, j.stage, j.year,
-  (select c.district from council c where ST_Within(ST_Centroid(j.geom), c.geom) limit 1) as district,
-  (select r.quintile from rse r where ST_Within(ST_Centroid(j.geom), r.geom) limit 1) as rse_quintile
+  (select min(c.district) from council c where ST_Within(ST_Centroid(j.geom), c.geom)) as district,
+  (select min(r.quintile) from rse r where ST_Within(ST_Centroid(j.geom), r.geom)) as rse_quintile
 from proj j;
 
 -- Places with no council district or equity-index tract are on the city limits (border streets, some bridges): grouped
@@ -241,7 +244,7 @@ copy (
                 from month_change where top50 is not null or (rank_now <= 50 and rank_before - rank_now >= 5)
                   or (rank_before <= 50 and rank_now - rank_before >= 5)),
       'recent_ksi': (select list({'loc': location, 'f': fatal, 's': serious, 'last': last_date, 'rank': rank}
-                                 order by fatal desc, serious desc, last_date desc) from recent_ksi),
+                                 order by fatal desc, serious desc, last_date desc, location) from recent_ksi),
       'recent_ksi_total': (select {'f': sum(fatal), 's': sum(serious), 'from': we(), 'to': max(last_date)} from recent_ksi),
       'recent_fixes': (select list({'loc': location, 'k': k, 'd': d, 'rank': rank} order by d desc, rank) from recent_fixes)
     },

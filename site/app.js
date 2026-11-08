@@ -790,6 +790,14 @@
   }
   window.addEventListener('resize', applySheets);
   applySheets();
+  // Typing in a sheet (search): it rises to full screen, so the phone's keyboard can't squeeze the box out of sight.
+  document.addEventListener('focusin', e => {
+    if (!isNarrow() || !e.target.matches('input:not([type=checkbox]):not([type=radio]), textarea')) return;
+    const s = e.target.closest('#detail') ? S.detail : e.target.closest('#panel') ? S.list : null;
+    if (s && s.snap !== 'full') setSnap(s, 'full');
+  });
+  // The map area itself never scrolls (the sheets do); undo any scroll a browser makes to show a focused element.
+  mainEl.addEventListener('scroll', () => { if (mainEl.scrollTop || mainEl.scrollLeft) { mainEl.scrollTop = 0; mainEl.scrollLeft = 0; } });
 
   // Phone: the views and the report button live in a menu under the header ("Crashes ▾"), to leave the screen to the
   // map and the list. Choosing a view closes it; so do Esc and a tap anywhere else.
@@ -1325,7 +1333,9 @@
     if (location.hash !== '#p=' + keyOf(p.location)) history.replaceState(null, '', '#p=' + keyOf(p.location));
     markCurrent();
     const li = document.querySelector(`#list li[data-id="${p.rank_ksi}"]`);
-    if (li && !fly) li.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' });
+    // (desktop only: on a phone the list is either hidden under the details or already showing the card; scrolling it
+    // there moved the search box out of reach once the details closed)
+    if (li && !fly && !isNarrow()) li.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' });
 
     const det = (D.details && D.details[p.location]) || { crashes: [], requests: [] };
     const kind = { I: 'Intersection', B: 'Stretch between intersections', A: 'Alley' }[p.addr_type] || 'Location';
@@ -1545,9 +1555,11 @@
     liteToken++;
     if (restoreFocus && progReturn) { const n = progReturn; progReturn = null; opener = null; homeFocus = null; returnToProgress(n); return; }
     const hc = homeFocus != null && document.querySelector(`#detailBody [data-home="${homeFocus}"]`); homeFocus = null;
-    if (restoreFocus && opener && document.contains(opener)) opener.focus();
-    else if (restoreFocus && hc) hc.focus();
-    else if (restoreFocus) document.getElementById('list').querySelector('button')?.focus();
+    // Focus goes back without scrolling: on a phone, scrolling the list to the card hid the search box (and on some
+    // phones scrolled the whole map area, leaving a blank strip).
+    if (restoreFocus && opener && document.contains(opener)) opener.focus({ preventScroll: true });
+    else if (restoreFocus && hc) hc.focus({ preventScroll: true });
+    else if (restoreFocus) document.getElementById('list').querySelector('button')?.focus({ preventScroll: true });
     opener = null;
   }
   document.getElementById('closeDetail').onclick = () => closeDetail(true);

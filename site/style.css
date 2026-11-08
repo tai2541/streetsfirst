@@ -776,7 +776,6 @@ main.sheet-over .sheet { z-index: 1200; padding-right: 0; }
 .ptop h2 { font-size: 15px; margin: 4px 0 0; flex: 1; min-width: 0; }
 #panelSearch { width: auto; padding: 0 10px; font-size: 13.5px; font-weight: 600; color: #24408f; }
 #panelSearch[hidden] { display: none; }
-@media (max-width: 760px) { #panelSearch { display: none; } }
 /* only the body scrolls (like the details panel), so the scrollbar stays inside the rounded corners */
 #panelBody { flex: 1; min-height: 0; overflow-y: auto; }
 @media (min-width: 761px) {

@@ -79,7 +79,7 @@ select yr, road_norm(trim(unnest(string_split(street, ',')))) as street, awdt, g
 -- Kept per street, not added up at intersections: cross streets are counted in different years.
 create or replace table loc_volhist as
 with nearest as (
-  select n.location, n.name, v.yr, arg_min(v.awdt, ST_Distance(p.geom, v.geom))::int as v
+  select n.location, n.name, v.yr, arg_min(v.awdt, {'d': ST_Distance(p.geom, v.geom), 'a': v.awdt})::int as v
   from loc_names n join loc_pts p using (location)
   join volhist_named v on v.street = n.name and v.awdt is not null and ST_DWithin(p.geom, v.geom, 300)
   group by all
@@ -96,7 +96,7 @@ where f.geometry is not null and f.properties.DAILY_TRIP_CNT > 0;
 
 create or replace table loc_bus as
 with near as (
-  select p.location, b.street, max(b.trips) as trips, arg_max(b.routes, b.trips) as routes
+  select p.location, b.street, max(b.trips) as trips, arg_max(b.routes, {'t': b.trips, 'r': b.routes}) as routes
   from loc_pts p join busvol b on ST_DWithin(p.geom, b.geom, p.r) group by all
 )
 select location, sum(trips)::int as bus_trips,
@@ -164,10 +164,10 @@ create or replace table bus_stretch as
 -- mostly cancels), and the light-traffic baseline is the average of the two quickest hours (one is pulled low by noise).
 with h as (select a, b, t0 // 3600 as hr, avg(t1 - t0) as med, count(*) as n from gtfs_legs group by a, b, hr),
 base as (select a, b, avg(med) as base from (select a, b, med, row_number() over (partition by a, b order by med) as k from h where n >= 2) where k <= 2 group by a, b),
-peak as (select a, b, arg_max(hr, med) as peak_hr, max(med) as peak from h where n >= 2 and hr in (7, 8, 15, 16, 17) group by a, b),
+peak as (select a, b, arg_max(hr, {'m': med, 'h': -hr}) as peak_hr, max(med) as peak from h where n >= 2 and hr in (7, 8, 15, 16, 17) group by a, b),
 tot as (select l.a, l.b, count(*) as trips, sum(greatest(0, (l.t1 - l.t0) - base.base)) / 60.0 as lost_min,
                list_sort(list_distinct(list(r.route_short_name))) as routes,
-               arg_max({'shape_id': l.shape_id, 'd0': l.d0, 'd1': l.d1}, 1) as pick
+               min({'shape_id': l.shape_id, 'd0': l.d0, 'd1': l.d1}) as pick   -- the same shape every build
         from gtfs_legs l join base using (a, b) join gtfs_routes r using (route_id) group by l.a, l.b),
 geo as (select t.a, t.b, ST_MakeLine(list(sp.pt order by sp.sq)) as line
         from tot t join gtfs_shape_pts sp on sp.shape_id = t.pick.shape_id and sp.d between t.pick.d0 and t.pick.d1
@@ -191,7 +191,7 @@ from bus_stretch;
 
 -- The stretch through each spot that loses buses the most time (if any passes within its radius).
 create or replace table loc_bus_stretch as
-select p.location, arg_max(s.id, s.lost_per_mile) as bus_stretch_id
+select p.location, arg_max(s.id, {'l': s.lost_per_mile, 'i': -s.id}) as bus_stretch_id
 from loc_pts p join bus_stretch s on ST_DWithin(p.geom, s.geom, p.r)
 where s.lost_per_mile is not null group by p.location;
 
@@ -206,14 +206,14 @@ select row_number() over (order by awdt desc, street) as id, * from (
 );
 create or replace table count_seg_history as
 with m as (select id, street, ST_PointOnSurface(geom) as mid from count_segments),
-near as (select m.id, v.yr, arg_min(v.awdt, ST_Distance(m.mid, v.geom)) as v
+near as (select m.id, v.yr, arg_min(v.awdt, {'d': ST_Distance(m.mid, v.geom), 'a': v.awdt}) as v
          from m join volhist v on v.street = m.street and v.awdt is not null and ST_DWithin(m.mid, v.geom, 150)
          group by all)
 select id, list({'y': yr, 'v': v::int} order by yr) as history from near group by id;
 
 -- Neighborhood at the middle of each counted segment, so two segments of the same street can be told apart.
 create or replace table count_seg_hood as
-select c.id, arg_min(h.neighborhood, ST_Distance(ST_PointOnSurface(c.geom), h.geom)) as hood
+select c.id, arg_min(h.neighborhood, {'d': ST_Distance(ST_PointOnSurface(c.geom), h.geom), 'n': h.neighborhood}) as hood
 from count_segments c join hoods h on ST_DWithin(ST_PointOnSurface(c.geom), h.geom, 300)
 group by c.id;
 

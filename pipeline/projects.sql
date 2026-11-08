@@ -26,11 +26,12 @@ where f.geometry is not null;
 
 -- One row per project. Sidewalk projects are listed per side of a block; both sides of one block become one row.
 create or replace table proj as
-select row_number() over (order by kind, stage, year nulls last, name) as id, *
+-- (many planned walk signals share a name and year: their place breaks the tie, so ids match from build to build)
+select row_number() over (order by kind, stage, year nulls last, name, scope, ST_AsText(geom)) as id, *
 from (
   select 'sidewalk' as kind,
          case when planning = 'Y' then 'design' else 'done' end as stage,
-         block as name, string_agg(distinct scope, ', ') as scope, min(year) as year,
+         block as name, string_agg(distinct scope, ', ' order by scope) as scope, min(year) as year,
          null::varchar as program, null::varchar as link, ST_Union_Agg(geom) as geom
   from proj_raw_sidewalk
   where planning = 'Y' or (planning is null and year <= year(current_date))
@@ -70,7 +71,7 @@ from locations l left join loc_proj j using (location);
 -- (three quarters of the block within 30 ft of it), or SDOT's block name matches exactly. Names alone miss projects with
 -- typos or multi-block "FROM ... TO" names, so the shape is the main test.
 create or replace table sw_block_proj as
-select b.id as block_id, arg_min(j.id, j.stage = 'done') as proj_id
+select b.id as block_id, arg_min(j.id, {'d': j.stage = 'done', 'i': j.id}) as proj_id
 from sw_missing_blocks b join proj j on j.kind = 'sidewalk'
   and (j.name = b.block
        or (ST_DWithin(b.geom, j.geom, 30)
@@ -87,7 +88,7 @@ copy (
                                            round(ST_X(ST_Transform(ST_Centroid(geom), 'EPSG:2926', 'EPSG:4326')), 5)] end,
                           'pts': case when not ST_GeometryType(geom)::varchar ilike '%POINT%' then sw_pts(geom) end} order by id)
              from proj),
-    'missing_blocks': (select list({'b': block_id, 'p': proj_id}) from sw_block_proj),
+    'missing_blocks': (select list({'b': block_id, 'p': proj_id} order by block_id) from sw_block_proj),
     'counts': {
       'sidewalk_design': (select count(*) from proj where kind = 'sidewalk' and stage = 'design'),
       'sidewalk_done': (select count(*) from proj where kind = 'sidewalk' and stage = 'done'),

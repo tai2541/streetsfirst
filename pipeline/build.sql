@@ -147,10 +147,15 @@ load spatial;
 set geometry_always_xy = true;
 create or replace macro gj_geom(g) as ST_Transform(ST_GeomFromGeoJSON(g::json), 'EPSG:4326', 'EPSG:2926');
 
+-- Every pick below has a fixed tie-break (most common, then lowest), so two builds from the same data match exactly.
 create or replace table locations_all as
-select location, any_value(addr_type) as addr_type, avg(lon) as lon, avg(lat) as lat,
-       mode(intkey) filter (where intkey is not null and intkey > 0) as intkey
-from collisions group by location;
+with atype as (select location, arg_max(addr_type, {'n': n, 't': addr_type}) as addr_type
+            from (select location, addr_type, count(*) as n from collisions group by all) group by location),
+ik as (select location, arg_max(intkey, {'n': n, 'k': -intkey}) as intkey
+       from (select location, intkey, count(*) as n from collisions where intkey is not null and intkey > 0 group by all)
+       group by location)
+select c.location, any_value(atype.addr_type) as addr_type, avg(c.lon) as lon, avg(c.lat) as lat, any_value(ik.intkey) as intkey
+from collisions c left join atype using (location) left join ik using (location) group by c.location;
 
 create or replace table streets as
 select f.properties.COMPKEY as compkey, f.properties.UNITDESC as unitdesc,
@@ -220,7 +225,8 @@ from volumes where street is not null;
 create or replace table loc_volume as
 with nearest as (
   select n.location, n.name,
-         arg_min({'awdt': v.awdt, 'yr': v.count_year, 'est': v.quality = 'Estimate'}, ST_Distance(p.geom, v.geom)) as hit
+         arg_min({'awdt': v.awdt, 'yr': v.count_year, 'est': v.quality = 'Estimate'},
+                 {'d': ST_Distance(p.geom, v.geom), 'y': -v.count_year, 'a': v.awdt}) as hit   -- ties: newest count
   from loc_names n join loc_pts p using (location)
   join volumes_named v on v.street = n.name and v.awdt is not null and ST_DWithin(p.geom, v.geom, 300)
   group by n.location, n.name
@@ -245,7 +251,8 @@ c as (select p.location, list(distinct c.year order by c.year) as hcl_years
       from loc_pts p join hcl c on ST_DWithin(p.geom, c.geom, 80) group by p.location),
 lp as (select p.location,
          arg_min({'status': l.status, 'installed': l.installed, 'planned': l.planned_year},
-                 case l.status when 'Existing' then 0 when 'Planned' then 1 else 2 end) as lpi
+                 {'s': case l.status when 'Existing' then 0 when 'Planned' then 1 else 2 end, 'd': ST_Distance(p.geom, l.geom),
+                  'i': l.installed, 'p': l.planned_year}) as lpi
        from loc_pts p join locations_all a using (location) join lpi l on ST_DWithin(p.geom, l.geom, 100)
        where a.addr_type = 'I' group by p.location),
 sg as (select a.location, bool_or(ped_signal) ped_signal, bool_or(ped_audio) ped_audio,
@@ -475,11 +482,13 @@ select *,
 from b;
 
 create or replace table ranked as
-select row_number() over (order by score_ksi desc, crashes desc, location)       as rank,
-       row_number() over (order by expected_harm desc, crashes desc, location)   as rank_noboost,
-       row_number() over (order by score_fatal desc, crashes desc, location)     as rank_fatal,
+-- Scores are rounded for ranking: sums done in parallel can differ in the last digit from build to build, which would
+-- let equal scores swap places instead of falling to the tie-breaks.
+select row_number() over (order by round(score_ksi, 9) desc, crashes desc, location)       as rank,
+       row_number() over (order by round(expected_harm, 9) desc, crashes desc, location)   as rank_noboost,
+       row_number() over (order by round(score_fatal, 9) desc, crashes desc, location)     as rank_fatal,
        case when score_risk is not null
-            then row_number() over (partition by score_risk is null order by score_risk desc, crashes desc, location) end as rank_risk,
+            then row_number() over (partition by score_risk is null order by round(score_risk, 12) desc, crashes desc, location) end as rank_risk,
        *
 from priorities;
 
@@ -495,9 +504,9 @@ with train as (select * from eb_in(t0, t1)),
 test as (select location, count(*) filter (where severity in ('Fatal Collision', 'Serious Injury Collision')) ksi
          from collisions where date >= v0 and date < v1 group by location),
 methods as (
-  select 'expected' m, location, row_number() over (order by expected_harm desc, crashes desc, location) rk from train
-  union all select 'raw_harm', location, row_number() over (order by harm desc, crashes desc, location) from train
-  union all select 'old_reliability', location, row_number() over (order by harm * crashes / (crashes + 3) desc, crashes desc, location) from train
+  select 'expected' m, location, row_number() over (order by round(expected_harm, 9) desc, crashes desc, location) rk from train
+  union all select 'raw_harm', location, row_number() over (order by round(harm, 9) desc, crashes desc, location) from train
+  union all select 'old_reliability', location, row_number() over (order by round(harm * crashes / (crashes + 3), 9) desc, crashes desc, location) from train
   union all select 'crash_count', location, row_number() over (order by crashes desc, harm desc, location) from train
   union all select 'ksi_count', location, row_number() over (order by ksi desc, crashes desc, location) from train
 )
@@ -636,7 +645,7 @@ copy (
     select *, coalesce(nullif(regexp_extract(project, '^(MC-TR-C[0-9]+)', 1), ''), nullif(regexp_extract(code, '^(MC-TR-C[0-9]+)', 1), ''), code) as pid
     from capital_budget
     where dept = 'Seattle Department of Transportation' and year >= year(current_date) - 2),
-  names as (select pid, arg_max(program, year) as program, arg_max(project, year) as project from b group by pid)
+  names as (select pid, arg_max(program, {'y': year, 'p': program}) as program, arg_max(project, {'y': year, 'p': project}) as project from b group by pid)
   select n.program, n.project, b.pid as code, b.year, round(sum(b.amount)) amount,
          round(sum(b.amount) filter (where b.fund ilike '%Transportation Levy%')) as levy
   from b join names n using (pid)
@@ -729,6 +738,6 @@ copy (
     select area as n, 1 as lvl, ST_Transform(ST_PointOnSurface(ST_Union_Agg(geom)), 'EPSG:2926', 'EPSG:4326') pt from hoods group by area
     union all
     select neighborhood, 2, ST_Transform(ST_PointOnSurface(ST_Union_Agg(geom)), 'EPSG:2926', 'EPSG:4326') from hoods
-    group by neighborhood having neighborhood <> any_value(area)   -- skip names already shown as an area (e.g. Interbay)
+    group by neighborhood having not bool_or(neighborhood = area)   -- skip names already shown as an area (e.g. Interbay)
   )
 ) to 'site/data/labels.json' (format json, array false);

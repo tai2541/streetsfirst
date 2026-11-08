@@ -36,7 +36,7 @@ where f.geometry is not null;
 create or replace table loc_street_ctx as
 with cw as (
   select s.location, count(*) as n, count(*) filter (where c.midblock) as midblock, bool_or(c.school) as school,
-         list(distinct c.control) filter (where c.control is not null) as controls
+         list(distinct c.control order by c.control) filter (where c.control is not null) as controls
   from loc_shape s join crosswalks c on ST_DWithin(s.geom, c.geom, case when s.r = 40 then 40 else 100 end)
   group by s.location),
 rp as (
@@ -76,14 +76,15 @@ where f.geometry is not null;
 
 create or replace table loc_area_ctx as
 with sch as (   -- nearest public school within 1,000 ft
-  select p.location, arg_min(s.name, ST_Distance(p.geom, s.geom)) as school, min(ST_Distance(p.geom, s.geom)) as school_ft
+  select p.location, arg_min(s.name, {'d': ST_Distance(p.geom, s.geom), 'n': s.name}) as school, min(ST_Distance(p.geom, s.geom)) as school_ft
   from loc_pts p join schools s on ST_DWithin(p.geom, s.geom, 1000) group by p.location),
-eq as (select p.location, any_value(r.quintile) as rse_quintile, any_value(r.yr) as rse_year
+-- (a point exactly on a boundary is in two areas: take the lower-numbered one, every build)
+eq as (select p.location, min({'q': r.quintile, 'y': r.yr}) as e
        from loc_pts p join rse r on ST_Within(p.geom, r.geom) group by p.location),
-cd as (select p.location, any_value(c.district) as council_district, any_value(c.member) as council_member, any_value(c.url) as council_url
+cd as (select p.location, min({'d': c.district, 'm': c.member, 'u': c.url}) as c
        from loc_pts p join council c on ST_Within(p.geom, c.geom) group by p.location)
-select l.location, sch.school, round(sch.school_ft) as school_ft, eq.rse_quintile, eq.rse_year,
-       cd.council_district, cd.council_member, cd.council_url
+select l.location, sch.school, round(sch.school_ft) as school_ft, eq.e.q as rse_quintile, eq.e.y as rse_year,
+       cd.c.d as council_district, cd.c.m as council_member, cd.c.u as council_url
 from locations l left join sch using (location) left join eq using (location) left join cd using (location);
 
 -- ---------------------------------------------------------------- before and after
@@ -92,7 +93,8 @@ from locations l left join sch using (location) left join eq using (location) le
 create or replace table crash_hist as
 with raw as (select unnest(features, recursive := true)
              from read_json('data/raw/crashhist_*.json', maximum_object_size = 50000000)),
-ik as (select intkey, mode(location) as location from collisions where intkey is not null group by intkey)
+ik as (select intkey, arg_max(location, {'n': n, 'l': location}) as location
+       from (select intkey, location, count(*) as n from collisions where intkey is not null group by all) group by intkey)
 select coalesce(ik.location, m.location, trim(r.LOCATION)) as location,
        make_timestamp(r.INCDATE::bigint * 1000)::date as date,
        coalesce(r.PEDCOUNT, 0) as peds, coalesce(r.PEDCYLCOUNT, 0) as cyclists, r.ST_COLDESC as coll_type,
@@ -135,7 +137,7 @@ select f2.location, list({'k': kind, 'd': d, 'm': m, 'days': days,
                                           and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)),
     'cb': (select count(*) from crash_all c where c.date >= f2.d - f2.days and c.date < f2.d and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)),
     'ca': (select count(*) from crash_all c where c.date >= f2.d + 30 and c.date < f2.d + 30 + f2.days and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type))
-  } order by d) as before_after
+  } order by d, kind, m) as before_after
 from f2 group by f2.location;
 
 create or replace table locations as
