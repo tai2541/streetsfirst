@@ -13,7 +13,7 @@ select f.properties.SEGKEY as segkey,
        f.properties.Tier as tier, f.properties.TotalSc as score, f.properties.SafetySc as safety_sc,
        f.properties.EquitySc as equity_sc, f.properties.SchSC as school_sc, f.properties.TransitSC as transit_sc,
        f.properties.ArtClass as art, gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/sw_missing_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/sw_missing_*.json', maximum_object_size = 50000000))
 where f.geometry is not null and f.properties.Tier is not null and coalesce(f.properties.Remove::varchar, '') <> '1';
 
 create or replace table sw_missing_blocks as
@@ -30,7 +30,7 @@ select f.properties.SEGKEY as segkey,
        f.properties.CONDITION as cond,
        year(make_timestamp(f.properties.CONDITION_ASSESSMENT_DATE::bigint * 1000)) as assessed,
        gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/sw_poor_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/sw_poor_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
 create or replace table sw_poor_blocks as

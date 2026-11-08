@@ -10,14 +10,14 @@ create or replace table fix_points as
 select kind, segkey, case when st = 'PLANNED' then 'Planned' else 'Built' end as status, d, geom from (
   select 'Speed humps' as kind, f.properties.SEGKEY as segkey, f.properties.CURRENT_STATUS as st,
          to_timestamp(f.properties.INSTALL_DATE::double / 1000)::date as d, gj_geom(f.geometry) as geom
-  from (select unnest(features) f from read_json('data/raw/humps_*.json', maximum_object_size = 500000000)) where f.geometry is not null
+  from (select unnest(features) f from read_json('data/raw/humps_*.json', maximum_object_size = 50000000)) where f.geometry is not null
   union all
   select 'Speed cushions', f.properties.SEGKEY, f.properties.CURRENT_STATUS,
          to_timestamp(f.properties.INSTALL_DATE::double / 1000)::date, gj_geom(f.geometry)
-  from (select unnest(features) f from read_json('data/raw/cushions_*.json', maximum_object_size = 500000000)) where f.geometry is not null
+  from (select unnest(features) f from read_json('data/raw/cushions_*.json', maximum_object_size = 50000000)) where f.geometry is not null
   union all
   select 'Radar speed sign', f.properties.SEGKEY, f.properties.CURRENT_STATUS, null::date, gj_geom(f.geometry)
-  from (select unnest(features) f from read_json('data/raw/radar_*.json', maximum_object_size = 500000000)) where f.geometry is not null
+  from (select unnest(features) f from read_json('data/raw/radar_*.json', maximum_object_size = 50000000)) where f.geometry is not null
 ) x
 where coalesce(st, 'INSVC') not in ('TEMPOUTSVC', 'REMOVED', 'RETIRED');
 
@@ -26,11 +26,11 @@ select 'Protected bike lane' as kind,
        to_timestamp(f.properties.DATE_COMPLETED::double / 1000)::date as d,
        case f.properties.STATUS when 'CONST' then 'Under construction' else 'Built' end as status,
        gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/bikelanes_*.json', maximum_object_size = 500000000)) where f.geometry is not null
+from (select unnest(features) f from read_json('data/raw/bikelanes_*.json', maximum_object_size = 50000000)) where f.geometry is not null
 union all
 select 'Bus lane', to_timestamp(f.properties.InstallationDate::double / 1000)::date,
        case f.properties.Status when 'Planned' then 'Planned' else 'Built' end, gj_geom(f.geometry)
-from (select unnest(features) f from read_json('data/raw/buslanes_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/buslanes_*.json', maximum_object_size = 50000000))
 where f.geometry is not null and f.properties.RemovalDate is null;
 
 -- Points (humps, cushions, radar signs) belong to the street block they're on (SDOT's segment key);
@@ -67,7 +67,7 @@ select distinct
        nullif(try_cast(coalesce(f->'properties'->>'AWDT', f->'properties'->>'COUNTAAWDT') as double), 0) as awdt,
        ST_Transform(ST_GeomFromGeoJSON((f->'geometry')::varchar), 'EPSG:4326', 'EPSG:2926') as geom
 from (select filename, unnest(features) as f
-      from read_json('data/raw/volhist_*.json', columns = {'features': 'JSON[]'}, filename = true, maximum_object_size = 500000000))
+      from read_json('data/raw/volhist_*.json', columns = {'features': 'JSON[]'}, filename = true, maximum_object_size = 50000000))
 where json_type(f->'geometry') = 'OBJECT'
   and coalesce(f->'properties'->>'START_DATE', f->'properties'->>'COUNTSTART') is not null;
 
@@ -91,7 +91,7 @@ from nearest group by location;
 create or replace table busvol as
 select f.properties.FULLNAME_L as street, f.properties.DAILY_TRIP_CNT as trips, f.properties.ROUTES_SERVICE as routes,
        gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/busvol_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/busvol_*.json', maximum_object_size = 50000000))
 where f.geometry is not null and f.properties.DAILY_TRIP_CNT > 0;
 
 create or replace table loc_bus as
@@ -157,7 +157,7 @@ from read_csv('data/raw/gtfs/shapes.txt', all_varchar = true);
 
 create or replace table city_area as
 select ST_Union_Agg(gj_geom(f.geometry)) as geom
-from (select unnest(features) f from read_json('data/raw/districts_*.json', maximum_object_size = 500000000));
+from (select unnest(features) f from read_json('data/raw/districts_*.json', maximum_object_size = 50000000));
 
 create or replace table bus_stretch as
 -- Timetables are in whole minutes, so use each hour's average over its trips (rounding differs trip to trip and

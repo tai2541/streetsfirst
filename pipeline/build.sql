@@ -2,6 +2,13 @@
 -- Run from the project root:  tools\duckdb\duckdb.exe -no-agent data\priority.duckdb -f pipeline\build.sql
 -- All weights live in the `weights` / `request_weights` tables below so they are easy to tune.
 
+-- ---------------------------------------------------------------- memory
+-- GitHub's Windows build machine has 16 GB of memory. DuckDB is capped below that, and big steps spill to disk
+-- (data/duckdb_tmp) instead of failing. read_json's maximum_object_size is kept at 50 MB: DuckDB reserves about twice
+-- that per thread, so the old 500 MB setting alone needed ~1 GB per thread. The downloaded files are a few MB each.
+set memory_limit = '10GB';
+set temp_directory = 'data/duckdb_tmp';
+
 -- ---------------------------------------------------------------- settings
 -- Three rankings are computed side by side; the site lets people switch between them.
 --   ksi (recommended): expected harm. Crash harm (fatal = serious injury, "KSI") with repeated deaths
@@ -50,7 +57,7 @@ create or replace macro wt(name) as (select v from weights where k = name);
 create or replace table collisions as
 with raw as (
   select unnest(features, recursive := true)
-  from read_json('data/raw/collisions_*.json', maximum_object_size = 200000000)
+  from read_json('data/raw/collisions_*.json', maximum_object_size = 50000000)
 )
 select
   INCKEY                                   as id,
@@ -95,13 +102,13 @@ update collisions set location = m.location from loc_merge m where collisions.lo
 
 -- People killed and seriously injured citywide, including reports that have no location (so they can't be scored).
 create or replace table collisions_unlocated as
-with raw as (select unnest(features, recursive := true) from read_json('data/raw/collisions_*.json', maximum_object_size = 200000000))
+with raw as (select unnest(features, recursive := true) from read_json('data/raw/collisions_*.json', maximum_object_size = 50000000))
 select make_timestamp(INCDATE::bigint * 1000)::date as date, MAXSEVERITYDESC as severity,
        coalesce(FATALITIES, 0) as fatalities, coalesce(SERIOUSINJURIES, 0) as serious_injuries
 from raw where LOCATION is null or coordinates is null;
 
 create or replace table collisions_dropped as   -- disclosed on the site
-with raw as (select unnest(features, recursive := true) from read_json('data/raw/collisions_*.json', maximum_object_size = 200000000))
+with raw as (select unnest(features, recursive := true) from read_json('data/raw/collisions_*.json', maximum_object_size = 50000000))
 select count(*) n,
        count(*) filter (where MAXSEVERITYDESC in ('Fatal Collision', 'Serious Injury Collision')) ksi,
        count(*) filter (where MAXSEVERITYDESC = 'Fatal Collision') fatal
@@ -150,7 +157,7 @@ select f.properties.COMPKEY as compkey, f.properties.UNITDESC as unitdesc,
        nullif(f.properties.SPEEDLIMIT, 0) as speed, f.properties.ARTCLASS as artclass,
        nullif(f.properties.PVMTCONDINDX1, 0) as pci,
        gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/streets_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/streets_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
 create or replace table volumes as
@@ -158,17 +165,17 @@ select f.properties.STNAME_ORD as street, nullif(f.properties.AWDT, 0) as awdt,
        f.properties.DATAQUALIT as quality,
        year(make_timestamp(f.properties.START_DATE::bigint * 1000)) as count_year,
        gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/volumes_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/volumes_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
 create or replace table hin as   -- SDOT Vision Zero High Injury Network
 select f.properties.PRIORITY as priority, gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/hin_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/hin_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
 create or replace table hcl as   -- SDOT Vision Zero High Collision Locations (by year)
 select f.properties.HCL_YEAR as year, gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/hcl_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/hcl_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
 create or replace table lpi as   -- Leading Pedestrian Intervals (walk signal starts before green)
@@ -176,7 +183,7 @@ select f.properties.LPI_Status as status,
        make_timestamp(f.properties.LPI_Install_Date::bigint * 1000)::date as installed,
        f.properties.LPI_Planned_Year as planned_year,
        ST_Centroid(gj_geom(f.geometry)) as geom
-from (select unnest(features) f from read_json('data/raw/lpi_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/lpi_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
 create or replace table signals as
@@ -187,7 +194,7 @@ select f.properties.INTKEY as intkey,
        make_timestamp(f.properties.LTFIRSTINSTALLDT::bigint * 1000)::date as lt_installed,
        make_timestamp(f.properties.INSTALL_DATE::bigint * 1000)::date as installed,
        case when f.geometry is not null then gj_geom(f.geometry) end as geom
-from (select unnest(features) f from read_json('data/raw/signals_*.json', maximum_object_size = 500000000));
+from (select unnest(features) f from read_json('data/raw/signals_*.json', maximum_object_size = 50000000));
 
 -- Intersections look 60 ft around the point (all approaching streets); blocks 40 ft (the block itself).
 create or replace table loc_pts as
@@ -267,7 +274,7 @@ left join lp using (location) left join sg using (location);
 -- spot is ("West Seattle · Alki") and to label the map.
 create or replace table hoods as
 select f.properties.L_HOOD as area, f.properties.S_HOOD as neighborhood, gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/hoods_sub_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/hoods_sub_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
 -- A spot on a border (arterials often are) gets both names: every neighborhood within 40 ft of it,
@@ -709,7 +716,7 @@ copy (
 -- City outline (council districts merged), simplified to ~40 ft, so the map shows exactly the area covered.
 copy (
   with d as (select gj_geom(f.geometry) g
-             from (select unnest(features) f from read_json('data/raw/districts_*.json', maximum_object_size = 500000000))
+             from (select unnest(features) f from read_json('data/raw/districts_*.json', maximum_object_size = 50000000))
              where f.geometry is not null)
   select ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(ST_Union_Agg(g), 40), 'EPSG:2926', 'EPSG:4326'))::json as boundary
   from d

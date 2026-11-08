@@ -3,6 +3,7 @@ data/raw/
 data/cache/
 data/*.duckdb
 data/*.duckdb.wal
+data/duckdb_tmp/
 
 # Local tools (DuckDB CLI binary)
 tools/

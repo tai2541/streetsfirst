@@ -14,14 +14,14 @@ select f.properties.UNITDESC as unitdesc,
        trim(regexp_replace(f.properties.UNITDESC, ',?\s*\b[A-Z]+ SIDE\s*$', '')) as block,
        f.properties.Year::int as year, f.properties.Planning as planning, f.properties.Scope as scope,
        gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/proj_sidewalk_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/proj_sidewalk_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
 create or replace table proj_raw_nispp as
 select f.properties.Project_Name as name, f.properties.Scope as scope, f.properties.Neighborhood as hood,
        f.properties.Project_Stage___Website as stage, f.properties.Planned_Delivery_Year::int as year,
        f.properties.Project_Source as source, f.properties.Link as link, gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/proj_nispp_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/proj_nispp_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
 -- One row per project. Sidewalk projects are listed per side of a block; both sides of one block become one row.

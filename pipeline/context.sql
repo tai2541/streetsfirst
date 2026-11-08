@@ -8,12 +8,12 @@
 create or replace table crosswalks as
 select f.properties.MIDBLOCK_CROSSWALK = 'Y' as midblock, f.properties.SCHOOL = 'Y' as school,
        nullif(trim(f.properties.CROSSWALK_CONTROL), '') as control, gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/crosswalks_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/crosswalks_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
 create or replace table curbramps as
 select f.properties.CONDITION as cond, gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/curbramps_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/curbramps_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
 -- SDOT's bike facility categories, in plain words (most protective first)
@@ -24,12 +24,12 @@ select case f.properties.CATEGORY when 'BKF-PBL' then 'Protected bike lane' when
        case f.properties.CATEGORY when 'BKF-PBL' then 1 when 'BKF-OFFST' then 2 when 'BKF-BBL' then 3 when 'BKF-BL' then 4
             when 'BKF-CLMB' then 5 when 'BKF-NGW' then 6 else 7 end as ord,
        gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/bikefac_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/bikefac_*.json', maximum_object_size = 50000000))
 where f.geometry is not null and f.properties.CATEGORY like 'BKF-%';
 
 create or replace table circles as
 select try_cast(make_timestamp(f.properties.INSTALL_DATE::bigint * 1000) as date) as d, gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/circles_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/circles_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
 -- Crosswalks: within 100 ft of an intersection, or along the block (its street line, 40 ft). Curb ramps: intersections.
@@ -61,17 +61,17 @@ from locations l left join cw using (location) left join rp using (location) lef
 -- ---------------------------------------------------------------- schools, equity index, council district
 create or replace table schools as
 select f.properties.NAME as name, f.properties.TYPE as type, gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/schools_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/schools_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
 create or replace table rse as
 select f.properties.COMPOSITE_QUINTILE as quintile, f.properties.INDEX_YEAR as yr, gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/rse_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/rse_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
 create or replace table council as
 select f.properties.C_DISTRICT::int as district, f.properties.Name as member, f.properties.Website as url, gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/council_*.json', maximum_object_size = 500000000))
+from (select unnest(features) f from read_json('data/raw/council_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
 create or replace table loc_area_ctx as
@@ -91,7 +91,7 @@ from locations l left join sch using (location) left join eq using (location) le
 -- SDOT's intersection key, blocks by name (split roadways merged the same way as the scored crashes).
 create or replace table crash_hist as
 with raw as (select unnest(features, recursive := true)
-             from read_json('data/raw/crashhist_*.json', maximum_object_size = 200000000)),
+             from read_json('data/raw/crashhist_*.json', maximum_object_size = 50000000)),
 ik as (select intkey, mode(location) as location from collisions where intkey is not null group by intkey)
 select coalesce(ik.location, m.location, trim(r.LOCATION)) as location,
        make_timestamp(r.INCDATE::bigint * 1000)::date as date,
