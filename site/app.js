@@ -1850,7 +1850,7 @@
     hideSheets(); lastTab = b;
     const long = b.querySelector('.tab-long');
     // Same title as the desktop overview, so both layouts say the same thing.
-    document.getElementById('panelTitle').textContent = (long ? long.textContent : b.textContent) + ': where to start';
+    document.getElementById('panelTitle').textContent = long ? long.textContent : b.textContent;
     document.querySelectorAll('#panel .tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
     setLineView(b.dataset.tab === 'traffic' ? 'traffic' : b.dataset.tab === 'walk' ? 'walk' : null);
   }
@@ -2807,7 +2807,7 @@
     let items, title, lead, middle = '';
     if (!view) {
       const top = currentRows().rows, n = top.length;
-      title = 'Crash hot spots: where to start';
+      title = 'Crash hot spots';
       lead = 'Nothing picked yet. Click a dot on the map or a place in the list, or search an address, to see why it ranks.';
       items = top.slice(0, 3).map(p => ({
         rank: p.rank, name: p.name, sub: [p.area, plural(p.crashes, 'crash', 'crashes')].filter(Boolean).join(' · '),
@@ -2836,7 +2836,7 @@
           <div class="note">A spot on the line between two areas counts in both.</div></section>`;
     } else {
       const M = curMode();
-      title = view === 'traffic' ? 'Slow buses & busy streets: where to start' : 'Missing & broken sidewalks: where to start';
+      title = view === 'traffic' ? 'Slow buses & busy streets' : 'Missing & broken sidewalks';
       lead = 'Nothing picked yet. Click a line on the map or a street in the list to see the details.';
       items = M.items().slice(0, 3).map(t => ({ rank: M.rank(t), name: M.name(t), sub: M.sub(t), val: M.score(t), open: () => selectTraffic(t, true) }));
     }
