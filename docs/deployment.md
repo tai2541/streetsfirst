@@ -1,10 +1,10 @@
 # Deployment plan
 
-## v1 (now): local
-- `run.ps1` fetches the data, runs the DuckDB scoring (`pipeline/build.sql`) and writes `site/data/data.js`. It also writes `site/data/more/`: one small script per map area (about 1.1 km square) with the full crash and request details for every place outside the ranked lists. The site loads an area's file only when someone opens a place there; publish the folder with the rest of `site/`.
+## v1: local build (still how to build and test)
+- `run.ps1` fetches the data, runs the DuckDB scoring (`pipeline/build.sql`) and writes `site/data/data.js` (map and lists), `site/data/data-late.js` (search, "Is it getting fixed?", budget; loaded right after) and `site/data/addr/` (address numbers by street, loaded while typing). It also writes `site/data/more/`: one small script per map area (about 1.1 km square) with the full crash and request details for every place outside the ranked lists. The site loads an area's file only when someone opens a place there; publish the folder with the rest of `site/`.
 - `site/index.html` opens directly in a browser. No server is needed.
 
-## v2: public, static, rebuilt weekly (set up: `.github/workflows/weekly.yml`)
+## v2 (now): public, static, rebuilt weekly (set up: `.github/workflows/weekly.yml`)
 The site has no backend. Everything a visitor needs is precomputed into static files.
 Weekly is enough: the scored window moves once a month (it ends ~3 months before the newest crash), so only repair
 requests and the newest unscored crashes change in between.

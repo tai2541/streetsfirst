@@ -52,13 +52,22 @@ before the newest crash (recent police reports arrive late):
 4. **Repair boost:** safety-related requests (signals, streetlights, signs, sidewalks, ADA,
    Safe Routes to School) since mid-2023, duplicates collapsed, raise the score by at most +25%.
 
+**One list.** Intersections and stretches of street are ranked together, 1 to N, on the same score
+(ties: more crashes first). Picking only intersections, only stretches, or a council district on the site
+re-numbers the places within that choice; the citywide number is shown beside it. Where SDOT draws a road's two
+directions as separate lines (e.g. "M L KING JR ER WAY S" and "... WR ..."), crashes on two lines that close
+together count as one place.
+
 The site also offers "Risk for its traffic" (the same expected harm per vehicle). The original
 fatal-weighted ranking was retired from the site. All weights are in the
 `weights` table at the top of `pipeline/build.sql`.
 
 ## Status
-**v1** is a local site that ranks Seattle intersections and blocks by collision harm plus
-nearby infrastructure repair requests, and shows the SDOT capital budget through 2028.
+Live at https://streetsfirst.org/seattle/, rebuilt weekly and on every push to `main` by
+`.github/workflows/weekly.yml` (fetch, build, check, deploy). It ranks Seattle intersections and stretches by
+crash harm plus nearby repair requests, shows what SDOT has done and plans at each place, tracks need against
+published work by district, and shows the SDOT capital budget by program. Search finds streets, corners, schools
+and Seattle street addresses (King County address points, with a geocoder as a fallback).
 
 - Data inventory: [docs/data-sources.md](docs/data-sources.md)
 - Deployment plan and roadmap: [docs/deployment.md](docs/deployment.md)
@@ -66,8 +75,7 @@ nearby infrastructure repair requests, and shows the SDOT capital budget through
 ## Setup (Windows)
 1. Download the DuckDB CLI (v2.0.0, `duckdb-cli-windows-amd64`) from
    https://github.com/duckdb/duckdb/releases and put `duckdb.exe` in `tools/duckdb/`.
-2. Run `powershell -ExecutionPolicy Bypass -File run.ps1` to fetch the data (about a minute)
-   and build. Add `-SkipFetch` to rebuild from data already downloaded. If DuckDB says the spatial
+2. Run `powershell -ExecutionPolicy Bypass -File run.ps1` to fetch the data and build. Add `-SkipFetch` to rebuild from data already downloaded. If DuckDB says the spatial
    extension is missing, run `tools\duckdb\duckdb.exe -c "install spatial;"` once.
 3. Open `site/index.html` in a browser.
 4. Optional: `powershell -ExecutionPolicy Bypass -File pipeline/check.ps1` checks the build (data sizes, plus a
@@ -75,11 +83,20 @@ nearby infrastructure repair requests, and shows the SDOT capital budget through
 
 ## Layout
 ```
-pipeline/fetch.ps1   download raw city data -> data/raw/   (git-ignored)
-pipeline/build.sql   DuckDB: clean, score, export          (weights at the top)
-run.ps1              fetch + build + write site/data/data.js and site/data/more/ (per-area details, loaded on click),
-                     then dist/ (the publishable copy, with versioned file addresses)
+pipeline/fetch.ps1   download raw city and county data -> data/raw/   (git-ignored)
+pipeline/build.sql   DuckDB: clean, score, export          (weights at the top; dates in UTC)
+pipeline/context.sql "the street", schools, council members, older crashes for before/after
+pipeline/projects.sql SDOT projects and work near each place
+pipeline/traffic.sql traffic counts, speed humps, "risk for its traffic"
+pipeline/sidewalks.sql missing and poor sidewalks
+pipeline/addresses.sql King County address points -> address search suggestions
 pipeline/history.sql past rankings (yearly since 2018, monthly for a year), "what changed", need vs work by district
+run.ps1              fetch + build, then writes into site/data/:
+                       data.js        the map and ranked lists (loaded first)
+                       data-late.js   search index, "Is it getting fixed?", budget (loaded right after)
+                       more/          per-area details, loaded when a place there is opened
+                       addr/          address numbers by street, loaded while typing an address
+                     then dist/ (the publishable copy, with versioned file addresses)
 pipeline/check.ps1   checks a build before publishing; site/index.html#selftest runs the page self-test
 .github/workflows/   weekly rebuild -> check -> GitHub Pages
 site/                static web page (Leaflet map; Leaflet and the font are vendored, no outside scripts)
