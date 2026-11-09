@@ -135,8 +135,8 @@ Get-ArcGISLayer "$gis/Council_District_Member_Info/FeatureServer/0" 'C_DISTRICT,
 $today = (Get-Date).ToString('yyyy-MM-dd')
 $leg = "https://webapi.legistar.com/v1/seattle/OfficeRecords?`$filter=OfficeRecordBodyName eq 'City Council' and " +
        "OfficeRecordStartDate le datetime'$today' and OfficeRecordEndDate ge datetime'$today'"
-try { Get-WithRetry $leg (Join-Path $raw 'legistar_council.json') 60 }
-catch { Write-Host "  council member list unavailable ($($_.Exception.Message)); names from the district map are shown unchecked"; '[]' | Set-Content (Join-Path $raw 'legistar_council.json') }
+try { Get-WithRetry $leg (Join-Path $tmp 'legistar_council.json') 60 }
+catch { Write-Host "  council member list unavailable ($($_.Exception.Message)); names from the district map are shown unchecked"; '[]' | Set-Content (Join-Path $tmp 'legistar_council.json') }
 
 # ---- 4b2. Sidewalks: SDOT's own priorities for missing sidewalks (Seattle Transportation Plan, Tier 1 = highest)
 # and sidewalks SDOT rated poor or very poor. Owner and parcel fields are not fetched (no singling out homes).
