@@ -60,7 +60,7 @@ from locations l left join cw using (location) left join rp using (location) lef
 
 -- ---------------------------------------------------------------- schools, equity index, council district
 create or replace table schools as
-select f.properties.NAME as name, f.properties.TYPE as type, gj_geom(f.geometry) as geom
+select coalesce(nullif(trim(f.properties.NAME), ''), nullif(trim(f.properties.SCHOOL), '')) as name, f.properties.TYPE as type, gj_geom(f.geometry) as geom
 from (select unnest(features) f from read_json('data/raw/schools_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
@@ -71,9 +71,13 @@ where f.geometry is not null;
 
 -- A district's member is named only if the City Clerk's list of serving members (Legistar, fetched the same day)
 -- includes them; with no list (fetch failed), the map's names are used as they are.
+-- A term that ends within the week counts as ended: the site is rebuilt weekly, so this never names a former member
+-- (at worst, the district shows without a name for a few days).
 create or replace table council_now as
 select lower(trim(OfficeRecordFullName)) as n
-from read_json('data/raw/legistar_council.json', columns = {'OfficeRecordFullName': 'VARCHAR'});
+from read_json('data/raw/legistar_council.json', columns = {'OfficeRecordFullName': 'VARCHAR', 'OfficeRecordEndDate': 'VARCHAR'})
+where OfficeRecordEndDate is null or try_cast(OfficeRecordEndDate as timestamp) is null
+   or try_cast(OfficeRecordEndDate as timestamp) >= current_date + interval 7 day;
 create or replace table council as
 select f.properties.C_DISTRICT::int as district,
        case when not exists (select 1 from council_now) or lower(trim(f.properties.Name)) in (select n from council_now)

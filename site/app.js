@@ -11,13 +11,20 @@
   // Search, "Is it getting fixed?" and the budget come in a second file (data/data-late.js), asked for only now that the
   // map's own data is in, so the first screen doesn't share the connection with them. Same build fingerprint.
   const lateReady = new Promise(res => {
-    if (window.SITE_LATE) { res(window.SITE_LATE); return; }
-    window.siteLateReady = res;
+    // From another build (a deploy between the two files): its ranks wouldn't match this page's, so it isn't used.
+    const check = L => (L && L.version && D.version && L.version !== D.version ? { failed: true, stale: true } : L || { failed: true });
+    if (window.SITE_LATE) { res(check(window.SITE_LATE)); return; }
+    let done = false;
+    const end = L => { if (!done) { done = true; clearTimeout(t); res(check(L)); } };
+    window.siteLateReady = end;
+    const t = setTimeout(() => end({ failed: true }), 20000);
     const sc = document.createElement('script');
     sc.src = 'data/data-late.js' + (D.version ? '?v=' + D.version : '');
-    sc.onerror = () => res({ failed: true });
+    sc.onload = () => end(window.SITE_LATE);          // also settles a file that loaded but didn't run
+    sc.onerror = () => end({ failed: true });
     document.head.appendChild(sc);
   });
+  let lateOK = false;
   const fmt = n => Number(n).toLocaleString('en-US');
   const money = n => (n < 0 ? '−' : '') + '$' + (Math.abs(n) >= 1e8 ? Math.round(Math.abs(n) / 1e6) + 'M' : Math.abs(n) >= 1e6 ? (Math.abs(n) / 1e6).toFixed(1) + 'M' : fmt(Math.round(Math.abs(n))));
   const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
@@ -1092,10 +1099,7 @@
       .concat([{ l: 'Now', sr: `Now, on crashes from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}`, r: now }]);
     const cls = r => r == null ? 'none' : 't' + tierK(r) + (r > 200 ? ' low' : '');
     const in50 = cells.filter(c => c.r && c.r <= 50).length;
-    const fixes = [];
-    if (p.lpi_status === 'Existing' && p.lpi_installed) fixes.push({ d: p.lpi_installed, k: 'Head-start walk signal' });
-    if (p.lt_protected && p.lt_installed) fixes.push({ d: p.lt_installed, k: 'Protected left turn' });
-    (p.fixes || []).filter(f => f.d && f.s === 'Built' && f.k !== 'Bus lane').forEach(f => fixes.push({ d: f.d, k: f.k }));
+    const fixes = placeFixes(p).filter(f => f.k !== 'Bus lane');
     const recent = fixes.filter(f => +f.d.slice(0, 4) >= ys[0] - 1).sort((a, b) => a.d.localeCompare(b.d));
     const m = p.rank_month_ago, mv = m && p.rank_ksi ? m - p.rank_ksi : 0;   // same basis as the list card (last month's rank includes repair reports), in either mode
     return `<div class="legend rh-legend" aria-hidden="true">${[['t0', 'Top 5'], ['t1', '6–12'], ['t2', '13–25'], ['t3', '26+']].map(([c, l]) =>
@@ -1112,6 +1116,17 @@
         "Now" can differ a little from the ${rankTxt(p.rank_ksi)} above. "–": no crashes in those years.</div>`;
   }
 
+  // Dated work at a place, the same kinds "Is it getting fixed?" counts (pipeline/history.sql, place_fixes), plus bus lanes
+  // (shown on the crash chart, never counted as a safety fix).
+  function placeFixes(p) {
+    const f = [];
+    if (p.lpi_status === 'Existing' && p.lpi_installed) f.push({ d: p.lpi_installed, k: 'Head-start walk signal' });
+    if (p.ntor_status === 'Existing' && p.ntor_installed) f.push({ d: p.ntor_installed, k: 'No turn on red' });
+    if (p.lt_protected && p.lt_installed) f.push({ d: p.lt_installed, k: 'Protected left turn' });
+    if (p.addr_type === 'I' && p.signal_installed && p.signal_installed >= '1990-01-01') f.push({ d: p.signal_installed, k: 'Traffic signal installed or rebuilt' });
+    (p.fixes || []).filter(x => x.d && x.s === 'Built').forEach(x => f.push({ d: x.d, k: x.k }));
+    return f;
+  }
   function yearChart(crashes) {
     const y0 = +meta.collisions_from.slice(0, 4), y1 = +meta.collisions_to.slice(0, 4);
     const years = []; for (let y = y0; y <= y1; y++) years.push(y);
@@ -1162,10 +1177,7 @@
     det.crashes.forEach(c => { const b = bucket(c.d); if (b) { b.crashes++; if (c.s === 'F' || c.s === 'S') b.severe++; } });
     det.requests.forEach(r => { const b = bucket(r.d); if (b) b.reports++; });
 
-    const fixes = [];
-    if (p.lpi_status === 'Existing' && p.lpi_installed) fixes.push({ d: p.lpi_installed, label: 'Head-start walk signal' });
-    if (p.lt_protected && p.lt_installed) fixes.push({ d: p.lt_installed, label: 'Protected left turn' });
-    (p.fixes || []).filter(f => f.d && f.s === 'Built').forEach(f => fixes.push({ d: f.d, label: f.k }));
+    const fixes = placeFixes(p).map(f => ({ d: f.d, label: f.k }));
     const inRange = fixes.filter(x => mIdx(x.d) >= 0).sort((a, b) => a.d.localeCompare(b.d));
     const before = fixes.filter(x => mIdx(x.d) < 0);
 
@@ -1517,7 +1529,7 @@
       <p class="note">Own-record weight = crashes ÷ (crashes + ${k}). Raw crash harm before blending: ${fmt(Math.round(p.harm))}.</p>
       <p><b>Score ${fmt(Math.round(p.score_ksi))}</b> = expected harm × repair boost ${(1 + p.request_boost).toFixed(2)}
         <span class="muted">(${plural(p.scored_requests, 'safety-related request')} since ${monthYear(meta.requests_scored_from)})</span>.
-        Without the boost it would rank ${rankTxt(p.rank_noboost)}.</p>`;
+        ${p.request_boost >= 0.005 ? `Without the boost it would rank ${rankTxt(p.rank_noboost)}.` : ''}</p>`;
     const riskLine = p.score_risk != null
       ? `<p><b>Risk ${p.score_risk.toFixed(1)} per million vehicles</b> = expected harm ${fmt(Math.round(p.expected_harm))} ÷
           (${fmt(Math.max(p.volume, weight('risk_vol_floor')))} vehicles a weekday × 365 × 5 years ÷ 1 million).</p>`
@@ -1936,10 +1948,17 @@
     'Middle School': ' Middle School', 'High School': ' High School', 'Option High School': ' High School', 'K-8': ' K-8' }[t] || ' School'); };
   let schoolIdx = null;
   const schools = () => schoolIdx || (schoolIdx = (CTX.schools || []).filter(s => s[0]).map(([n, la, lo, t]) => {
-    const label = schoolLabel(n, t);
-    return { school: true, label, lat: +la, lon: +lo, key: ' ' + normQ(label + ' school') + ' ' };
+    const label = schoolLabel(n === n.toUpperCase() ? schoolName(n) : n, t);   // a few names come in capitals only
+    // "eaglestaff", "bf day": also matched with spaces and punctuation left out
+    return { school: true, label, lat: +la, lon: +lo, key: ' ' + normQ(label + ' school') + ' ', compact: label.toLowerCase().replace(/[^a-z0-9]/g, '') };
   }));
   function runSearch() {
+    if (!lateOK) {
+      if (!sInput.value.trim()) { sList.hidden = true; return; }
+      sHits = [];
+      return lateReady.then(L => (L.failed ? searchMsg('Search couldn’t load. Reload the page to try again.') : null)),
+        searchMsg('Search is still loading…');
+    }
     ensureKeys();
     // "12th and Jackson", "45th & Roosevelt", "MLK at Othello": the joining word isn't part of either street's name, and
     // a corner typed that way puts intersections first. Common spellings match SDOT's (MLK = M L King, Avenue = Ave).
@@ -1955,7 +1974,8 @@
     const inName = s => words.every(w => s.nkey.includes(' ' + w));
     const named = all.filter(inName), first = corner ? named.filter(s => s.type === 'I') : [];
     // Schools: first when the words say school, otherwise after places named for a street (before neighborhood-only matches).
-    const sch = corner ? [] : schools().filter(s => words.every(w => s.key.includes(' ' + w))).slice(0, 3);
+    const qc = raw.replace(/[^a-z0-9]/g, '').replace(/(elementary|middle|high|school)+$/, '');
+    const sch = corner ? [] : schools().filter(s => words.every(w => s.key.includes(' ' + w)) || (qc.length >= 4 && s.compact.includes(qc))).slice(0, 3);
     const schFirst = /\b(school|elementary|middle|high|k-?8)\b/.test(raw);
     sHits = (schFirst ? sch : []).concat(first, named.filter(s => !first.includes(s)), schFirst ? [] : sch, all.filter(s => !inName(s))).slice(0, 8);
     const nPlaces = sHits.filter(s => !s.school && !s.addrPick && !s.addr).length, nSchools = sHits.filter(s => s.school).length;
@@ -1986,7 +2006,7 @@
     const s = sHits[i]; if (!s) return;
     if (s.addr) { closeList(); pinAddress(s.text); return; }
     if (s.addrPick) { closeList(); sInput.value = s.label; showAddress({ lat: s.lat, lon: s.lon, label: `${s.label}, Seattle, WA ${s.zip || ''}`.trim() }); return; }
-    if (s.school) { closeList(); sInput.value = s.label; showAddress({ lat: s.lat, lon: s.lon, label: s.label }); return; }
+    if (s.school) { closeList(); sInput.value = s.label; lateReady.then(() => showAddress({ lat: s.lat, lon: s.lon, label: s.label, school: true })); return; }
     closeList(); sInput.value = niceName(s.name);
     const p = byId.get(s.rank);
     if (p) select(p, true, sInput); else selectLite(s);
@@ -2050,7 +2070,7 @@
       north: 'n', south: 's', east: 'e', west: 'w', northeast: 'ne', northwest: 'nw', southeast: 'se', southwest: 'sw' })[w] || w)
     .filter(w => !/^(seattle|wa|washington|usa|united|states|\d{5})$/.test(w));
   const streetChanged = (typed, found) => {
-    const t = streetWords(typed.replace(/^\s*\d+[a-z]?\s+/i, '')), f = new Set(streetWords(found));
+    const t = streetWords(typed.replace(/^\s*\d+(?:(ne|nw|se|sw|[nsew])|[a-z])?\s+/i, (m, dir) => (dir ? dir + ' ' : ''))), f = new Set(streetWords(found));
     return /^\s*\d/.test(typed) && t.length > 0 && t.some(w => !f.has(w));
   };
   function searchMsg(html) { sList.innerHTML = `<li class="none">${html}</li>`; sList.hidden = false; sInput.setAttribute('aria-expanded', 'true'); say(sList.textContent); }
@@ -2061,6 +2081,7 @@
     if (g && g.offline) return searchMsg('Address search needs a connection. Check your signal and try again.');
     if (!g) return searchMsg(`Couldn't find “${esc(text)}”. Try a street address like “600 4th Ave”.`);
     if (!inSeattle(g.lat, g.lon)) return searchMsg(`“${esc(g.label)}” is outside Seattle. This map covers Seattle only.`);
+    await lateReady;   // the nearby counts need the search data
     if (streetChanged(text, g.label)) g.note = `You typed “${text}”. The map's address search found this instead; check it's the place you meant.`;
     closeList();
     showAddress(g);
@@ -2252,8 +2273,8 @@
       ${g.note ? `<p class="pin-warn">${esc(g.note)}</p>` : ''}
       <div class="pin-near">${nb.crashes
         ? `<p>Within a quarter mile (about a 5-minute walk), ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}: <b>${plural(nb.crashes, 'crash', 'crashes')}</b>${nb.ksi ? `; <b>${nb.ksi} of them killed or seriously hurt someone</b>` : '; none killed or seriously hurt anyone'}${nb.pb ? `; ${nb.pb} involved someone walking or biking` : ''}.</p>
-          ${(sch => sch ? `<p>Nearest public school: <b>${esc(schoolName(sch.name))}</b> (about ${distText(sch.m)}).</p>` : '')(schoolNear(g.lat, g.lon))}
-          Places nearby with the most serious crashes (ranked out of ${fmt(N)}):<ul>${nb.worst.map(n => `<li><button type="button" class="linkbtn" data-open="${n.x.rank}">${rankTxt(n.x.rank)} · ${esc(niceName(n.x.name))}</button>
+          ${(sch => sch && !g.school ? `<p>Nearest public school: <b>${esc(schoolName(sch.name))}</b> (about ${distText(sch.m)}).</p>` : '')(schoolNear(g.lat, g.lon))}
+          ${nb.ksi ? 'Places nearby with the most serious crashes' : 'Highest-ranked places nearby'} (ranked out of ${fmt(N)}):<ul>${nb.worst.map(n => `<li><button type="button" class="linkbtn" data-open="${n.x.rank}">${rankTxt(n.x.rank)} · ${esc(niceName(n.x.name))}</button>
             <span class="muted">${distText(n.m)}</span></li>`).join('')}</ul>`
         : 'No reported crashes within a quarter mile in the last five years.'}</div>
       <details class="pin-res" data-loc="${esc(g.label)}"><summary>Report a problem here</summary>${resourceList()}</details>
@@ -2291,9 +2312,9 @@
   function pinActions(g) {
     return g.preview
       ? `<div class="pin-actions"><button type="button" class="report-btn pin-add">📍 Add to my pins</button>
-          <button type="button" class="linkbtn pin-copy">Copy address</button>
+          <button type="button" class="linkbtn pin-copy">${g.school ? 'Copy name' : 'Copy address'}</button>
           <button type="button" class="linkbtn pin-dismiss">Clear</button></div>`
-      : `<div class="pin-actions"><button type="button" class="linkbtn pin-copy">Copy address</button>
+      : `<div class="pin-actions"><button type="button" class="linkbtn pin-copy">${g.school ? 'Copy name' : 'Copy address'}</button>
           <button type="button" class="linkbtn pin-rename">Rename</button>
           <button type="button" class="linkbtn pin-remove">Remove pin</button></div>`;
   }
@@ -3427,6 +3448,7 @@
       if (!m) return false;
       if (m[1] && years.some(y => y.yr === +m[1])) pick = +m[1];
       if (m[2]) { dim = 'district'; open = m[2]; }
+      openFromList = String(+document.getElementById('distFilter').value || '') || null;   // so progressSync leaves the link's choice alone
       draw();
       showTab(document.getElementById('tabbtn-progress'));
       const target = m[2] ? el.querySelector('#pg-need') : m[1] ? el.querySelector('#pg-then') : null;
@@ -3501,7 +3523,8 @@
   }
   // A shared link's district (?d=2), when it's one of the choices.
   { const d = new URLSearchParams(location.search).get('d'), sel = document.getElementById('distFilter');
-    if (d && [...sel.options].some(o => o.value === d)) sel.value = d; }
+    if (d && [...sel.options].some(o => o.value === d)) sel.value = d;
+    else if (d) { const u = new URLSearchParams(location.search); u.delete('d'); history.replaceState(null, '', location.pathname + (u.toString() ? '?' + u : '') + location.hash); } }
   render();
 
   // Shareable links: #p=<key> opens a place by a key made from its name, so the link keeps working when ranks change.
@@ -3526,6 +3549,15 @@
     return false;
   }
   // Back and Forward: open the place in the address, or close it when the address has none.
+  // Back/Forward across a district change: the list follows the district in the address.
+  document.addEventListener('click', e => {
+    const a = e.target.closest && e.target.closest('a[href^="#progress"]');
+    if (a && a.getAttribute('href') === location.hash) { e.preventDefault(); progressLink(location.hash); }
+  });
+  window.addEventListener('popstate', () => {
+    const d = new URLSearchParams(location.search).get('d') || '', sel = document.getElementById('distFilter');
+    if ([...sel.options].some(o => o.value === d) && sel.value !== d) { sel.value = d; render(); refreshHome(); }
+  });
   window.addEventListener('hashchange', () => { if (!location.hash && spotOpen()) closeDetail(false); else openFromHash(); });
   // ---------- desktop overview: the details panel never closes; with nothing picked it shows where to start ----------
   let homeFocus = null;   // the overview card a spot was opened from, to return focus to it
@@ -3639,11 +3671,22 @@
   ready = true;
   // The second data file: search, the two pages that need it, saved pins' nearby counts, and a shared link that was waiting.
   lateReady.then(L => {
-    if (L.failed) { sInput.placeholder = 'Search couldn’t load. Reload the page to try again.'; return; }
+    if (L.failed) {
+      const msg = L.stale ? 'The site was just updated.' : 'This part of the site couldn’t load.';
+      sInput.placeholder = L.stale ? 'The site was just updated: reload the page.' : 'Search couldn’t load. Reload the page to try again.';
+      ['progress', 'budget'].forEach(id => { const e = document.getElementById(id);
+        if (e) e.innerHTML = `<p class="note">${msg} <button type="button" class="linkbtn" onclick="location.reload()">Reload the page</button></p>`; });
+      if (document.activeElement === sInput && sInput.value.trim()) runSearch();
+      return;
+    }
+    lateOK = true;
     D.search = L.search; D.progress = L.progress; D.budget = L.budget;
     setSearch(L.search); setAddrStreets(L.addrStreets);
     budgetInit(); progressInit(); distCard(+document.getElementById('distFilter').value || 0);
+    // saved pins were drawn before the nearby counts were here: draw them again, keeping an open pop-up open
+    const openId = [...pinMarkers].find(([, m]) => m.isPopupOpen && m.isPopupOpen()), wasOpen = openId && openId[0];
     pins.forEach(drawPin);
+    if (wasOpen != null && pinMarkers.get(wasOpen)) pinMarkers.get(wasOpen).openPopup();
     if (sInput.value.trim() && document.activeElement === sInput) runSearch();
     if (location.hash && location.hash !== '#selftest' && !spotOpen() && openFromHash()) return;
     refreshHome();
