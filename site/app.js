@@ -1891,7 +1891,8 @@
     // Text can also be pinned as an address: offered when it has a number in it or matches no scored place.
     const addr = { addr: true, text: sInput.value.trim() };
     // A house number ("4500 Rainier Ave S") puts the address first; "12th and Jackson" is a corner, not an address.
-    if (/^\d+\s/.test(addr.text) && !corner) sHits.unshift(addr); else if (/\d/.test(addr.text) || !nPlaces) sHits.push(addr);
+    // (also "1913n 120th st", a direction typed against the number)
+    if (/^\d+(?:ne|nw|se|sw|[nsew])?\s/i.test(addr.text) && !corner) sHits.unshift(addr); else if (/\d/.test(addr.text) || !nPlaces) sHits.push(addr);
     sActive = -1; sInput.removeAttribute('aria-activedescendant');
     say(nPlaces || nSchools ? [nPlaces && `${nPlaces === 8 ? '8 or more' : nPlaces} matching places`, nSchools && plural(nSchools, 'school')].filter(Boolean).join(', ')
       : 'No matching crash location. You can pin it as an address.');
