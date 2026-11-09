@@ -832,8 +832,16 @@ main.sheet-over .sheet { z-index: 1200; padding-right: 0; }
   #detail.from-list #backDetail, #detail.from-progress #backDetail { display: inline-flex; }
   #detail.from-list #closeDetail, #detail.from-progress #closeDetail { display: none; }
   /* the legend and credits ride just above the sheet */
-  #map .leaflet-bottom { bottom: var(--cover, 0px); transition: bottom .32s cubic-bezier(.22,.9,.24,1); }
+  /* (slid, not repositioned: a transform costs the phone almost nothing per frame) */
+  #map .leaflet-bottom { bottom: 0; transform: translateY(calc(-1 * var(--cover, 0px))); transition: transform .32s cubic-bezier(.22,.9,.24,1); }
   main.sheet-drag #map .leaflet-bottom { transition: none; }
+  /* sheets are slid as layers of their own; the spacer matches the part below the screen (set by app.js) */
+  #panel, #detail { will-change: transform; }
+  #panelBody::after, #detailBody::after { content: ""; display: block; height: var(--below, 0px); }
+  /* a blur behind the map key is redrawn on every frame of a pan on iPhones: solid instead */
+  .map-legend { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(255,255,255,.97); }
+  /* nothing pulses while a sheet or the map is moving */
+  main.moving .top-mark .pulse { animation-play-state: paused; }
 }
 @keyframes sheetIn { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
 @keyframes sheetOut { to { opacity: 0; transform: translateX(28px); } }

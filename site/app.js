@@ -750,16 +750,26 @@
     const g = s.bar.querySelector('.grab'), what = s === S.list ? 'list' : 'details';
     g.setAttribute('aria-label', s.snap === 'peek' ? `Show more of the ${what}` : s.snap === 'half' ? `Show the ${what} full screen` : `Show less of the ${what}`);
   }
+  // A sheet is always the full height of the map area and is only ever slid (a transform: no page layout while it moves,
+  // which is what makes slides stutter on iPhones). The part below the screen is matched by a spacer at the end of its
+  // content, so the last item can still be scrolled into view.
   function rest(s, h) {
-    s.el.style.transition = 'none'; s.el.style.height = Math.round(h) + 'px'; s.el.style.transform = '';
+    const H = fullH();
+    s.el.style.transition = 'none'; s.el.style.height = H + 'px'; s.el.style.transform = `translateY(${Math.round(H - h)}px)`;
+    s.body.style.setProperty('--below', Math.max(0, Math.round(H - h)) + 'px');
     s.body.inert = s.snap === 'peek';
+    moving(false);
   }
+  // While a sheet or the map moves, the pulsing markers pause (less for the phone to draw each frame).
+  const moving = on => mainEl.classList.toggle('moving', on);
   // Slide a sheet's top edge from its current place to height `to`; done() runs once it's there (unless interrupted).
   function moveSheet(s, to, done, from) {
     const tok = ++s.anim, H = fullH(), el = s.el;
     if (from == null) from = visH(s);
     if (reduceMotion || Math.abs(from - to) < 2) { rest(s, to); if (done) done(); return; }
-    el.style.transition = 'none'; el.style.height = H + 'px'; el.style.transform = `translateY(${H - from}px)`;
+    moving(true);
+    if (el.style.height !== H + 'px') { el.style.transition = 'none'; el.style.height = H + 'px'; }
+    el.style.transition = 'none'; el.style.transform = `translateY(${H - from}px)`;
     void el.offsetHeight;
     el.style.transition = sheetEase; el.style.transform = `translateY(${H - to}px)`;
     let over = false;
@@ -792,8 +802,9 @@
         if (Math.abs(dy) < 6) return;
         dragging = true; s.anim++;               // a grab stops a slide where it is
         const H = fullH();
-        s.el.style.transition = 'none'; s.el.style.height = H + 'px'; s.el.style.transform = `translateY(${H - h0}px)`;
-        s.body.inert = false; mainEl.classList.add('sheet-drag');
+        s.el.style.transition = 'none'; if (s.el.style.height !== H + 'px') s.el.style.height = H + 'px';
+        s.el.style.transform = `translateY(${H - h0}px)`;
+        s.body.inert = false; mainEl.classList.add('sheet-drag'); moving(true);
       }
       const peek = snapH(s, 'peek'), H = fullH();
       let nh = h0 - dy;
@@ -875,7 +886,8 @@
 
   function applySheets() {
     if (!isNarrow()) {
-      for (const s of Object.values(S)) { s.anim++; s.el.style.height = ''; s.el.style.transform = ''; s.el.style.transition = ''; s.body.inert = false; }
+      for (const s of Object.values(S)) { s.anim++; s.el.style.height = ''; s.el.style.transform = ''; s.el.style.transition = ''; s.body.inert = false; s.body.style.removeProperty('--below'); }
+      moving(false);
       panelEl.classList.remove('under'); detailEl.classList.remove('leaving', 'fade-out', 'push-in', 'from-list', 'from-progress');
       setCover(0); return;
     }
@@ -889,6 +901,7 @@
     if (detailUp()) rest(S.detail, snapH(S.detail, S.detail.snap));
     setCover(snapH(detailUp() ? S.detail : S.list, (detailUp() ? S.detail : S.list).snap));
   }
+  map.on('movestart', () => isNarrow() && moving(true)); map.on('moveend', () => moving(false));
   window.addEventListener('resize', applySheets);
   // Phones freeze a page's timers while another app is in front; coming back mid-slide, put the sheets right.
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') applySheets(); });
