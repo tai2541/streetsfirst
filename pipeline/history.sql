@@ -197,6 +197,9 @@ from proj j;
 
 -- Places with no council district or equity-index tract are on the city limits (border streets, some bridges): grouped
 -- as 'none' so the columns add up to the city totals.
+-- "Planned" is the same test as the place's own page: a planned SDOT project nearby, a planned head-start walk signal or
+-- no turn on red, or a budget project named for the street. Places on state highways (WSDOT shares responsibility) are
+-- counted on their own, not as "none recorded".
 create or replace table need_work as
 with fx as (
   select location, count(*) filter (where k = 'Head-start walk signal') as lpi, count(*) filter (where k <> 'Head-start walk signal') as other
@@ -205,7 +208,9 @@ with fx as (
 places as (
   select r.location, coalesce(r.council_district::varchar, 'none') as district, coalesce(r.rse_quintile, 'none') as rse,
     r.ksi, r.rank, r.addr_type, r.lat, r.lon, r.rank <= 50 as top50, coalesce(fx.lpi, 0) as lpi, coalesce(fx.other, 0) as other,
-    fx.location is not null as fixed_recently, r.proj_planned
+    fx.location is not null as fixed_recently,
+    coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned' or len(r.cip) > 0, false) as proj_planned,
+    r.state_route
   from ranked r left join fx using (location)
 ),
 long as (
@@ -215,8 +220,10 @@ long as (
 by_g as (
   select dim, grp, sum(ksi) as ksi, sum(lpi) as fixes_lpi, sum(other) as fixes_other,
     count(*) filter (where top50) as top50,
-    count(*) filter (where top50 and not fixed_recently and not proj_planned) as top50_nothing,
-    list({'loc': location, 'r': rank, 't': addr_type, 'fixed': fixed_recently, 'planned': proj_planned} order by rank) filter (where top50) as top50_list
+    count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null) as top50_nothing,
+    count(*) filter (where top50 and state_route is not null) as top50_state,
+    list({'loc': location, 'r': rank, 't': addr_type, 'fixed': fixed_recently, 'planned': proj_planned, 'state': state_route, 'k': ksi}
+         order by rank) filter (where top50) as top50_list
   from long group by dim, grp
 ),
 proj_long as (
@@ -276,7 +283,7 @@ copy (
       'recent_ksi_total': (select {'f': sum(fatal), 's': sum(serious), 'from': we(), 'to': max(last_date)} from recent_ksi),
       'recent_fixes': (select list({'loc': location, 'k': k, 'd': d, 'rank': rank} order by d desc, rank) from recent_fixes)
     },
-    'need': (select list({'dim': dim, 'g': grp, 'ksi': ksi, 'top50': top50, 'top50_nothing': top50_nothing,
+    'need': (select list({'dim': dim, 'g': grp, 'ksi': ksi, 'top50': top50, 'top50_nothing': top50_nothing, 'top50_state': top50_state,
                           'lpi': fixes_lpi, 'other': fixes_other, 'proj_planned': proj_planned, 'list': top50_list}
                          order by dim, grp) from need_work),
     'working': {

@@ -237,6 +237,7 @@
     if (p.speeding_crashes >= 2 && pct(p.speeding_crashes, p.crashes) >= 15)
       out.push({ cls: 'cond', text: `speed-related: ${p.speeding_crashes} of ${p.crashes}` });
     if (p.state_route) out.push({ cls: 'state', text: `${p.state_route}: state highway` });
+    if (p.rank_ksi <= 50 && !p.ksi) out.push({ cls: 'conf', text: 'no one killed or seriously hurt here in these years: ranked on its other crashes' });
     if (p.confidence !== 'high')
       out.push({ cls: 'conf', text: `only ${plural(p.crashes, 'crash', 'crashes')}, so less certain` });
     return out;
@@ -3080,8 +3081,7 @@
       <p class="note">From SDOT's street network, traffic counts, signal inventory and Vision Zero layers: street type, speed
         limit (the highest at the spot), pavement condition (0–100, labelled good 70+, fair 40–69, poor under 40 by this
         site, not SDOT), head-start walk signals and protected left turns. Shown for context; not part of the score.
-        Aurora Ave N and the Aurora Bridge (SR 99), Lake City Way NE (SR 522), N/NE 145th St east of Aurora (SR 523) and the 1st Ave S
-        Bridge (SR 509) are state highways: WSDOT shares responsibility.</p>
+        ${stateRoutes() ? `Places on state highways (${stateRoutes()}) are marked: WSDOT shares responsibility for them.` : ''}</p>
       <p class="note"><b>Crash patterns with a known fix</b> (blue dashed tags): left-turn crashes at a signal with no protected
         left-turn arrow, people walking hit by turning drivers where there's no head-start walk signal, and angle crashes at a corner
         with no signal, all according to SDOT's signal and Vision Zero data. They put a pattern next to a common fix; whether that
@@ -3192,6 +3192,14 @@
   let progressSync = () => {};   // set by progressInit: opens the district picked on the list
 
   // The kinds of work counted as a fix on this tab (pipeline/history.sql, place_fixes). Keep the two in step.
+  // The state highways among the places on the map, from the data (e.g. "SR 99, SR 509").
+  function stateRoutes() {
+    const s = new Set(D.priorities.map(p => p.state_route).filter(Boolean));
+    const sr = [...s].filter(x => /^SR \d+$/.test(x)).sort((a, b) => a.slice(3) - b.slice(3));
+    const rest = [s.has('Interstate') ? 'interstates' : '', s.has('State route') ? 'other state routes' : ''].filter(Boolean);
+    const all = sr.concat(rest);
+    return all.length > 1 ? all.slice(0, -1).join(', ') + ' and ' + all[all.length - 1] : all.join('');
+  }
   const FIX_KINDS = 'head-start walk signals, no turn on red, protected left turns, new or rebuilt signals, traffic circles, protected bike lanes, new sidewalks, neighborhood safety projects';
   function progressInit() {
     const P = D.progress, el = document.getElementById('progress');
@@ -3356,8 +3364,10 @@
       const T = { ksi: tot('ksi'), lpi: tot('lpi'), other: tot('other'), proj: tot('proj_planned') };
       const pc = (v, t) => (t ? Math.round(100 * v / t) : 0) + `% <small class="pg-n">(${fmt(v || 0)})</small>`;   // share, with the count
       const sel = rows.find(r => r.g === open);
-      const status = x => { const q = D.priorities.find(r => r.location === x.loc); return esc(q ? workSummary(q).text
-        : x.fixed ? 'Work since ' + P.since : x.planned ? 'Project planned nearby' : 'No dated work since ' + P.since + ' or planned project in the layers this site reads'); };
+      const status = x => { const q = D.priorities.find(r => r.location === x.loc); return esc((q ? workSummary(q).text
+        : x.fixed ? 'Work since ' + P.since : x.planned ? 'Planned or budgeted' : 'No dated work since ' + P.since + ' or planned project in the layers this site reads')
+        + (x.state ? `. ${x.state}: state highway, WSDOT shares responsibility` : '')
+        + (x.k === 0 ? '. No one killed or seriously hurt here in these years: ranked on its other crashes' : '')); };
       return `<section class="pg-sec" id="pg-need">
         <h3>Where serious crashes happen, and where SDOT's work is</h3>
         <div class="pg-dim" role="group" aria-label="Group by">
@@ -3370,15 +3380,15 @@
           <caption class="sr-only">Share of crashes where someone was killed or seriously hurt, fixes and planned projects, ${dim === 'district' ? 'by council district' : 'by equity index'}</caption>
           <tr><th scope="col"><span class="sr-only">${dim === 'district' ? 'District' : 'Equity level'}</span></th><th scope="col">Killed or seriously hurt</th>
             <th scope="col">Head-start walk signals</th><th scope="col">Other fixes</th><th scope="col">Planned projects</th>
-            <th scope="col">Places in the citywide top 50</th><th scope="col">…none recorded<a href="#pgNoneNote" class="fn">*</a></th></tr>
+            <th scope="col">Places in the citywide top 50</th><th scope="col">…on state highways</th><th scope="col">…none recorded<a href="#pgNoneNote" class="fn">*</a></th></tr>
           ${rows.map(r => `<tr class="${r.g === open ? 'on' : ''}"><th scope="row"><button type="button" class="linkbtn pg-grp" data-grp="${esc(r.g)}" aria-expanded="${r.g === open}">${esc(gName(r.g))}</button>${dim === 'district' && member(r.g) ? `<br><small class="muted">${member(r.g)}</small>` : ''}</th>
             <td>${pc(r.ksi, T.ksi)}</td><td>${pc(r.lpi, T.lpi)}</td><td>${pc(r.other, T.other)}</td><td>${pc(r.proj_planned, T.proj)}</td>
-            <td>${r.top50}</td><td>${r.top50_nothing}</td></tr>`).join('')}
+            <td>${r.top50}</td><td>${r.top50_state || 0}</td><td>${r.top50_nothing}</td></tr>`).join('')}
         </table>`)}
         ${sel ? `<div class="pg-open" id="pgOpen"><h4>${esc(gName(sel.g))}: top-50 places ${dim === 'district' ? linkBtn('progress=d' + sel.g) : ''}</h4>
           ${(sel.list || []).length ? `<ul class="pg-list">${sel.list.map(x => `<li><span class="pg-l1"><span class="pg-rk">${rankTxt(x.r)}</span> ${placeBtn(x.loc)}</span>
             <span class="pg-l2">${status(x)}</span></li>`).join('')}</ul>` : '<p class="note">None of today\'s top 50 are here.</p>'}</div>` : ''}
-        <p class="note" id="pgNoneNote">* None recorded: no dated work since ${P.since} and no published SDOT project nearby, in the layers this site reads. The fix types counted (${FIX_KINDS}) are mostly intersection work, so stretches of street rarely have one. Budget lines named for a street aren't counted here.</p>
+        <p class="note" id="pgNoneNote">* None recorded: a city street with no dated work since ${P.since}, no planned SDOT project, head-start walk signal or no turn on red nearby, and no budget project named for the street, in the layers this site reads (the same test as each place's own page). Places on state highways, where WSDOT shares responsibility, are counted in their own column. The fix types counted (${FIX_KINDS}) are mostly intersection work, so stretches of street rarely have one.</p>
         <p class="note">Crashes: ${monthYear(P.window.d0)}–${throughMonth(P.window.d1)}. Fixes: the dated fixes listed above, at places with
           crashes, since January ${P.since}; head-start walk signals are shown on their own because SDOT has added hundreds of them, mostly downtown.
           Planned projects: SDOT's published project maps (new sidewalks, neighborhood safety projects, planned head-start walk signals).
@@ -3540,7 +3550,7 @@
         <div><b>${fmt(r.top50_nothing)}</b><span>of those with no work or project recorded*</span></div>
       </div>
       <div class="cs-foot">Of the fixes SDOT dated since January ${esc(P.since)}, ${pct(r.lpi, tot('lpi'))}% of head-start walk signals and
-        ${pct(r.other, tot('other'))}% of other fixes are in this district. *In the SDOT layers this site reads.
+        ${pct(r.other, tot('other'))}% of other fixes are in this district.${r.top50_state ? ` ${r.top50_state} of its top-50 places ${r.top50_state === 1 ? 'is' : 'are'} on a state highway, where WSDOT shares responsibility.` : ''} *On city streets, in the SDOT layers this site reads.
         <a href="#progress=d${esc(r.g)}">Compare districts</a></div>`;
     el.hidden = false;
   }
