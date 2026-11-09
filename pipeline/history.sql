@@ -227,6 +227,28 @@ proj_g as (select dim, grp, count(*) filter (where stage <> 'done') as proj_plan
 select b.*, coalesce(p.proj_planned, 0) as proj_planned
 from by_g b full join proj_g p using (dim, grp);
 
+-- ---------------------------------------------------------------- is it working?
+-- Each dated fix, the crashes it's meant to reduce in equal periods before and after (context.sql: before_after), next
+-- to the citywide change in that same kind of crash over the same days. Fixes go where crashes were high, and such places
+-- tend to improve somewhat on their own, so a drop here isn't proof the fix worked; a place where the targeted crashes
+-- didn't drop at all is worth a closer look.
+create or replace table working_fix as
+select x.location, x.district, r.rank, x.f.k as k, x.f.m as m, x.f.d as d, x.f.days as days,
+       x.f.b as b, x.f.a as a, x.f.cb as cb, x.f.ca as ca
+from (select location, council_district as district, unnest(before_after) as f from locations) x
+left join ranked r using (location);
+
+create or replace table working_kind as
+select k, m, count(*) as n, count(*) filter (where b > 0) as n_had, sum(b) as b, sum(a) as a, sum(cb) as cb, sum(ca) as ca,
+       count(*) filter (where b > 0 and a < b) as fewer, count(*) filter (where b > 0 and a >= b) as not_fewer,
+       count(*) filter (where b = 0 and a > 0) as new_after
+from working_fix group by k, m;
+
+-- places where the targeted crashes didn't go down: at least 2 after, and no fewer than before
+create or replace table working_places as
+select * from working_fix where a >= 2 and a >= b
+qualify row_number() over (partition by k order by a - b desc, a desc, rank nulls last, location) <= 40;
+
 -- ---------------------------------------------------------------- export: site/data/progress.json
 copy (
   select {
@@ -256,6 +278,12 @@ copy (
     'need': (select list({'dim': dim, 'g': grp, 'ksi': ksi, 'top50': top50, 'top50_nothing': top50_nothing,
                           'lpi': fixes_lpi, 'other': fixes_other, 'proj_planned': proj_planned, 'list': top50_list}
                          order by dim, grp) from need_work),
+    'working': {
+      'kinds': (select list({'k': k, 'm': m, 'n': n, 'n_had': n_had, 'b': b, 'a': a, 'cb': cb, 'ca': ca,
+                             'fewer': fewer, 'not_fewer': not_fewer, 'new_after': new_after} order by n desc, k) from working_kind),
+      'places': (select list({'loc': location, 'k': k, 'm': m, 'd': d, 'days': days, 'b': b, 'a': a, 'rank': rank, 'dist': district}
+                             order by k, a - b desc, a desc, rank nulls last, location) from working_places)
+    },
     'since': year(ws()),
     'window': {'d0': ws(), 'd1': we()}
   } as progress

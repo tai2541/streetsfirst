@@ -295,7 +295,10 @@
   const map = L.map('map', { zoomControl: true, zoomSnap: 0.25, zoomAnimation: !reduceMotion }).setView([47.61, -122.33], 12);
   const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
   const esriAttr = 'Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors · Data: City of Seattle';
-  const tile = (path, opts = {}) => L.tileLayer(esri + path + '/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, maxNativeZoom: 16, attribution: esriAttr, ...opts });
+  // Tiles load while the map is dragged (Leaflet waits until a drag ends on phones, which leaves blank squares behind
+  // a pan) and a wider ring of tiles is kept around the screen, so panning back and forth doesn't load them again.
+  const tile = (path, opts = {}) => L.tileLayer(esri + path + '/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom: 19, maxNativeZoom: 16, attribution: esriAttr, updateWhenIdle: false, updateInterval: 150, keepBuffer: 4, ...opts });
   const baseLayers = {
     'Light gray': L.layerGroup([tile('Canvas/World_Light_Gray_Base'), tile('Canvas/World_Light_Gray_Reference')]),
     'Streets': tile('World_Street_Map', { maxNativeZoom: 19 }),
@@ -863,6 +866,8 @@
     detailEl.classList.add('leaving');   // keeps it drawn (though hidden) while it goes
     if (detailFrom === 'map') moveSheet(d, 0, clear, visH(d));
     else { const tok = ++d.anim; detailEl.classList.add('fade-out'); setTimeout(() => { if (tok === d.anim) clear(); }, 220); }
+    // Guard: if the slide is interrupted (or the phone freezes timers mid-way), a closed sheet still never stays drawn.
+    setTimeout(() => { if (detailEl.hidden && detailEl.classList.contains('leaving')) clear(); }, 700);
   }
   // Safety net: whatever hides the details, the list comes back.
   new MutationObserver(() => { if (detailEl.hidden && !detailEl.classList.contains('leaving')) panelEl.classList.remove('under'); })
@@ -874,11 +879,20 @@
       panelEl.classList.remove('under'); detailEl.classList.remove('leaving', 'fade-out', 'push-in', 'from-list', 'from-progress');
       setCover(0); return;
     }
+    // Stop any slide in flight (it would finish at a height worked out for the old screen size), then set both sheets.
+    S.list.anim++; S.detail.anim++;
+    if (!detailUp()) {
+      panelEl.classList.remove('under');
+      detailEl.classList.remove('leaving', 'fade-out', 'push-in'); detailEl.style.height = ''; detailEl.style.transform = '';
+    }
     rest(S.list, snapH(S.list, S.list.snap)); grabLabel(S.list); grabLabel(S.detail);
     if (detailUp()) rest(S.detail, snapH(S.detail, S.detail.snap));
     setCover(snapH(detailUp() ? S.detail : S.list, (detailUp() ? S.detail : S.list).snap));
   }
   window.addEventListener('resize', applySheets);
+  // Phones freeze a page's timers while another app is in front; coming back mid-slide, put the sheets right.
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') applySheets(); });
+  window.addEventListener('pageshow', applySheets);
   applySheets();
   // Typing in a sheet (search): it rises to full screen, so the phone's keyboard can't squeeze the box out of sight.
   document.addEventListener('focusin', e => {
@@ -1720,8 +1734,20 @@
       sActive = Math.max(0, Math.min(sHits.length - 1, sActive + (e.key === 'ArrowDown' ? 1 : -1)));
       sList.querySelectorAll('li').forEach((li, i) => li.classList.toggle('active', i === sActive));
       sInput.setAttribute('aria-activedescendant', 'sr-' + sActive);
-    } else if (e.key === 'Enter') { e.preventDefault(); pick(sActive < 0 ? 0 : sActive); }
-    else if (e.key === 'Escape') closeList();
+    } else if (e.key === 'Escape') closeList();
+  });
+  // Enter, and a phone keyboard's Search/Go key, submit the form (phone keyboards often send no plain Enter key mid-word).
+  document.getElementById('searchForm').addEventListener('submit', e => {
+    e.preventDefault();
+    if (!sInput.value.trim()) return;
+    if (sList.hidden || !sHits.length) runSearch();
+    if (sHits.length) pick(sActive < 0 ? 0 : sActive);
+  });
+  // On a phone, bring the search box to the top of the sheet so the results show above the keyboard.
+  sInput.addEventListener('focus', () => {
+    if (!isNarrow()) return;
+    const body = document.getElementById('panelBody'), box = sInput.closest('.searchbox');
+    requestAnimationFrame(() => { body.scrollTop += box.getBoundingClientRect().top - body.getBoundingClientRect().top - 8; });
   });
   sList.addEventListener('mousedown', e => { const li = e.target.closest('li[data-i]'); if (li) { e.preventDefault(); pick(+li.dataset.i); } });
   sInput.addEventListener('blur', () => setTimeout(closeList, 150));
@@ -1880,6 +1906,8 @@
     if (m.isPopupOpen()) f(); else m.once(small() ? 'popupopen' : 'panelopen', () => setTimeout(f, 0));
   }
   function showAddress(g) {
+    // On a phone the list sheet would cover the pin: drop it to its smallest height and put the keyboard away first.
+    if (isNarrow()) { sInput.blur(); setSnap(S.list, 'peek', { instant: true }); }
     const same = samePin(g);
     if (same) { clearPreview(); openPin(same, true); return; }
     clearPreview();

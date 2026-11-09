@@ -56,12 +56,12 @@
       <div id="panelBody">
       <section id="tab-priorities" class="tab active" role="tabpanel" aria-labelledby="tabbtn-priorities">
         <div id="citySummary" class="city-summary"></div>
-        <div class="searchbox">
-          <input id="search" type="search" autocomplete="off" placeholder="Find a street, intersection or address"
+        <form class="searchbox" id="searchForm" role="search" action="#" novalidate>
+          <input id="search" type="search" autocomplete="off" enterkeyhint="search" placeholder="Find a street, intersection or address"
                  role="combobox" aria-autocomplete="list" aria-label="Find a street, intersection or address" aria-controls="searchResults" aria-expanded="false">
           <ul id="searchResults" role="listbox" aria-label="Matching locations" hidden></ul>
           <div id="searchStatus" class="sr-only" role="status" aria-live="polite"></div>
-        </div>
+        </form>
         <div class="controls">
           <label>Ranking
             <select id="mode">
