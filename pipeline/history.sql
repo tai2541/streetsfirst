@@ -75,7 +75,7 @@ select h.id, h.location, h.crashes, h.ksi,
 from h join g using (id, ref_group);
 
 -- Ranks. Yearly: crashes alone. Monthly: with each place's current request boost (m0 is then exactly today's ranking).
--- Intersections and stretches ranked apart, the two lists interleaved: the same rule as today's.
+-- One list, intersections and stretches together: the same rule as today's.
 create or replace table hist_rank as
 with s as (
   select e.id, e.location, e.crashes, e.ksi, e.expected_harm, coalesce(hp.addr_type, 'B') = 'I' as is_int,
@@ -84,7 +84,7 @@ with s as (
   left join hist_places hp using (location)
 )
 select id, location, crashes, ksi, expected_harm,
-  2 * row_number() over (partition by id, is_int order by round(sc, 9) desc, crashes desc, location) - case when is_int then 1 else 0 end as rk
+  row_number() over (partition by id order by round(sc, 9) desc, crashes desc, location) as rk
 from s;
 
 -- Per place: rank on each 1 January, a month ago, and a year ago (for the place's detail panel and the list).
@@ -204,7 +204,7 @@ with fx as (
 ),
 places as (
   select r.location, coalesce(r.council_district::varchar, 'none') as district, coalesce(r.rse_quintile, 'none') as rse,
-    r.ksi, r.rank, r.lat, r.lon, r.rank <= 50 as top50, coalesce(fx.lpi, 0) as lpi, coalesce(fx.other, 0) as other,
+    r.ksi, r.rank, r.addr_type, r.lat, r.lon, r.rank <= 50 as top50, coalesce(fx.lpi, 0) as lpi, coalesce(fx.other, 0) as other,
     fx.location is not null as fixed_recently, r.proj_planned
   from ranked r left join fx using (location)
 ),
@@ -216,7 +216,7 @@ by_g as (
   select dim, grp, sum(ksi) as ksi, sum(lpi) as fixes_lpi, sum(other) as fixes_other,
     count(*) filter (where top50) as top50,
     count(*) filter (where top50 and not fixed_recently and not proj_planned) as top50_nothing,
-    list({'loc': location, 'r': rank, 'fixed': fixed_recently, 'planned': proj_planned} order by rank) filter (where top50) as top50_list
+    list({'loc': location, 'r': rank, 't': addr_type, 'fixed': fixed_recently, 'planned': proj_planned} order by rank) filter (where top50) as top50_list
   from long group by dim, grp
 ),
 proj_long as (
@@ -261,7 +261,8 @@ copy (
                         where w.yr = p.yr and w.rank_then between 51 and 150),
                 'places': (select list({'r': w.rank_then, 'loc': w.location, 'ksi': w.ksi_then, 'c': w.crashes_then,
                                         'now': w.rank_now, 'ksi_cmp': w.ksi_cmp, 'c_cmp': w.crashes_cmp, 'd': w.district,
-                                        'state': w.state_route, 'g': w.fix_group, 'fx': w.fixes} order by w.rank_then)
+                                        'state': w.state_route, 'g': w.fix_group, 'fx': w.fixes,
+                                        't': coalesce((select hp.addr_type from hist_places hp where hp.location = w.location), 'B')} order by w.rank_then)
                            from worst_then w where w.yr = p.yr and w.rank_then <= 50)} order by p.yr)
               from hist_periods p, cmp_window cw where p.kind = 'year' and p.d1 <= cw.c0),
     'month': {

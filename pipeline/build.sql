@@ -513,11 +513,11 @@ select *,
 from b;
 
 create or replace table ranked as
--- Intersections and stretches between them are ranked separately, the way SDOT lists High Collision Locations: they
--- aren't alike. Tested on earlier years, judging long stretches per 1,000 ft caught fewer later deaths and serious
--- injuries (long stretches really do keep producing them), so every place keeps its full score.
--- rank_type is the place's rank among its own kind. `rank` interleaves the two lists (intersection #1, stretch #1,
--- intersection #2, ...), so "rank <= 50" is the top 25 of each and every list below keeps one order.
+-- One list: intersections and the stretches of street between them ranked together by score, so #1 is the place most
+-- likely to hurt people, whichever kind it is. (Tested on earlier years, this does about as well as ranking the two
+-- kinds apart in the top 50 and better in the top 200: see the validation table.) Judging long stretches per 1,000 ft
+-- caught fewer later deaths and serious injuries (long stretches really do keep producing them), so every place keeps
+-- its full score. rank_type is the place's rank among its own kind, for the lists filtered to one kind.
 -- Scores are rounded for ranking: sums done in parallel can differ in the last digit from build to build, which would
 -- let equal scores swap places instead of falling to the tie-breaks.
 with a as (
@@ -526,9 +526,8 @@ with a as (
   from priorities
 ),
 b as (select *, row_number() over (partition by is_int order by round(score_rank, 9) desc, crashes desc, location) as rank_type from a)
-select 2 * rank_type - case when is_int then 1 else 0 end                               as rank,
-       2 * row_number() over (partition by is_int order by round(expected_harm, 9) desc, crashes desc, location)
-         - case when is_int then 1 else 0 end                                               as rank_noboost,
+select row_number() over (order by round(score_rank, 9) desc, crashes desc, location)     as rank,
+       row_number() over (order by round(expected_harm, 9) desc, crashes desc, location)  as rank_noboost,
        row_number() over (order by round(score_fatal, 9) desc, crashes desc, location)     as rank_fatal,
        case when score_risk is not null
             then row_number() over (partition by score_risk is null order by round(score_risk, 12) desc, crashes desc, location) end as rank_risk,
@@ -552,7 +551,7 @@ methods as (
   union all select 'old_reliability', location, row_number() over (order by round(harm * crashes / (crashes + 3), 9) desc, crashes desc, location) from train
   union all select 'crash_count', location, row_number() over (order by crashes desc, harm desc, location) from train
   union all select 'ksi_count', location, row_number() over (order by ksi desc, crashes desc, location) from train
-  -- the site's ranking: intersections and stretches ranked apart, the two lists interleaved
+  -- the alternative: intersections and stretches ranked apart, the two lists interleaved (the site's rule until Nov 2026)
   union all select 'expected_split', location, 2 * rt - case when is_int then 1 else 0 end from (
     select t.location, x.addr_type = 'I' as is_int,
       row_number() over (partition by x.addr_type = 'I' order by
@@ -591,17 +590,17 @@ from sets group by m;
 
 -- ---------------------------------------------------------------- exports for the site
 create or replace macro export_set() as table
-  select * from ranked where rank <= 200 or rank_risk <= 200
+  select * from ranked where rank <= 200 or rank_type <= 200 or rank_risk <= 200
      or killed >= 2   -- places where 2 or more people died are always shown, whatever their rank
-     -- each council district's own top 25 intersections and top 25 stretches (and top 25 for how busy it is),
-     -- so the list filtered to one district is complete
+     -- each council district's own top 50 intersections and top 50 stretches (and top 50 for how busy it is),
+     -- so the list filtered to one district (and to one kind) is complete
      or location in (select location from (
           select location,
             row_number() over (partition by council_district, addr_type = 'I' order by rank) as n_ksi,
             row_number() over (partition by council_district, rank_risk is null order by rank_risk) as n_risk,
             rank_risk
           from ranked where council_district is not null)
-        where n_ksi <= 25 or (rank_risk is not null and n_risk <= 25));
+        where n_ksi <= 50 or (rank_risk is not null and n_risk <= 50));
 
 -- Map areas for the on-demand detail files: a grid of about 1.1 km x 1.1 km cells.
 create or replace macro cell_of(lat, lon) as floor(lat / 0.01)::int || '_' || floor(-lon / 0.015)::int;
@@ -755,13 +754,14 @@ copy (
        and severity in ('Fatal Collision', 'Serious Injury Collision')) as city_ped_bike_ksi,
     (select round(sum(ksi) filter (where rank <= 50) * 1.0 / sum(ksi), 3) from ranked) as top50_ksi_share,
     (select sum(ksi) filter (where rank <= 50) from ranked) as top50_ksi,
-    -- the top 50 is 25 intersections and 25 stretches of street; how many miles those stretches add up to
+    -- how many of the top 50 are intersections, and how many miles the stretches among them add up to
+    (select count(*) filter (where rank <= 50 and is_int) from ranked) as top50_intersections,
     (select round(sum((select sum(ST_Length(s.geom)) from streets s where s.unitdesc = r.location)) / 5280, 1)
        from ranked r where not r.is_int and r.rank <= 50) as top50_stretch_miles,
     (select sum(ksi) from ranked) as city_ksi_crashes,
     -- looking ahead: the top 50 ranked on the first 3 years (the site's rule, so the validation's own number), and
     -- their share of the next 2 years' KSI crashes
-    (select future_ksi_50 from validation where method = 'expected_split') as forward_top50_ksi,
+    (select future_ksi_50 from validation where method = 'expected') as forward_top50_ksi,
     (select count(*) from collisions where date >= ws() and date < we() and peds + cyclists > 0
        and severity = 'Fatal Collision') as city_ped_bike_fatal,
     (select count(*) from collisions where date >= ws() and date < we() and severity = 'Unknown'

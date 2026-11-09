@@ -206,7 +206,7 @@
       ? d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'unknown')(D.fetchedAt && new Date(D.fetchedAt.replace(' ', 'T')))}.`;
 
   const scoreText = p => (mode === 'risk' ? `${p.score.toFixed(1)} <small>per million vehicles</small>` : `${fmt(Math.round(p.score))} <small>pts</small>`);
-  const topShare = rank => { const s = (100 * kRank(rank)) / kindCount(rank); return s < 1 ? `top ${Math.max(0.1, Math.ceil(s * 10) / 10)}%` : s <= 50 ? `top ${Math.ceil(s)}%` : 'lower half'; };
+  const topShare = rank => { const s = (100 * rank) / kindCount(rank); return s < 1 ? `top ${Math.max(0.1, Math.ceil(s * 10) / 10)}%` : s <= 50 ? `top ${Math.ceil(s)}%` : 'lower half'; };
 
   // ---------- reasons: plain-language chips, most important first ----------
   function reasons(p) {
@@ -483,19 +483,16 @@
   new ShowAll().addTo(map);
   // Tiers differ by color AND outline, so they don't rely on hue alone.
   const tier = r => (r <= 10 ? 0 : r <= 25 ? 1 : r <= 50 ? 2 : 3);
-  // Crash places: intersections and stretches between them are ranked separately, then interleaved (#1 intersection,
-  // #1 stretch, #2 intersection, ...), so an odd overall rank is an intersection and an even one a stretch.
-  const kindOf = r => (r % 2 ? 'intersection' : 'stretch');
-  const kindsOf = r => (r % 2 ? 'intersections' : 'stretches');
-  const kRank = r => Math.ceil(r / 2);
-  const rankTxt = (r, long = true) => (r == null ? '–' : `#${fmt(kRank(r))}${long ? ' ' + kindOf(r) : ''}`);
-  const tierN = k => (k <= 5 ? 0 : k <= 12 ? 1 : k <= 25 ? 2 : 3);
-  const tierK = r => tierN(kRank(r));
-  // A place as shown in the list: its rank among its own kind (or, with a district picked, within the district).
-  const shownN = p => p.dr ?? (mode === 'ksi' ? kRank(p.rank) : p.rank);
-  const pTier = p => (p.rank == null ? 3 : mode === 'ksi' ? tierN(shownN(p)) : tier(shownN(p)));
-  const pRank = (p, long = true) => (p.rank == null ? '—' : `#${fmt(shownN(p))}${mode === 'ksi' && long ? ' ' + kindOf(p.rank) : ''}`);
-  const kindCount = r => (r % 2 ? meta.intersections_scored : meta.stretches_scored) || N;
+  // Crash places: one list, intersections and the stretches of street between them ranked together (#1 is the place
+  // most likely to hurt people, whichever kind it is). A place's kind comes from its own type (I = intersection).
+  const typeWord = t => (t === 'I' ? 'intersection' : 'stretch');
+  const rankTxt = r => (r == null ? '–' : `#${fmt(r)}`);
+  const tierK = r => tier(r);
+  // A place as shown in the list: its citywide rank, or with a district or one kind picked, its rank within that list.
+  const shownN = p => p.dr ?? p.rank;
+  const pTier = p => (p.rank == null ? 3 : tier(shownN(p)));
+  const pRank = p => (p.rank == null ? '—' : `#${fmt(shownN(p))}`);
+  const kindCount = () => meta.locations_scored || N;
   const TIERS = [
     { color: '#b3141b' },
     { color: '#e0561f', stroke: '#6b1f04', weight: 2.5 },
@@ -549,10 +546,10 @@
     }
   });
   const legendCtl = new Legend().addTo(map);
-  // Tier labels: by rank among each kind for the main ranking (circles = intersections, bars = stretches); one list for "how busy".
+  // Tier labels: by rank in the list shown (circles = intersections, bars = stretches).
   const legendTiers = () => {
     const ksi = mode === 'ksi', c = legendCtl.getContainer();
-    const l = ksi ? ['Top 5 intersections and top 5 stretches', '6th–12th of each', '13th–25th of each', 'Lower'] : ['Top 10', '11–25', '26–50', '51+'];
+    const l = ['Top 10', '11–25', '26–50', '51+'];
     c.querySelectorAll('.lg-tl').forEach((e, i) => { e.textContent = l[i]; });
     c.querySelectorAll('.lg-shape').forEach(e => { e.hidden = !ksi; });
   };
@@ -574,16 +571,14 @@
     distCard(dist);
     const keep = p => (!dist || p.council_district === dist) && (!type || p.addr_type === type || (type === 'B' && p.addr_type === 'A'))
         && (!onlyFatal || p.killed > 0) && (!ongoing || p.ksi_years >= 3) && (!noPlan || !(p.proj_ids && p.proj_ids.length));
-    // With a district picked, places are ranked again within it: each kind apart (one list for "how busy"), up to 25
-    // each, the depth the data file carries for every district.
+    // With a district or one kind picked, places are ranked again within that list (#1, #2, ...), with the citywide rank
+    // beside each. The data file carries each kind's top 200 citywide and each district's top 50 of each kind.
     D.priorities.forEach(p => { p.dr = null; });
-    let pool;
-    if (dist) {
-      const c = {};
-      pool = D.priorities.filter(p => p.rank != null && p.council_district === dist).filter(p => {
-        const k = mode === 'ksi' ? p.rank % 2 : 0; c[k] = (c[k] || 0) + 1; p.dr = c[k]; return c[k] <= 25;
-      }).sort((a, b) => a.dr - b.dr || (b.rank % 2) - (a.rank % 2));
-    } else pool = D.priorities.filter(p => p.rank != null && p.rank <= 200);
+    const isType = p => !type || p.addr_type === type || (type === 'B' && p.addr_type === 'A');
+    const again = !!(dist || type);
+    let pool = D.priorities.filter(p => p.rank != null && (!dist || p.council_district === dist) && isType(p)).sort((a, b) => a.rank - b.rank);
+    if (again) pool = pool.slice(0, dist ? 50 : 200).map((p, i) => { p.dr = i + 1; return p; });
+    else pool = pool.filter(p => p.rank <= 200);
     const rows = pool.filter(keep).slice(0, n);
     // Spots where 2+ people died are never left off, even when their predicted-harm rank is low.
     const inRows = new Set(rows.map(p => p.rank_ksi));
@@ -612,7 +607,7 @@
         ? L.marker([p.lat, p.lon], {
             zIndexOffset: 1000 - p.rank, riseOnHover: true, keyboard: true, title: `${pRank(p)} ${p.name}`, alt: `${pRank(p)} ${p.name}`,
             icon: L.divIcon({
-              className: 'top-mark' + (mode === 'ksi' && p.rank % 2 === 0 ? ' stretch' : ''), iconSize: [40, 40], iconAnchor: [20, 20],
+              className: 'top-mark' + (p.addr_type !== 'I' ? ' stretch' : ''), iconSize: [40, 40], iconAnchor: [20, 20],
               html: `<span class="pulse" style="animation-delay:-${(p.rank * 0.37).toFixed(2)}s"></span>
                      <span class="core">${shownN(p)}</span>`
             })
@@ -644,10 +639,10 @@
     const card = (p, isExtra, i) => {
       const chips = reasons(p).slice(0, 3);
       const rk = p.rank != null ? `#${fmt(shownN(p))}` : '—';
-      const kind = mode === 'ksi' && p.rank != null ? (p.rank % 2 ? 'Intersection' : 'Stretch') : '';
-      const city = p.dr ? `#${fmt(mode === 'ksi' ? kRank(p.rank) : p.rank)} citywide` : '';
+      const kind = p.addr_type === 'I' ? 'Intersection' : 'Stretch';
+      const city = p.dr ? `#${fmt(p.rank)} citywide` : '';
       // movement since last month (recommended ranking, citywide list only); shown under the points, spoken in full
-      const mv = mode === 'ksi' && p.rank != null && !p.dr ? (p.rank_month_ago ? kRank(p.rank_month_ago) - kRank(p.rank) : null) : 0;
+      const mv = mode === 'ksi' && p.rank != null && !p.dr ? (p.rank_month_ago ? p.rank_month_ago - p.rank : null) : 0;
       const move = mv == null ? '<span class="mv new"><span aria-hidden="true">new</span><span class="sr-only">, new in the list this month</span></span>'
         : mv >= 1 ? `<span class="mv up"><span aria-hidden="true">▲${mv}</span><span class="sr-only">, up ${mv} since last month</span></span>`
         : mv <= -1 ? `<span class="mv down"><span aria-hidden="true">▼${-mv}</span><span class="sr-only">, down ${-mv} since last month</span></span>` : '';
@@ -1094,14 +1089,14 @@
     const yy = y => "'" + String(y).slice(2);
     const cells = ys.map(y => ({ l: `${yy(y - 5)}–${yy(y - 1)}`, sr: `Ranked on crashes from ${y - 5} to ${y - 1}`, r: got.get(y) }))
       .concat([{ l: 'Now', sr: `Now, on crashes from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}`, r: now }]);
-    const cls = r => r == null ? 'none' : 't' + tierK(r) + (kRank(r) > 100 ? ' low' : '');
-    const in50 = cells.filter(c => c.r && kRank(c.r) <= 25).length;
+    const cls = r => r == null ? 'none' : 't' + tierK(r) + (r > 200 ? ' low' : '');
+    const in50 = cells.filter(c => c.r && c.r <= 50).length;
     const fixes = [];
     if (p.lpi_status === 'Existing' && p.lpi_installed) fixes.push({ d: p.lpi_installed, k: 'Head-start walk signal' });
     if (p.lt_protected && p.lt_installed) fixes.push({ d: p.lt_installed, k: 'Protected left turn' });
     (p.fixes || []).filter(f => f.d && f.s === 'Built' && f.k !== 'Bus lane').forEach(f => fixes.push({ d: f.d, k: f.k }));
     const recent = fixes.filter(f => +f.d.slice(0, 4) >= ys[0] - 1).sort((a, b) => a.d.localeCompare(b.d));
-    const m = p.rank_month_ago, mv = m && p.rank ? kRank(m) - kRank(p.rank) : 0;   // same basis as the list card: last month's rank includes repair reports
+    const m = p.rank_month_ago, mv = m && p.rank_ksi ? m - p.rank_ksi : 0;   // same basis as the list card (last month's rank includes repair reports), in either mode
     return `<div class="legend rh-legend" aria-hidden="true">${[['t0', 'Top 5'], ['t1', '6–12'], ['t2', '13–25'], ['t3', '26+']].map(([c, l]) =>
         `<span><i class="rh-${c}"></i>${l}</span>`).join('')}</div>
       <ol class="rank-hist" style="--n:${cells.length}" aria-label="Rank over the years, by 5-year periods of crashes">
@@ -1109,7 +1104,7 @@
           <span class="sr-only">${esc(c.sr)}: ${c.r ? 'ranked ' + rankTxt(c.r) : 'no crashes'}.</span>
           <b aria-hidden="true">${c.r ? rankTxt(c.r, false) : '–'}</b><span aria-hidden="true">${c.l}</span></li>`).join('')}
       </ol>
-      <div class="note">${in50 ? `Among the top 25 ${kindsOf(now || 1)} in ${in50} of these ${cells.length} periods. ` : ''}${m
+      <div class="note">${in50 ? `Among the top 50 in ${in50} of these ${cells.length} periods. ` : ''}${m
         ? (mv === 0 ? 'Same overall rank as a month ago. ' : `Overall rank ${mv > 0 ? 'up' : 'down'} ${plural(Math.abs(mv), 'place', 'places')} since last month (was ${rankTxt(m)}). `) : ''}
         ${recent.length ? 'Fixes: ' + recent.map(f => `${esc(f.k)} (${fixDate(f.d)})`).join(', ') + '. ' : ''}
         Each period is ranked the same way as today, but on crashes only: repair requests aren't available that far back, so
@@ -1483,9 +1478,9 @@
     const st = [p.speed_limit ? `${p.speed_limit} mph` : '', (p.street_type || '').toLowerCase(), p.volume ? `${fmt(p.volume)} vehicles a weekday` : ''].filter(Boolean);
     if (st.length) parts.push(st.join(', ').replace(/^./, c => c.toUpperCase()) + '.');
     const rk = p.rank_ksi;
-    const line2 = `Ranks <b>#${fmt(kRank(rk))}</b> of ${fmt(kindCount(rk))} ${kindsOf(rk)} with crashes (${topShare(rk)})` +
+    const line2 = `Ranks <b>#${fmt(rk)}</b> of ${fmt(kindCount(rk))} places with crashes (${topShare(rk)})` +
       (p.rank_risk ? `, and #${fmt(p.rank_risk)} of all places once you account for how busy it is` : '') + '.';
-    const why = p.killed >= 2 && kRank(rk) > 25
+    const why = p.killed >= 2 && rk > 50
       ? `<p class="callout">${p.killed} people died here. It ranks ${rankTxt(rk)} because the ranking estimates where people are most
           likely to be hurt next, and this spot has few other crashes (${p.crashes} in total), which gives the model little history to tell whether the
           danger here will continue, so it leans on what's typical for similar streets. That may understate it: repeated deaths can mean traffic moves at deadly speeds. It's always listed
@@ -1781,7 +1776,7 @@
           <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${s.lat},${s.lon}" target="_blank" rel="noopener">Street View ↗</a> · ${copyLoc(niceName(s.name))}</div>
         ${reportBox(niceName(s.name))}
         <p class="verdict">${plural(s.crashes, 'crash', 'crashes')} from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}${s.ksi ? `; ${s.ksi} killed or seriously injured someone` : ''}${s.pb ? `; ${s.pb} involved people walking or biking` : ''}.</p>
-        <p class="verdict2">Ranks <b>#${fmt(kRank(s.rank))}</b> of ${fmt(kindCount(s.rank))} ${kindsOf(s.rank)} with crashes (${topShare(s.rank)}).</p>
+        <p class="verdict2">Ranks <b>#${fmt(s.rank)}</b> of ${fmt(kindCount(s.rank))} places with crashes (${topShare(s.rank)}).</p>
         <p class="note">${state !== 'failed' ? 'Loading the full crash and request details…'
           : staleCells.has(s.cell) ? 'This site was just updated, so this place’s details come from a newer version. <button type="button" class="linkbtn brief-reload">Reload the page</button>'
           : 'The full crash and request details for this place couldn’t be loaded. Check your connection. <button type="button" class="linkbtn brief-retry">Try again</button>'}</p>
@@ -2436,9 +2431,7 @@
     } else {
       const n = el('list').querySelectorAll('li[data-id]:not(.extra)').length, top = +el('topN').value;
       const ids = [...el('list').querySelectorAll('li[data-id]:not(.extra)')].map(li => +li.dataset.id);
-      const nI = ids.filter(r => r % 2).length, nS = ids.length - nI;
-      const parts = [n ? (el('distFilter').value && el('mode').value === 'ksi' ? `Top ${nI} intersections + ${nS} stretches`
-        : n < top ? n + (n === 1 ? ' place' : ' places') : 'Top ' + n) : 'No places match', el('mode').selectedOptions[0].text];
+      const parts = [n ? (n < top ? n + (n === 1 ? ' place' : ' places') : 'Top ' + n) : 'No places match', el('mode').selectedOptions[0].text];
       if (el('distFilter').value) parts.push(el('distFilter').selectedOptions[0].text);
       if (el('addrFilter').value) parts.push(el('addrFilter').selectedOptions[0].text);
       [['onlyFatal', 'Someone died'], ['onlyOngoing', 'Repeat serious crashes'], ['noPlan', 'No published SDOT project']]
@@ -2958,12 +2951,12 @@
       <p class="note">Why isn't this the default? Total harm counts every person hurt. A busy street with many injuries
         affects more people than a quiet one with a high rate.</p>`;
     const V = (meta.validation || []).reduce((o, a) => (o[a.method] = a, o), {});
-    const vname = { expected_split: 'This site (intersections and stretches ranked apart)', expected: 'Expected harm, one list for both', old_reliability: 'Previous version of this site', crash_count: 'Most crashes',
+    const vname = { expected: 'This site (one list for intersections and stretches)', expected_split: 'Intersections and stretches ranked apart, alternating', old_reliability: 'Previous version of this site', crash_count: 'Most crashes',
                     raw_harm: 'Crash harm, no blending', ksi_count: 'Most fatal/serious crashes' };
     const dayBefore = d => new Date(new Date(d + 'T12:00:00') - 864e5).toISOString().slice(0, 10);
     const span = (x, y) => `${monthYear(x)}–${monthYear(y)}`;
     const two = !!meta.test2_from;
-    const ex2 = V.expected_split || V.expected || {}, cc = V.crash_count || {}, one = V.expected || {};
+    const ex2 = V.expected || {}, cc = V.crash_count || {}, one = V.expected_split || {};
     const validation = `
       <h3>Does it predict anything?</h3>
       <p>The test: rank spots using only earlier years, then count the fatal and serious crashes that happened afterwards at
@@ -2977,7 +2970,7 @@
       <table class="vtable"><thead>
         <tr><th scope="col" rowspan="2">Method</th><th scope="colgroup" colspan="2">Test 1</th>${two ? '<th scope="colgroup" colspan="2">Test 2</th>' : ''}</tr>
         <tr><th scope="col">Top 50</th><th scope="col">Top 200</th>${two ? '<th scope="col">Top 50</th><th scope="col">Top 200</th>' : ''}</tr></thead><tbody>
-        ${(meta.validation || []).map(v => `<tr class="${v.method === 'expected_split' ? 'total' : ''}"><td>${vname[v.method] || v.method}</td><td>${v.k50}</td><td>${v.k200}</td>${two ? `<td>${v.b50}</td><td>${v.b200}</td>` : ''}</tr>`).join('')}
+        ${(meta.validation || []).map(v => `<tr class="${v.method === 'expected' ? 'total' : ''}"><td>${vname[v.method] || v.method}</td><td>${v.k50}</td><td>${v.k200}</td>${two ? `<td>${v.b50}</td><td>${v.b200}</td>` : ''}</tr>`).join('')}
       </tbody></table>
       <p class="note">Ranking on fatal/serious crashes alone does worst: they're rare enough that a place's count swings a lot from year to year, so past counts alone say little about what comes next.
         ${(() => {
@@ -2992,11 +2985,11 @@
             `. The differences are a few crashes out of ${fmt(meta.test_ksi_total)}${two ? ' and ' + fmt(meta.test2_ksi_total) : ''}, and Test 1 was also used to choose the method, so read the ranking as a guide that does about as well as counting crashes, not a precise forecast.` +
             (meta.unknown_since_2026 ? ` Test 1's later years include ${fmt(meta.unknown_since_2026)} crash reports from 2026 that don't list a severity yet, which lowers its totals.` : '');
         })()}</p>
-      ${V.expected_split && V.expected ? `<p class="note">Ranking intersections and stretches apart, the way SDOT lists its High Collision
-        Locations, keeps them from competing with each other, and half of every top list is stretches. It does as well in the top 50
-        (${ex2.k50}${two ? ' and ' + ex2.b50 : ''}, against ${one.k50}${two ? ' and ' + one.b50 : ''} for one combined list) but catches fewer in the
-        top 200 (${ex2.k200}${two ? ' and ' + ex2.b200 : ''}, against ${one.k200}${two ? ' and ' + one.b200 : ''}): further down, a combined list would hold more
-        intersections, where most serious crashes happen. We also tested judging long stretches per 1,000 ft; it did worse, so every place keeps its full score.</p>` : ''}
+      ${V.expected_split && V.expected ? `<p class="note">Intersections and stretches are ranked together in one list, so the top of the list
+        is whichever places are most likely to hurt people. Ranking them apart and alternating (the way SDOT lists its High Collision
+        Locations, and this site's rule until November 2026) caught ${one.k50}${two ? ' and ' + one.b50 : ''} in the top 50, against
+        ${ex2.k50}${two ? ' and ' + ex2.b50 : ''} for one list, and ${one.k200}${two ? ' and ' + one.b200 : ''} in the top 200, against
+        ${ex2.k200}${two ? ' and ' + ex2.b200 : ''}. Use "Show" to see intersections or stretches on their own, ranked again within that kind. We also tested judging long stretches per 1,000 ft; it did worse, so every place keeps its full score.</p>` : ''}
       <p class="note">Test 1 was also used to choose the method, so it flatters it a little${two ? '; Test 2 was added afterwards as a check' : ''}. The repair-request
         boost isn't included in either. Spots that rank high after a bad stretch usually improve somewhat on their own (regression to
         the mean): the blending evens out the fatal/serious share where numbers are small, but not the crash count itself.</p>`;
@@ -3198,7 +3191,7 @@
         const part = g => `${g.a.length === 1 ? 'the 1 place' : `the ${g.a.length} places`} ${g === f ? `fixed before ${y0(C.d0)}` : `with no fix before ${cmpEnd + 1}`}
           had ${fmt(sum(g.a, 'ksi'))} crashes where someone was killed or seriously hurt in ${then} and ${fmt(sum(g.a, 'ksi_cmp'))} in ${cmpSpan}`;
         // The fixes counted are mostly intersection treatments, so the groups also differ in kind of place: said from the data.
-        const st = g => g.a.filter(x => x.r % 2 === 0).length, stAll = st(f) + st(G.during) + st(n);
+        const st = g => g.a.filter(x => x.t !== 'I').length, stAll = st(f) + st(G.during) + st(n);
         const kinds = stAll && st(n) > st(f) + st(G.during)
           ? ` Of the ${stAll} stretches of street in this list, ${st(n) === stAll ? 'all' : st(n)} are in “no fix”: the fixes counted here (${FIX_KINDS}) are mostly made at intersections, so these groups differ in the kind of place as well as in fixes, and this doesn't show what a fix does.` : '';
         return f.a.length && n.a.length ? `In short: ${part(f)}; ${part(n)}. Citywide, these crashes went ${change(Y.ksi_city, C.ksi_city)}.${kinds}` : '';
@@ -3216,7 +3209,7 @@
           <div class="stat"><b>${still}</b><span>are still in today's top 50</span></div>
         </div>
         ${(() => {
-          const isI = x => x.r % 2 === 1, all = [...G.fixed.a, ...G.during.a, ...G.none.a];
+          const isI = x => x.t === 'I', all = [...G.fixed.a, ...G.during.a, ...G.none.a];
           const by = k => { const f = x => k === 'I' ? isI(x) : !isI(x);
             return { n: all.filter(f).length, fixed: [...G.fixed.a, ...G.during.a].filter(f).length, none: G.none.a.filter(f).length }; };
           const I = by('I'), S = by('S');
@@ -3262,7 +3255,7 @@
     // ---- 2. since last month
     function monthPart() {
       const ins = M.moves.filter(m => m.in50 === 'in'), outs = M.moves.filter(m => m.in50 === 'out');
-      const dk = m => kRank(m.was) - kRank(m.now);   // moves among the place's own kind
+      const dk = m => m.was - m.now;
       const up = M.moves.filter(m => !m.in50 && m.was && dk(m) >= 5), down = M.moves.filter(m => !m.in50 && m.was && -dk(m) >= 5);
       const arrow = m => !m.was ? 'new' : dk(m) > 0 ? `▲${dk(m)}` : `▼${-dk(m)}`;
       const row = m => `<li><span class="pg-l1"><span class="pg-rk">${rankTxt(m.now)}</span> ${placeBtn(m.loc)}</span>
@@ -3270,7 +3263,7 @@
       const group = (title, arr, empty) => `<div class="pg-group"><h4>${title}</h4>${arr.length
         ? `<ul class="pg-list">${arr.map(row).join('')}</ul>` : `<p class="note">${empty}</p>`}</div>`;
       const T = M.recent_ksi_total || {};
-      const rkTxt = r => r.rank && kRank(r.rank) <= 250 ? ` · ranked ${rankTxt(r.rank)}` : '';
+      const rkTxt = r => r.rank && r.rank <= 500 ? ` · ranked ${rankTxt(r.rank)}` : '';
       return `<section class="pg-sec" id="pg-month">
         <h3>Since last month</h3>
         <p class="lead">The ranking now covers crashes through <b>${throughMonth(M.d_now)}</b>. A month ago it went through
@@ -3396,13 +3389,13 @@
         const Y = years.find(v => v.yr === pick), then = span(Y.d0, Y.d1);
         const asOf = D.fetchedAt ? D.fetchedAt.slice(0, 10) : '';
         csv(`seattle-worst-50-${pick}.csv`, [[`Streets First (Seattle), from SDOT's police-reported crash data and SDOT's published records; data as of ${asOf}`],
-          [`Ranked on crashes from ${then}; compared with ${cmpSpan}. Ranks are within each type (intersection or stretch).`],
+          [`Ranked on crashes from ${then}; compared with ${cmpSpan}. Intersections and stretches are ranked together in one list.`],
           [`Rank in ${pick} (crashes only)`, 'Type', 'Place', 'Council district', `All crashes ${then}`, `Killed or seriously hurt crashes ${then}`,
           `Killed or seriously hurt crashes ${cmpSpan}`, 'Fix group', 'Fixes (year)', 'Rank today (with repair reports)', 'Link'],
-          ...Y.places.map(x => [kRank(x.r), kindOf(x.r), niceName(x.loc), x.d || '', x.c, x.ksi, x.ksi_cmp,
+          ...Y.places.map(x => [x.r, typeWord(x.t), niceName(x.loc), x.d || '', x.c, x.ksi, x.ksi_cmp,
             x.g === 'fixed' ? `Fixed before ${y0(C.d0)}` : x.g === 'none' ? `No fix before ${cmpEnd + 1}` : `First fix in ${cmpSpan}`,
             (x.fx || []).map(f => `${f.k} (${f.y}${f.y > cmpEnd ? ', after the comparison years' : ''})`).join('; '),
-            x.now ? kRank(x.now) : '', location.origin + location.pathname + '#p=' + keyOf(x.loc)])]);
+            x.now || '', location.origin + location.pathname + '#p=' + keyOf(x.loc)])]);
       };
       if (focusSel) { const f = el.querySelector(focusSel); if (f) f.focus(); }
     }
@@ -3459,7 +3452,7 @@
         <div><b data-n="${meta.city_serious}">${fmt(meta.city_serious)}</b><span>seriously injured</span></div>
       </div>
       <div class="cs-foot"><b class="cs-hi">About 1 in ${oneIn}</b> of the crashes that killed or seriously hurt someone
-        (${fmt(meta.top50_ksi)} of ${fmt(ksiAll)}) happened at just <b class="cs-hi">25 intersections and 25 stretches of street</b>${meta.top50_stretch_miles ? ` (the stretches add up to about ${meta.top50_stretch_miles} miles)` : ''}, out of
+        (${fmt(meta.top50_ksi)} of ${fmt(ksiAll)}) happened at just <b class="cs-hi">${meta.top50_intersections != null ? `${meta.top50_intersections} intersections and ${50 - meta.top50_intersections} stretches of street` : '50 places'}</b>${meta.top50_stretch_miles ? ` (the stretches add up to about ${meta.top50_stretch_miles} miles)` : ''}, out of
         ${fmt(meta.locations_scored)} places with crashes. Those are the top of the "Most likely to hurt people" ranking, picked using these same crashes.${pbShare ? `
         Of the ${fmt(meta.city_ksi_crashes)} with a known location, <b class="cs-hi">${pbShare}%</b> involved someone walking or biking.` : ''}</div>
       ${meta.forward_top50_ksi ? `<div class="cs-note">Predicting is harder: ranked on the first 3 years, the top 50 had
@@ -3542,7 +3535,7 @@
       title = 'Crash hot spots';
       lead = 'Nothing picked yet. Click a dot on the map or a place in the list, or search an address, to see why it ranks.';
       items = top.slice(0, 3).map(p => ({
-        rk: pRank(p, false), t: pTier(p), title: pRank(p), name: p.name, sub: [mode === 'ksi' && p.rank != null ? kindOf(p.rank).replace(/^./, c => c.toUpperCase()) : '', p.area, plural(p.crashes, 'crash', 'crashes')].filter(Boolean).join(' · '),
+        rk: pRank(p, false), t: pTier(p), title: pRank(p), name: p.name, sub: [typeWord(p.addr_type).replace(/^./, c => c.toUpperCase()), p.area, plural(p.crashes, 'crash', 'crashes')].filter(Boolean).join(' · '),
         val: `<b>${(p.killed ?? 0) + (p.seriously_injured ?? 0)}</b>killed or seriously hurt`, open: () => select(p, true, null) }));
       if (!n) middle = '<p class="note">No spots match these filters. Turn a filter off to see more.</p>';
       const arterial = top.filter(p => /arterial/i.test(p.street_type || '')).length;
