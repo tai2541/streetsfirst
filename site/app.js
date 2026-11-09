@@ -128,6 +128,14 @@
     </div>`;
   }
   document.addEventListener('click', e => { if (e.target.closest && e.target.closest('.print-btn')) window.print(); });
+  // Printed or saved pages say what they are, when the data is from, the source, and the link back.
+  window.addEventListener('beforeprint', () => {
+    const d = document.getElementById('detail'); if (!d) return;
+    let h = d.querySelector('.print-head'); if (!h) { h = document.createElement('div'); h.className = 'print-head'; d.prepend(h); }
+    const asOf = D.fetchedAt ? new Date(D.fetchedAt.replace(' ', 'T')) : null;
+    h.textContent = `Streets First · Seattle — ${asOf && !isNaN(asOf) ? 'data as of ' + asOf.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + ' — ' : ''}` +
+      `from SDOT's police-reported crash data and SDOT's published records — ${location.href}`;
+  });
 
   const toast = msg => {
     let t = document.getElementById('toast');
@@ -1563,6 +1571,9 @@
           <div class="stat"><b>${p.pb_crashes ?? p.ped_crashes + p.bike_crashes}</b><span>with people walking or biking</span></div>
           <div class="stat"><b>${p.requests}</b><span>repair requests nearby</span></div>
         </div>
+        ${p.ksi > (p.killed ?? 0) + (p.seriously_injured ?? 0) ? `<p class="note">SDOT's data codes ${plural(p.ksi, 'crash', 'crashes')} here as fatal
+          or serious but lists ${(p.killed ?? 0) + (p.seriously_injured ?? 0) || 'no'} ${(p.killed ?? 0) + (p.seriously_injured ?? 0) === 1 ? 'person' : 'people'} killed or seriously hurt in them: some police reports give
+          the severity without counting the people. Each such crash had at least one person killed or seriously hurt.</p>` : ''}
         <div class="chips dchips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</div>
         ${reportBox(p.name)}
         ${civicBox(p.council_district ? { d: p.council_district, member: p.council_member, url: p.council_url } : councilAt(p.lat, p.lon),
@@ -3039,6 +3050,15 @@
           <div class="stat"><b>${G.none.a.length}</b><span>had no fix by ${cmpEnd + 1} in SDOT's published data</span></div>
           <div class="stat"><b>${still}</b><span>are still in today's top 50</span></div>
         </div>
+        ${(() => {
+          const isI = x => x.r % 2 === 1, all = [...G.fixed.a, ...G.during.a, ...G.none.a];
+          const by = k => { const f = x => k === 'I' ? isI(x) : !isI(x);
+            return { n: all.filter(f).length, fixed: [...G.fixed.a, ...G.during.a].filter(f).length, none: G.none.a.filter(f).length }; };
+          const I = by('I'), S = by('S');
+          return `<p class="pg-kinds"><b>Intersections:</b> ${I.fixed} of ${I.n} got a fix, ${I.none} with none recorded.
+            <b>Stretches:</b> ${S.fixed} of ${S.n} got one, ${S.none} with none recorded${S.n && S.none > S.n / 2
+              ? '; the fix types counted here (walk signals, no turn on red, turn arrows, signals) are mostly intersection work' : ''}.</p>`;
+        })()}
         <p class="pg-short">${sentence()}</p>
         ${tableWrap(`Crashes where someone was killed or seriously hurt, ${then} and ${cmpSpan}`, `<table class="pg-table">
           <caption class="sr-only">Crashes where someone was killed or seriously hurt at the worst 50 places of ${pick}, by when they were fixed</caption>
@@ -3122,7 +3142,7 @@
                               : (a, b) => (a.g === 'none') - (b.g === 'none') || +a.g - +b.g);
       const tot = k => rows.reduce((s, r) => s + (r[k] || 0), 0);
       const T = { ksi: tot('ksi'), lpi: tot('lpi'), other: tot('other'), proj: tot('proj_planned') };
-      const pc = (v, t) => (t ? Math.round(100 * v / t) : 0) + '%';
+      const pc = (v, t) => (t ? Math.round(100 * v / t) : 0) + `% <small class="pg-n">(${fmt(v || 0)})</small>`;   // share, with the count
       const sel = rows.find(r => r.g === open);
       const status = x => { const q = D.priorities.find(r => r.location === x.loc); return esc(q ? workSummary(q).text
         : x.fixed ? 'Work since ' + P.since : x.planned ? 'Project planned nearby' : 'No dated work since ' + P.since + ' or planned project in the layers this site reads'); };
@@ -3138,7 +3158,7 @@
           <caption class="sr-only">Share of crashes where someone was killed or seriously hurt, fixes and planned projects, ${dim === 'district' ? 'by council district' : 'by equity index'}</caption>
           <tr><th scope="col"><span class="sr-only">${dim === 'district' ? 'District' : 'Equity level'}</span></th><th scope="col">Killed or seriously hurt</th>
             <th scope="col">Head-start walk signals</th><th scope="col">Other fixes</th><th scope="col">Planned projects</th>
-            <th scope="col">Places in the citywide top 50</th><th scope="col">…with no work since ${P.since} or published SDOT project recorded in the layers this site reads</th></tr>
+            <th scope="col">Places in the citywide top 50</th><th scope="col">…none recorded<a href="#pgNoneNote" class="fn">*</a></th></tr>
           ${rows.map(r => `<tr class="${r.g === open ? 'on' : ''}"><th scope="row"><button type="button" class="linkbtn pg-grp" data-grp="${esc(r.g)}" aria-expanded="${r.g === open}">${esc(gName(r.g))}</button>${dim === 'district' && member(r.g) ? `<br><small class="muted">${member(r.g)}</small>` : ''}</th>
             <td>${pc(r.ksi, T.ksi)}</td><td>${pc(r.lpi, T.lpi)}</td><td>${pc(r.other, T.other)}</td><td>${pc(r.proj_planned, T.proj)}</td>
             <td>${r.top50}</td><td>${r.top50_nothing}</td></tr>`).join('')}
@@ -3146,6 +3166,7 @@
         ${sel ? `<div class="pg-open" id="pgOpen"><h4>${esc(gName(sel.g))}: top-50 places ${dim === 'district' ? linkBtn('progress=d' + sel.g) : ''}</h4>
           ${(sel.list || []).length ? `<ul class="pg-list">${sel.list.map(x => `<li><span class="pg-l1"><span class="pg-rk">${rankTxt(x.r)}</span> ${placeBtn(x.loc)}</span>
             <span class="pg-l2">${status(x)}</span></li>`).join('')}</ul>` : '<p class="note">None of today\'s top 50 are here.</p>'}</div>` : ''}
+        <p class="note" id="pgNoneNote">* None recorded: no dated work since ${P.since} and no published SDOT project nearby, in the layers this site reads. The fix types counted are mostly intersection work, so stretches of street rarely have one. Budget lines named for a street aren't counted here.</p>
         <p class="note">Crashes: ${monthYear(P.window.d0)}–${throughMonth(P.window.d1)}. Fixes: the dated fixes listed above, at places with
           crashes, since ${P.since}; head-start walk signals are shown on their own because SDOT has added hundreds of them, mostly downtown.
           Planned projects: SDOT's published project maps (new sidewalks, neighborhood safety projects, planned head-start walk signals).
@@ -3208,9 +3229,12 @@
       const c = el.querySelector('#pgCsv');
       if (c) c.onclick = () => {
         const Y = years.find(v => v.yr === pick), then = span(Y.d0, Y.d1);
-        csv(`seattle-worst-50-${pick}.csv`, [[`Rank in ${pick}`, 'Place', 'Council district', `All crashes ${then}`, `Killed or seriously hurt crashes ${then}`,
-          `Killed or seriously hurt crashes ${cmpSpan}`, 'Fixes (year)', 'Rank today'],
-          ...Y.places.map(x => [x.r, niceName(x.loc), x.d || '', x.c, x.ksi, x.ksi_cmp, (x.fx || []).map(f => `${f.k} (${f.y})`).join('; '), x.now || ''])]);
+        const asOf = D.fetchedAt ? D.fetchedAt.slice(0, 10) : '';
+        csv(`seattle-worst-50-${pick}.csv`, [[`Streets First (Seattle), from SDOT's police-reported crash data and SDOT's published records; data as of ${asOf}`],
+          [`Rank in ${pick}`, 'Type', 'Place', 'Council district', `All crashes ${then}`, `Killed or seriously hurt crashes ${then}`,
+          `Killed or seriously hurt crashes ${cmpSpan}`, 'Fixes (year)', 'Rank today', 'Link'],
+          ...Y.places.map(x => [rankTxt(x.r), kindOf(x.r), niceName(x.loc), x.d || '', x.c, x.ksi, x.ksi_cmp, (x.fx || []).map(f => `${f.k} (${f.y})`).join('; '),
+            x.now ? rankTxt(x.now) : '', location.origin + location.pathname + '#p=' + keyOf(x.loc)])]);
       };
       if (focusSel) { const f = el.querySelector(focusSel); if (f) f.focus(); }
     }

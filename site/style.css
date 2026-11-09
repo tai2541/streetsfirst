@@ -392,6 +392,9 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 .stat:nth-child(4) { background: #ebf8f2; } .stat:nth-child(4) b { color: #147a55; }
 .phone-intro { display: none; margin: 0 0 10px; font-size: 14px; line-height: 1.45; color: #2a3342; }
 .phone-intro .intro-report { display: inline-block; margin-top: 4px; font-weight: 700; color: #0f7a54; }
+.pg-need small.pg-n { color: #5a6475; font-size: 11.5px; white-space: nowrap; }
+.pg-table a.fn { text-decoration: none; margin-left: 1px; }
+.pg-kinds { margin: 8px 0 4px; font-size: 13.5px; color: #2a3342; }
 .pin-warn { margin: 6px 0; padding: 6px 9px; border-left: 3px solid #c77700; background: #fff7e6; border-radius: 4px; font-size: 13px; color: #4a3200; }
 #detailTitle .dcity { display: block; font-size: 12.5px; font-weight: 600; color: #5a6475; margin-top: 2px; }
 /* "Did the worst places get fixed?": fixes read green, no fix neutral, still among the worst red (not the tiles' default order) */
@@ -743,7 +746,13 @@ body.sheet-open #expandPanel, body.sheet-open #expandDetail, body.sheet-open #pa
   .dsec.collapsed .dsec-b { display: block !important; }
   .print-btn, #closeDetail, #expandDetail, .res-fold, .fbar, [data-more] { display: none !important; }
   .civic a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 10px; color: #555; word-break: break-all; }
+  /* a handout: charts keep their bars, a header says what, when and from where; forms, copy buttons and the full crash
+     and request tables stay on screen (the link in the header leads back to them) */
+  #detail, #detail * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .print-head { display: block !important; margin: 0 0 10px; padding-bottom: 6px; border-bottom: 1px solid #999; font-size: 11px; color: #333; }
+  .res-list, .res-more, .pin-res, .report, .copyloc, .linkbtn, .dsec-crashes, .dsec-reqs, .dsec-math { display: none !important; }
 }
+.print-head { display: none; }
 
 /* ---------- since last month (list), rank over the years (details), "Is it getting fixed?" sheet ---------- */
 .score .mv { display: block; text-align: right; margin-top: 2px; }
