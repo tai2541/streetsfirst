@@ -308,9 +308,18 @@
     ])
   };
   baseLayers['Light gray'].addTo(map);
-  // On a phone the credits are one trimmed line; a tap shows them in full (links inside still work as links).
+  // On a phone the credits fold into a small (i) button: open in full when the page loads, folded at the first touch
+  // of the map (or after 8 seconds), and a tap on the button opens or folds them (links inside still work as links).
   { const at = map.attributionControl && map.attributionControl.getContainer();
-    if (at) { at.title = 'Map credits'; at.addEventListener('click', e => { if (!e.target.closest('a')) at.classList.toggle('open'); }); } }
+    if (at) {
+      at.title = 'Map credits'; at.setAttribute('role', 'button'); at.setAttribute('aria-label', 'Map credits');
+      at.classList.add('compact', 'open');
+      const fold = () => at.classList.remove('open');
+      setTimeout(fold, 8000);
+      map.getContainer().addEventListener('pointerdown', e => { if (!at.contains(e.target)) fold(); }, { once: true });
+      L.DomEvent.disableClickPropagation(at);
+      at.addEventListener('click', e => { if (!e.target.closest('a')) at.classList.toggle('open'); });
+    } }
   // Neighborhood names: the 20 large areas (Ballard, West Seattle...) when zoomed out, the 94 neighborhoods when zoomed in.
   map.createPane('labels'); map.getPane('labels').style.zIndex = 450; map.getPane('labels').style.pointerEvents = 'none';
   const hoodLabels = L.layerGroup((D.labels || []).map(l => Object.assign(L.marker([l.lat, l.lon], {

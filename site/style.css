@@ -227,13 +227,18 @@ body.paused .top-mark .pulse { animation: none; transform: scale(1.7); opacity: 
   h1 { font-size: 16px; }
   .sub { font-size: 12px; }
   nav button { padding: 5px 9px; font-size: 13px; }
-  .map-legend { margin-bottom: 26px !important; }   /* above the map credits line */
   /* iPhone Safari zooms the whole page into any text box or menu set smaller than 16px, and stays zoomed */
   input, select, textarea { font-size: 16px !important; }
-  /* map credits: one small line that still names Esri and OpenStreetMap; tap it for the full credits */
-  .leaflet-control-attribution { font-size: 10px; line-height: 1.4; padding: 1px 6px !important; max-width: calc(100vw - 12px);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-  .leaflet-control-attribution.open { white-space: normal; }
+  /* map credits: a small (i) button in the corner (Esri allows its credit behind a button; OpenStreetMap allows a
+     collapsed credit on small screens). Shown in full when the page opens, folded at the first touch of the map,
+     and a tap on the button opens it again. */
+  .leaflet-control-attribution { font-size: 11px; line-height: 1.4; padding: 3px 8px !important; max-width: calc(100vw - 70px);
+    border-radius: 8px 0 0 0; cursor: pointer; background: #fff !important; position: relative; z-index: 2; }
+  .leaflet-control-attribution.compact:not(.open) { width: 22px; height: 22px; padding: 0 !important; margin: 0 4px 4px 0 !important;
+    border-radius: 50%; overflow: hidden; color: transparent; font-size: 0; position: relative; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+  .leaflet-control-attribution.compact:not(.open) > * { display: none; }
+  .leaflet-control-attribution.compact:not(.open)::before { content: "i"; position: absolute; inset: 0; display: grid; place-items: center;
+    font: italic 700 13px/1 Georgia, serif; color: #1d2430; }
 }
 @container (max-width: 430px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
 
