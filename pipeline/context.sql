@@ -37,7 +37,7 @@ create or replace table loc_street_ctx as
 with cw as (
   select s.location, count(*) as n, count(*) filter (where c.midblock) as midblock, bool_or(c.school) as school,
          list(distinct c.control order by c.control) filter (where c.control is not null) as controls
-  from loc_shape s join crosswalks c on ST_DWithin(s.geom, c.geom, case when s.r = 40 then 40 else 100 end)
+  from loc_shape s join crosswalks c on ST_DWithin(s.geom, c.geom, case when s.r = 40 then 40 else 100 end) and not on_structure(s.location)
   group by s.location),
 rp as (
   select p.location, count(*) as n, count(*) filter (where r.cond in ('POOR', 'VERY-POOR')) as poor
@@ -70,7 +70,7 @@ from (select unnest(features) f from read_json('data/raw/rse_*.json', maximum_ob
 where f.geometry is not null;
 
 -- A district's member is named only if the City Clerk's list of serving members (Legistar, fetched the same day)
--- includes them; with no list (fetch failed), the map's names are used as they are.
+-- includes them; with no list (fetch failed), no names are shown that week rather than unconfirmed ones.
 -- A term that ends within the week counts as ended: the site is rebuilt weekly, so this never names a former member
 -- (at worst, the district shows without a name for a few days).
 create or replace table council_now as
@@ -80,7 +80,7 @@ where OfficeRecordEndDate is null or try_cast(OfficeRecordEndDate as timestamp) 
    or try_cast(OfficeRecordEndDate as timestamp) >= current_date + interval 7 day;
 create or replace table council as
 select f.properties.C_DISTRICT::int as district,
-       case when not exists (select 1 from council_now) or lower(trim(f.properties.Name)) in (select n from council_now)
+       case when lower(trim(f.properties.Name)) in (select n from council_now)
             then f.properties.Name end as member,
        -- the district map's link, when it is a council page (one district's has been a stray file link); else the council's own page
        case when regexp_matches(f.properties.Website, '^https://(www\.)?seattle\.gov/council/[a-z]')

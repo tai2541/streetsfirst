@@ -48,9 +48,9 @@ create or replace macro sw_hood(g) as (select arg_min(h.neighborhood, {'d': ST_D
 -- ---------------------------------------------------------------- at each safety location
 create or replace table loc_sidewalk as
 with m as (select p.location, min(s.tier) as tier
-           from loc_pts p join sw_missing s on ST_DWithin(p.geom, s.geom, p.r) group by p.location),
+           from loc_pts p join sw_missing s on ST_DWithin(p.geom, s.geom, p.r) and not on_structure(p.location) group by p.location),
 q as (select p.location, round(sum(ST_Length(s.geom))) as poor_ft, max(s.assessed) as poor_assessed
-      from loc_pts p join sw_poor s on ST_DWithin(p.geom, s.geom, p.r) group by p.location)
+      from loc_pts p join sw_poor s on ST_DWithin(p.geom, s.geom, p.r) and not on_structure(p.location) group by p.location)
 select coalesce(m.location, q.location) as location, m.tier as sw_missing_tier, q.poor_ft as sw_poor_ft, q.poor_assessed as sw_poor_assessed
 from m full join q using (location);
 

@@ -16,19 +16,36 @@ Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $tmp | Out-Null
 $counts = @{}
 
-# Retry transient network failures (3 tries, backoff).
+# Retry transient network failures and rate limits (5 tries; waits 15, 30, 60, 120 s, or what the server asks for).
+function Wait-Retry($i, $err) {
+  $wait = 15 * [math]::Pow(2, $i - 1)
+  try { $ra = $err.Exception.Response.Headers['Retry-After']; if ($ra -and [int]$ra -gt 0) { $wait = [math]::Min([int]$ra, 300) } } catch { }
+  Write-Host "  retry $i in $wait s after error: $($err.Exception.Message)"; Start-Sleep -Seconds $wait
+}
 function Get-WithRetry([string]$Uri, [string]$OutFile, [int]$Timeout = 180) {
-  for ($i = 1; $i -le 3; $i++) {
+  for ($i = 1; $i -le 5; $i++) {
     try { Invoke-WebRequest $Uri -OutFile $OutFile -UseBasicParsing -TimeoutSec $Timeout; return }
-    catch { if ($i -eq 3) { throw }; Write-Host "  retry $i after error: $($_.Exception.Message)"; Start-Sleep -Seconds (5 * $i) }
+    catch { if ($i -eq 5) { throw }; Wait-Retry $i $_ }
+  }
+}
+function Get-Json([string]$Uri, [int]$Timeout = 60) {
+  for ($i = 1; $i -le 5; $i++) {
+    try { $r = Invoke-RestMethod $Uri -TimeoutSec $Timeout; if ($r.error) { throw "$Uri : $($r.error.message)" }; return $r }
+    catch { if ($i -eq 5) { throw }; Wait-Retry $i $_ }
   }
 }
 
 # Page through an ArcGIS FeatureServer layer as GeoJSON, in a stable order (the layer's own ID field).
 # Keeps going while the server says there is more (exceededTransferLimit), even if its pages are
 # shorter than requested; a full page also continues, in case a server omits the flag.
+# Before paging, the server's own count for the same filter; afterwards the pages must add up to it (a short or empty page
+# partway through would otherwise end the download early without an error).
 function Get-ArcGISLayer([string]$Url, [string]$Fields, [string]$Prefix, [string]$Where = '1=1') {
-  $oid = (Invoke-RestMethod "$($Url)?f=json" -TimeoutSec 60).objectIdField
+  $meta = Get-Json "$($Url)?f=json"
+  # (a MapServer layer may not name it, but lists it among its fields)
+  $oid = if ($meta.objectIdField) { $meta.objectIdField } else { @($meta.fields | Where-Object type -eq 'esriFieldTypeOID')[0].name }
+  if (-not $oid) { throw "$Prefix : the layer reports no ID field, so pages can't be read in a stable order" }
+  $expect = (Get-Json "$Url/query?where=$([uri]::EscapeDataString($Where))&returnCountOnly=true&f=json").count
   $offset = 0; $page = 0; $total = 0
   do {
     $q = @{ where = $Where; outFields = $Fields; outSR = 4326; f = 'geojson'
@@ -41,7 +58,11 @@ function Get-ArcGISLayer([string]$Url, [string]$Fields, [string]$Prefix, [string
     $n = @($j.features).Count; $total += $n
     $more = [bool]($j.exceededTransferLimit -or $j.properties.exceededTransferLimit) -or $n -eq 2000
     $offset += $n; $page++
-  } while ($more -and $n -gt 0)
+  } while ($more -and $n -gt 0 -and $page -lt 2000)
+  # (a few rows may be added or removed while paging; more than that means pages went missing)
+  if ($null -ne $expect -and [math]::Abs($total - $expect) -gt [math]::Max(5, 0.005 * $expect)) {
+    throw "Fetch check failed: $Prefix downloaded $total rows but the server counts $expect. Keeping the previous data."
+  }
   Write-Host "$Prefix : $total"
   $counts[$Prefix] = $total
 }
@@ -70,13 +91,27 @@ $soql = "`$select=servicerequestnumber,webintakeservicerequests,createddate,serv
         "&`$order=servicerequestnumber&`$limit=2000000"
 $u = 'https://cos-data.seattle.gov/resource/5ngg-rpne.csv?' + ($soql -replace ' ', '%20' -replace "'", '%27')
 Get-WithRetry $u (Join-Path $tmp 'service_requests.csv') 600
-$counts['requests'] = (Get-Content (Join-Path $tmp 'service_requests.csv')).Count - 1
+$reqRows = Import-Csv (Join-Path $tmp 'service_requests.csv')
+$counts['requests'] = @($reqRows).Count
 Write-Host "service requests: $($counts['requests'])"
+# The server's count for the same filter (a cut-off download loses the newest requests first).
+$cq = "`$select=count(*) as n&`$where=createddate >= '$Since' AND webintakeservicerequests in ($in) AND latitude IS NOT NULL"
+$expect = [int]((Get-Json ('https://cos-data.seattle.gov/resource/5ngg-rpne.json?' + ($cq -replace ' ', '%20' -replace "'", '%27')))[0].n)
+if ([math]::Abs($counts['requests'] - $expect) -gt [math]::Max(5, 0.005 * $expect)) {
+  throw "Fetch check failed: requests downloaded $($counts['requests']) rows but the server counts $expect. Keeping the previous data."
+}
+# Each request type on its own: a renamed type would quietly return nothing, which a total can hide.
+$byType = $reqRows | Group-Object webintakeservicerequests -NoElement
+foreach ($t in $types) { $counts['req: ' + $t] = [int](($byType | Where-Object Name -eq $t).Count) }
+Remove-Variable reqRows
 
 # ---- 3. Capital budget (all departments, all years; small) ----
 Get-WithRetry 'https://cos-data.seattle.gov/resource/m6va-m4qe.csv?$limit=1000000' (Join-Path $tmp 'capital_budget.csv') 300
-$counts['budget'] = (Get-Content (Join-Path $tmp 'capital_budget.csv')).Count - 1
-Write-Host "capital budget rows: $($counts['budget'])"
+# Only SDOT's rows for the years the site shows are checked (older years are most of the file and aren't used).
+$budYear = (Get-Date).Year
+$counts['budget_sdot_shown'] = @(Import-Csv (Join-Path $tmp 'capital_budget.csv') | Where-Object {
+  $_.deptname -eq 'Seattle Department of Transportation' -and [int]$_.fiscal_year -ge $budYear - 2 }).Count
+Write-Host "capital budget rows (SDOT, shown years): $($counts['budget_sdot_shown'])"
 
 # ---- 4. Street context, SDOT's own safety layers, and safety treatments already installed ----
 Get-ArcGISLayer "$gis/Seattle_Streets_1/FeatureServer/0" `
@@ -84,11 +119,16 @@ Get-ArcGISLayer "$gis/Seattle_Streets_1/FeatureServer/0" `
 # SDOT publishes a new traffic-count layer each year (2015_Arterial_Traffic_Volumes ... 2024_...). The newest one
 # is the current count; all of them together give each street's traffic trend. Layer numbers and field names
 # differ between years, so look each one up and take every field (build.sql picks the right names).
-$volYears = (Invoke-RestMethod "$($gis)?f=json" -TimeoutSec 60).services |
-  Where-Object { $_.name -match '^\d{4}_Arterial_Traffic_Volumes$' } | Sort-Object name | Select-Object -ExpandProperty name
+# (the service list has come back incomplete now and then, so a list without them is asked for again)
+for ($try = 1; $try -le 4; $try++) {
+  $volYears = (Get-Json "$($gis)?f=json").services |
+    Where-Object { $_.name -match '^\d{4}_Arterial_Traffic_Volumes$' } | Sort-Object name | Select-Object -ExpandProperty name
+  if ($volYears) { break }
+  Write-Host "  traffic-count layers not in the service list (try $try); asking again"; Start-Sleep -Seconds (30 * $try)
+}
 if (-not $volYears) { throw 'No *_Arterial_Traffic_Volumes layer found' }
 foreach ($svc in $volYears) {
-  $id = (Invoke-RestMethod "$gis/$svc/FeatureServer?f=json" -TimeoutSec 60).layers[0].id
+  $id = (Get-Json "$gis/$svc/FeatureServer?f=json").layers[0].id
   $yr = $svc.Substring(0, 4)
   if ($svc -eq $volYears[-1]) {
     Write-Host "traffic volumes layer (current): $svc"
@@ -142,7 +182,8 @@ try {
   # address suggestions pause until the next run; search still finds addresses through "Find this address".
   Write-Warning "Address points not fetched ($($_.Exception.Message))."
   Remove-Item (Join-Path $tmp 'addresses_*.json') -ErrorAction SilentlyContinue
-  if (Test-Path (Join-Path $raw 'addresses_000.json')) { Copy-Item (Join-Path $raw 'addresses_*.json') $tmp; $counts['addresses'] = $prevAddr }
+  if (Test-Path (Join-Path $raw 'addresses_000.json')) { Copy-Item (Join-Path $raw 'addresses_*.json') $tmp
+    $counts['addresses'] = if ($prevAddr) { $prevAddr } else { (Get-ChildItem (Join-Path $tmp 'addresses_*.json') | ForEach-Object { ([regex]::Matches([IO.File]::ReadAllText($_.FullName), '"type"\s*:\s*"Feature"')).Count } | Measure-Object -Sum).Sum } }
   else { '{"type":"FeatureCollection","features":[]}' | Set-Content (Join-Path $tmp 'addresses_000.json'); $addrSkipped = $true }
 }
 Get-ArcGISLayer "$gis/Race_and_Social_Equity_Composite_Index_Current/FeatureServer/0" `
@@ -175,7 +216,7 @@ Get-ArcGISLayer "$gis/NISPP_Projects_draft/FeatureServer/0" `
   'Neighborhood,Project_Name,Location,Scope,Project_Stage___Website,Planned_Delivery_Year,Project_Source,Link' 'proj_nispp'
 $projEdited = [ordered]@{}
 foreach ($p in @(@('proj_sidewalk', "$gis/All_Sidewalk_Projects/FeatureServer/53"), @('proj_nispp', "$gis/NISPP_Projects_draft/FeatureServer/0"))) {
-  $info = Invoke-RestMethod "$($p[1])?f=json" -TimeoutSec 60
+  $info = Get-Json "$($p[1])?f=json"
   $projEdited[$p[0]] = if ($info.editingInfo.lastEditDate) { [DateTimeOffset]::FromUnixTimeMilliseconds($info.editingInfo.lastEditDate).ToString('yyyy-MM-dd') } else { '' }
 }
 $projEdited | ConvertTo-Json | Set-Content (Join-Path $tmp 'proj_edited.json')
@@ -194,12 +235,13 @@ $counts['gtfs_stops'] = (Get-Content (Join-Path $gtfsDir 'stops.txt')).Count - 1
 Write-Host "gtfs stops: $($counts['gtfs_stops'])"
 
 # ---- 5. Sanity checks, then swap into data/raw ----
-$minimum = @{ collisions = 20000; requests = 50000; budget = 10000; streets = 20000; volumes = 1000
+$minimum = @{ collisions = 20000; requests = 50000; budget_sdot_shown = 300; streets = 20000; volumes = 1000
               hin = 50; hcl = 100; lpi = 500; ntor = 400; signals = 800; districts = 7; hoods_main = 15; hoods_sub = 80
               volhist_years = 8; humps = 50; cushions = 30; radar = 30; bikelanes = 200; buslanes = 500; busvol = 2000; gtfs_stops = 3000
               sw_missing = 8000; sw_poor = 1500; proj_sidewalk = 20; proj_nispp = 5
               crashhist = 50000; crosswalks = 4000; curbramps = 25000; bikefac = 1500; circles = 500; schools = 70; rse = 150; council = 7
               addresses = 150000 }
+foreach ($t in $types) { $minimum['req: ' + $t] = 1 }   # every request type still exists (and the 25% rule applies to each)
 $volatile = @('proj_sidewalk', 'proj_nispp')   # small project lists: big swings are normal
 $prev = @{}
 $prevFile = Join-Path $raw 'counts.json'

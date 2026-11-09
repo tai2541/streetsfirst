@@ -53,6 +53,12 @@ create or replace table request_weights as select * from (values
 
 create or replace macro wt(name) as (select v from weights where k = name);
 
+-- A place on a bridge, viaduct, tunnel or ramp, judged by its own street (not the cross streets that bound a stretch,
+-- and by whole words: CAMBRIDGE isn't a bridge). Such a place is above or below the streets around it, so requests,
+-- crosswalks, sidewalks and projects found by distance belong to those streets, not to it.
+create or replace macro on_structure(loc) as
+  regexp_matches(regexp_replace(loc, ' BETWEEN .*', ''), '\b(BR|BRIDGE|VI|VIADUCT|TUNNEL|TUN)\b|\b(ON|OFF) RP\b');
+
 -- ---------------------------------------------------------------- raw -> clean
 create or replace table collisions as
 with raw as (
@@ -68,8 +74,9 @@ select
   coalesce(MAXSEVERITYDESC, 'Unknown')     as severity,
   coalesce(PEDCOUNT, 0)                    as peds,
   coalesce(PEDCYLCOUNT, 0)                 as cyclists,
-  coalesce(FATALITIES, 0)                  as fatalities,
-  coalesce(SERIOUSINJURIES, 0)             as serious_injuries,
+  -- a crash SDOT codes fatal or serious with no person listed in that column still had at least one (a few reports leave it 0)
+  case when MAXSEVERITYDESC = 'Fatal Collision' then greatest(coalesce(FATALITIES, 0), 1) else coalesce(FATALITIES, 0) end as fatalities,
+  case when MAXSEVERITYDESC = 'Serious Injury Collision' then greatest(coalesce(SERIOUSINJURIES, 0), 1) else coalesce(SERIOUSINJURIES, 0) end as serious_injuries,
   coalesce(INJURIES, 0)                    as injuries,
   coalesce(VEHCOUNT, 0)                    as vehicles,
   coalesce(PERSONCOUNT, 0)                 as persons,
@@ -107,7 +114,8 @@ update collisions set location = m.location from loc_merge m where collisions.lo
 create or replace table collisions_unlocated as
 with raw as (select unnest(features, recursive := true) from read_json('data/raw/collisions_*.json', maximum_object_size = 50000000))
 select make_timestamp(INCDATE::bigint * 1000)::date as date, MAXSEVERITYDESC as severity,
-       coalesce(FATALITIES, 0) as fatalities, coalesce(SERIOUSINJURIES, 0) as serious_injuries
+       case when MAXSEVERITYDESC = 'Fatal Collision' then greatest(coalesce(FATALITIES, 0), 1) else coalesce(FATALITIES, 0) end as fatalities,
+       case when MAXSEVERITYDESC = 'Serious Injury Collision' then greatest(coalesce(SERIOUSINJURIES, 0), 1) else coalesce(SERIOUSINJURIES, 0) end as serious_injuries
 from raw where LOCATION is null or coordinates is null;
 
 
@@ -130,8 +138,14 @@ from read_csv('data/raw/capital_budget.csv', all_varchar = true);
 -- ---------------------------------------------------------------- scoring window
 -- 60 full months ending 3 months before the newest crash: police reports arrive late, so the latest
 -- months are incomplete. Crashes after the window are shown on the site but not scored yet.
+-- The day the data was fetched (not the build day, so a rebuild of older data works the same). A report dated after
+-- it is a typing error in the source: it is left out of the window's end, so one wrong date can't move the window.
+create or replace table fetch_day as
+select coalesce(try_cast(left(trim(column0), 10) as date), current_date) as d
+from read_csv('data/raw/fetched_at.txt', header = false, all_varchar = true, columns = {'column0': 'VARCHAR'});
+create or replace macro fetched() as (select d from fetch_day);
 create or replace table scoring_window as
-with e as (select (date_trunc('month', max(date)) - interval 3 month)::date as w_end from collisions)
+with e as (select (date_trunc('month', max(date) filter (where date <= fetched())) - interval 3 month)::date as w_end from collisions)
 select (w_end - interval 60 month)::date as w_start, w_end,
        (w_end - interval 24 month)::date as test_start,                       -- validation split
        greatest(date '2023-06-01', (w_end - interval 36 month)::date) as req_start  -- request scoring window
@@ -257,10 +271,12 @@ from nearest group by location;
 create or replace table loc_context as
 with
 s as (select p.location,
-        max(s.speed) as speed_limit,
+        -- (on a bridge or tunnel, the streets around it are not its street: no speed rather than theirs)
+        coalesce(max(s.speed) filter (where own.name is not null), case when not on_structure(p.location) then max(s.speed) end) as speed_limit,
         min(s.artclass) filter (where s.artclass between 1 and 5) as art_class,
         min(s.pci) as pavement_min
       from loc_pts p join streets s on ST_DWithin(p.geom, s.geom, 60)
+      left join loc_names own on own.location = p.location and own.name = road_norm(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''))
       where ST_Distance(p.geom, s.geom) <= p.r
         -- a freeway or ramp passing over or beside a place isn't its street (it gave downtown corners I-5's 60 mph),
         -- unless the place is that ramp
@@ -384,6 +400,8 @@ select location,
   -- crash patterns with well-known fixes (shown as context, not scored)
   count(*) filter (where coll_type = 'From opposite direction - one left turn - one straight') as left_turn_crashes,
   count(*) filter (where coll_type ilike 'Vehicle turning % hits pedestrian')               as ped_turn_crashes,
+  count(*) filter (where coll_type = 'Vehicle turning right hits pedestrian')               as ped_right_crashes,
+  count(*) filter (where nullif(trim(coll_type), '') is not null)                            as typed_crashes,
   count(*) filter (where coll_type = 'Entering at angle')                                    as angle_crashes,
   min(date) as first_crash, max(date) as last_crash,
   sum(pts)       as harm,
@@ -441,7 +459,7 @@ select e.*, x.addr_type, x.intkey, x.speed_limit, x.art_class,
        when regexp_matches(regexp_replace(e.location, ' BETWEEN .*', ''), '\bSR ?520\b') then 'SR 520'
        when regexp_matches(regexp_replace(e.location, ' BETWEEN .*', ''), '\bI ?5\b|\bI ?90\b') then 'Interstate'
        when x.art_class in (4, 5) then 'State route' end as state_route,
-  regexp_matches(e.location, '(\bBR\b|BRIDGE|VIADUCT|TUNNEL|\bON RP\b|\bOFF RP\b)') as structure,
+  on_structure(e.location) as structure,
   case when e.crashes < 5 then 'low' when e.crashes < 15 then 'medium' else 'high' end as confidence
 from eb_in(ws(), we()) e
 join loc_context x using (location)
@@ -484,7 +502,7 @@ scored as (
   select lr.location, sum(rw.w) as request_points, count(*) as scored_requests
   from (select distinct location, type, round(lat, 4) la, round(lon, 4) lo, date_trunc('month', date) mo
         from location_requests
-        where date >= (select req_start from scoring_window) and date < we()) lr
+        where date >= (select req_start from scoring_window) and date < we() and not on_structure(location)) lr
   join request_weights rw on rw.type = lr.type and rw.w > 0
   group by lr.location
 )
@@ -500,6 +518,39 @@ from all_types a left join scored s using (location);
 .read pipeline/projects.sql
 -- what's on the street, nearby school, equity index, council district, before/after (context only, not scored)
 .read pipeline/context.sql
+
+-- ---------------------------------------------------------------- source checks
+-- The scoring and the "built / planned" labels match SDOT's category values by name. A value SDOT renames or adds would
+-- otherwise fall through silently (a renamed severity would score its crashes as 0), so any value outside the known set
+-- stops the build and the site keeps last week's version. To accept a new value, add it here and to the code that reads it.
+create or replace temp table source_values as
+select 'crash severity' as what, v from (select distinct severity as v from collisions)
+  where v not in ('Fatal Collision', 'Serious Injury Collision', 'Injury Collision', 'Property Damage Only Collision', 'Unknown')
+union all select 'head-start walk signal status', v from (select distinct status as v from lpi) where v not in ('Existing', 'Planned', 'Not Feasible')
+union all select 'no turn on red status', v from (select distinct status as v from ntor) where v not in ('Existing', 'Planned', 'Not Feasible')
+union all select 'bike lane STATUS', v from (select distinct upper(f.properties.STATUS) as v
+    from (select unnest(features) f from read_json('data/raw/bikelanes_*.json', maximum_object_size = 50000000)))
+  where v not in ('CONST', 'INSVC', 'MEETS', 'UPGRADE')
+union all select 'bus lane Status', v from (select distinct f.properties.Status as v
+    from (select unnest(features) f from read_json('data/raw/buslanes_*.json', maximum_object_size = 50000000)))
+  where v not in ('Active', 'Planned')
+union all select 'bike facility CATEGORY', v from (select distinct f.properties.CATEGORY as v
+    from (select unnest(features) f from read_json('data/raw/bikefac_*.json', maximum_object_size = 50000000)))
+  where v not in ('BKF-PBL', 'BKF-OFFST', 'BKF-BBL', 'BKF-BL', 'BKF-CLMB', 'BKF-NGW', 'BKF-SHW');
+create or replace temp table source_values_ok as
+select case when count(*) > 0 then error('Unknown source values (add them to build.sql if they are real): ' ||
+         string_agg(what || ' = ' || v, '; ')) end from source_values;
+-- A source that stopped updating still downloads fine: the newest crash report and the newest request must be recent
+-- (crash reports arrive weeks late, so 60 days; requests arrive daily).
+create or replace temp table freshness_ok as
+select case when (select max(date) from collisions where date <= fetched()) < fetched() - interval 60 day
+              then error('Crash data looks stale: newest report ' || (select max(date) from collisions where date <= fetched())::varchar)
+            when (select max(date) from requests) < fetched() - interval 14 day
+              then error('Request data looks stale: newest request ' || (select max(date) from requests)::varchar)
+            -- the budget years the site shows must reach the current year
+            when (select max(year) from capital_budget where dept = 'Seattle Department of Transportation') < year(fetched())
+              then error('SDOT capital budget has no rows for ' || year(fetched())::varchar)
+       end;
 -- street addresses for search suggestions (not scored)
 .read pipeline/addresses.sql
 
@@ -635,7 +686,7 @@ create or replace table spot_export as
          sdot_hin, sdot_hcl_years, sdot_hcl_types, ksi_after_hcl,
          lpi_status, lpi_installed, lpi_planned, ntor_status, ntor_installed, ntor_planned, ntor_approaches, ped_after_lpi, signalized, ped_signal, ped_audio, lt_protected, lt_installed,
          confidence, crashes, unknown_sev, fatal, serious, injury, ksi, ksi_years, killed, seriously_injured,
-         pb_crashes, ped_crashes, bike_crashes, speeding_crashes, ped_turn_after_lpi, left_turn_crashes, ped_turn_crashes, angle_crashes,
+         pb_crashes, ped_crashes, bike_crashes, speeding_crashes, ped_turn_after_lpi, left_turn_crashes, ped_turn_crashes, ped_right_crashes, typed_crashes, angle_crashes,
          wet_crashes, dark_crashes, unlit_crashes, road_known, light_known,
          first_crash, last_crash, requests, request_types,
          fixes, vol_history, bus_trips, bus_routes, bus_stretch_id,

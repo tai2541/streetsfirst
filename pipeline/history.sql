@@ -114,7 +114,7 @@ select distinct location, k, d, year(d) as y from (
                                  else 'Head-start walk signal' end, make_date(j.year, 7, 1)
   from (select location, unnest(proj_ids) as id from locations) l join proj j using (id)
   where j.stage = 'done' and j.year is not null
-);
+) where d <= current_date;   -- a finished project's assumed mid-year date can't be in the future
 
 -- The years "then" is compared with: the last 5 full calendar years whose crash reports are complete. The newest
 -- months still have many crashes with severity not yet recorded, so they're left out of this comparison.

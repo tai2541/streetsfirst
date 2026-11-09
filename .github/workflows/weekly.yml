@@ -17,8 +17,9 @@ on:
         type: boolean
         default: false
 
-# GitHub turns off scheduled workflows after 60 days with no commits. The site shows a "data last updated" notice
-# after 14 days, so a stopped job is visible; re-enable it under Actions if that happens.
+# GitHub turns off scheduled workflows after 60 days with no repository activity. The keepalive job below re-enables this
+# workflow through the API on every scheduled run, which resets that timer; a failed run opens a GitHub issue (which
+# also emails the owner). The site also shows a "data last updated" notice after 14 days.
 
 env:
   SITE_URL: https://streetsfirst.org   # the live site (custom domain on GitHub Pages)
@@ -94,3 +95,31 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # Keeps the weekly schedule from being switched off for inactivity (no commits needed).
+  keepalive:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/weekly.yml/enable"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # Any failed step (fetch check, build, self-test, deploy): open an issue, or add to the open one, with a link to the run.
+  # The site keeps last week's version until a run succeeds.
+  alert:
+    needs: [build, deploy]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - run: |
+          url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          n=$(gh issue list -R "${{ github.repository }}" --state open --search "Weekly rebuild failed in:title" --json number -q '.[0].number')
+          if [ -n "$n" ]; then gh issue comment "$n" -R "${{ github.repository }}" --body "Failed again: $url"
+          else gh issue create -R "${{ github.repository }}" --title "Weekly rebuild failed" --body "The weekly rebuild failed, so the site still shows last week's data. Run: $url"; fi
+        env:
+          GH_TOKEN: ${{ github.token }}
