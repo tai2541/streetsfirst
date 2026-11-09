@@ -102,7 +102,7 @@ from hist_rank h join hist_periods p using (id) group by h.location;
 create or replace table place_fixes as
 select distinct location, k, d, year(d) as y from (
   select location, kind as k, d from dated_fixes
-  where kind in ('Head-start walk signal', 'Protected left-turn signal', 'Traffic circle')
+  where kind in ('Head-start walk signal', 'No turn on red', 'Protected left-turn signal', 'Traffic circle')
   union all
   select location, kind, d from loc_fix_hits where d is not null and status = 'Built' and kind <> 'Bus lane'
   union all

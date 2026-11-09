@@ -920,3 +920,6 @@ main { overflow: hidden; overflow: clip; }
 /* small phones: charts shrink to fit rather than scroll sideways */
 #graphs svg, #detailBody svg.tchart { max-width: 100%; height: auto; }
 @media (max-width: 400px) { #detailBody .dtable { display: block; max-width: 100%; overflow-x: auto; } }
+
+/* a pop-up that scrolls: keep its scrollbar off the text */
+.leaflet-popup-content.leaflet-popup-scrolled { box-sizing: border-box; padding-right: 10px; }

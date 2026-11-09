@@ -194,7 +194,9 @@ where f.geometry is not null;
 
 create or replace table ntor as   -- No turn on red at a signal (all or some approaches)
 select f.properties.NTOR_Status as status,
-       make_timestamp(f.properties.NTOR_Install_Date::bigint * 1000)::date as installed,
+       -- a handful of records carry July 1905 (a placeholder, not a real install date): treated as unknown
+       case when make_timestamp(f.properties.NTOR_Install_Date::bigint * 1000) >= timestamp '1950-01-01'
+            then make_timestamp(f.properties.NTOR_Install_Date::bigint * 1000)::date end as installed,
        f.properties.NTOR_Planned_Year as planned_year, nullif(trim(f.properties.Approaches), '') as approaches,
        ST_Centroid(gj_geom(f.geometry)) as geom
 from (select unnest(features) f from read_json('data/raw/ntor_*.json', maximum_object_size = 50000000))
