@@ -1,5 +1,5 @@
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: #1d2430; }
+html, body { margin: 0; height: 100%; height: 100dvh; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: #1d2430; }
 body { display: flex; flex-direction: column; }
 
 header { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px;
@@ -227,7 +227,13 @@ body.paused .top-mark .pulse { animation: none; transform: scale(1.7); opacity: 
   h1 { font-size: 16px; }
   .sub { font-size: 12px; }
   nav button { padding: 5px 9px; font-size: 13px; }
-  .map-legend { margin-bottom: 48px !important; }   /* above the full-width map credits */
+  .map-legend { margin-bottom: 26px !important; }   /* above the map credits line */
+  /* iPhone Safari zooms the whole page into any text box or menu set smaller than 16px, and stays zoomed */
+  input, select, textarea { font-size: 16px !important; }
+  /* map credits: one small line that still names Esri and OpenStreetMap; tap it for the full credits */
+  .leaflet-control-attribution { font-size: 10px; line-height: 1.4; padding: 1px 6px !important; max-width: calc(100vw - 12px);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .leaflet-control-attribution.open { white-space: normal; }
 }
 @container (max-width: 430px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
 

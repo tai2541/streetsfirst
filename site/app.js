@@ -308,6 +308,9 @@
     ])
   };
   baseLayers['Light gray'].addTo(map);
+  // On a phone the credits are one trimmed line; a tap shows them in full (links inside still work as links).
+  { const at = map.attributionControl && map.attributionControl.getContainer();
+    if (at) { at.title = 'Map credits'; at.addEventListener('click', e => { if (!e.target.closest('a')) at.classList.toggle('open'); }); } }
   // Neighborhood names: the 20 large areas (Ballard, West Seattle...) when zoomed out, the 94 neighborhoods when zoomed in.
   map.createPane('labels'); map.getPane('labels').style.zIndex = 450; map.getPane('labels').style.pointerEvents = 'none';
   const hoodLabels = L.layerGroup((D.labels || []).map(l => Object.assign(L.marker([l.lat, l.lon], {
