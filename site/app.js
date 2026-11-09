@@ -121,7 +121,8 @@
     (CTX.schools || []).forEach(([n, la, lo]) => { const m = metersBetween(lat, lon, +la, +lo); if (m <= 305 && (!best || m < best.m)) best = { name: n, m }; });
     return best;
   };
-  const schoolName = n => String(n).toLowerCase().replace(/\b\w/g, c => c.toUpperCase()).replace(/\bK-8\b/i, 'K-8');
+  // Capitals at the start of each word only ("Int'l", not "Int'L"); K-8 stays as written.
+  const schoolName = n => String(n).toLowerCase().replace(/(^|[\s-])\w/g, c => c.toUpperCase()).replace(/\bK-8\b/i, 'K-8');
   // The council member for a place, the City's equity index (spots only), and a print button.
   function civicBox(c, rse) {
     if (!c) return '';
@@ -1497,12 +1498,13 @@
     const own = p.ksi_harm, typ = p.crashes * p.ref_ksi_harm_per_crash, w = p.eb_weight;
     const parts = [other >= fs
       ? `most of the score comes from its ${plural(p.crashes, 'crash', 'crashes')} of all kinds, each counted by how badly people were hurt`
-      : `most of the score comes from its ${plural(p.ksi, 'crash', 'crashes')} that killed or seriously hurt someone`];
-    if (w < 0.9 && Math.abs(own - typ) > 0.2 * Math.max(own, typ, 1))
+      : p.ksi ? `most of the score comes from its ${plural(p.ksi, 'crash', 'crashes')} that killed or seriously hurt someone`
+      : `none of its crashes killed or seriously hurt anyone; most of the score is the risk of that which is typical for ${groupName(p.ref_group)} with ${plural(p.crashes, 'crash', 'crashes')}`];
+    if (p.ksi && w < 0.9 && Math.abs(own - typ) > 0.2 * Math.max(own, typ, 1))
       parts.push(`fatal and serious crashes are rare, so that part is ${100 - Math.round(100 * w)}% based on what's typical for ${groupName(p.ref_group)},
         which ${own > typ ? 'lowers it from' : 'raises it above'} this place's own record`);
     if (p.request_boost >= 0.05) parts.push(`repair reports nearby raise it ${Math.round(100 * p.request_boost)}%`);
-    return `<p class="note why-rank"><b>Why ${rankTxt(p.rank_ksi)}:</b> ${parts.join('; ')}. <a href="#" class="why-more">How it's calculated</a></p>`;
+    return `<p class="note why-rank"><b>Why ${rankTxt(p.rank_ksi)} citywide:</b> ${parts.join('; ')}. <a href="#" class="why-more">How it's calculated</a></p>`;
   }
   function mathBox(p) {
     const k = weight('ksi_prior_crashes');
@@ -1671,7 +1673,12 @@
       }
       if (e.target.id === 'copyLink') {
         const url = location.href;
-        if (canShare()) { navigator.share({ title: document.getElementById('detailTitle').textContent.trim() + ' · Streets First', url }).catch(() => {}); return; }
+        if (canShare()) {
+          const h = document.getElementById('detailTitle').cloneNode(true); h.querySelectorAll('.dcity, .drank').forEach(x => x.remove());
+          const v = document.querySelector('#detailBody .verdict');
+          navigator.share({ title: h.textContent.trim() + ' · Streets First', text: v ? v.textContent.replace(/\s+/g, ' ').trim().slice(0, 240) : '', url }).catch(() => {});
+          return;
+        }
         const done = () => { e.target.textContent = 'Link copied'; setTimeout(() => (e.target.textContent = 'Copy link'), 1800); };
         if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, () => prompt('Copy this link:', url));
         else prompt('Copy this link:', url);
@@ -1922,8 +1929,11 @@
   const setAddrStreets = rows => { addrStreets = (rows || []).map(([name, shard, zip], id) => ({ id, name, toks: name.toLowerCase().split(' '), shard: +shard, zip })); };
 
   // Public schools, searchable by name ("Rainier Beach High"): picking one pins it like an address, with crashes nearby.
-  const schoolLabel = (n, t) => n.replace(/\s+-\s+interim$/i, '') + ({ 'Elementary': ' Elementary', 'Option Elementary': ' Elementary',
-    'Middle School': ' Middle School', 'High School': ' High School', 'Option High School': ' High School', 'K-8': ' K-8' }[t] || ' School');
+  const schoolLabel = (n, t) => { n = n.replace(/\s+-\s+interim$/i, '').trim();
+    if (/\b(elementary|middle|high|school|k-8|academy)$/i.test(n)) return n;
+    if (/k-8/i.test(n)) return n;
+    return n + ({ 'Elementary': ' Elementary', 'Option Elementary': ' Elementary',
+    'Middle School': ' Middle School', 'High School': ' High School', 'Option High School': ' High School', 'K-8': ' K-8' }[t] || ' School'); };
   let schoolIdx = null;
   const schools = () => schoolIdx || (schoolIdx = (CTX.schools || []).filter(s => s[0]).map(([n, la, lo, t]) => {
     const label = schoolLabel(n, t);
@@ -3393,7 +3403,7 @@
           [`Rank in ${pick} (crashes only)`, 'Type', 'Place', 'Council district', `All crashes ${then}`, `Killed or seriously hurt crashes ${then}`,
           `Killed or seriously hurt crashes ${cmpSpan}`, 'Fix group', 'Fixes (year)', 'Rank today (with repair reports)', 'Link'],
           ...Y.places.map(x => [x.r, typeWord(x.t), niceName(x.loc), x.d || '', x.c, x.ksi, x.ksi_cmp,
-            x.g === 'fixed' ? `Fixed before ${y0(C.d0)}` : x.g === 'none' ? `No fix before ${cmpEnd + 1}` : `First fix in ${cmpSpan}`,
+            fixedBy(x) ? `Fixed before ${y0(C.d0)}` : x.g === 'none' ? `No fix before ${cmpEnd + 1}` : `First fix in ${cmpSpan}`,
             (x.fx || []).map(f => `${f.k} (${f.y}${f.y > cmpEnd ? ', after the comparison years' : ''})`).join('; '),
             x.now || '', location.origin + location.pathname + '#p=' + keyOf(x.loc)])]);
       };
