@@ -218,6 +218,7 @@ label.check { display: inline-flex; align-items: center; gap: 4px; white-space: 
 /* ---- map: highlight from the list, pause control ---- */
 .top-mark.hl .core { box-shadow: 0 0 0 3px #1d2430, 0 0 18px 8px rgba(179, 20, 27, .7); }
 body.paused .top-mark .pulse { animation: none; transform: scale(1.7); opacity: .3; }
+.map-legend .lg-note { display: block; max-width: 210px; margin-top: 3px; font-size: 11.5px; color: #5b6576; }
 .pausebtn { margin-top: 3px; font: inherit; font-size: 11.5px; border: 1px solid #ccd3df; background: #fff; border-radius: 5px; padding: 2px 6px; cursor: pointer; }
 
 /* ---- phone: bottom sheet that never covers the header, peek or full height ---- */
@@ -226,7 +227,7 @@ body.paused .top-mark .pulse { animation: none; transform: scale(1.7); opacity: 
   h1 { font-size: 16px; }
   .sub { font-size: 12px; }
   nav button { padding: 5px 9px; font-size: 13px; }
-  .map-legend { margin-bottom: 10px !important; }
+  .map-legend { margin-bottom: 48px !important; }   /* above the full-width map credits */
 }
 @container (max-width: 430px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
 
@@ -840,6 +841,7 @@ main.sheet-over .sheet { z-index: 1200; padding-right: 0; }
   #panelBody::after, #detailBody::after { content: ""; display: block; height: var(--below, 0px); }
   /* a blur behind the map key is redrawn on every frame of a pan on iPhones: solid instead */
   .map-legend { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(255,255,255,.97); }
+  .map-legend .lg-note { max-width: none; }
   /* nothing pulses while a sheet or the map is moving */
   main.moving .top-mark .pulse { animation-play-state: paused; }
 }

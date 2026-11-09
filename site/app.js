@@ -374,7 +374,8 @@
     shape.addTo(j.kind === 'lpi' && j.stage !== 'done' ? lpiLayer : projLayer);
   });
   const projOn = () => map.hasLayer(projLayer);
-  try { if (localStorage.getItem('ipm.projects') === '1') projLayer.addTo(map); } catch { /* storage unavailable */ }
+  // SDOT's planned and finished project lines are shown unless someone switched them off on this device.
+  { let on = true; try { on = localStorage.getItem('ipm.projects') !== '0'; } catch { /* storage unavailable */ } if (on) projLayer.addTo(map); }
   document.body.classList.toggle('proj-on', projOn());
   // Same state whether it's switched from the layer menu or a "show on map" button; remembered on this device.
   const projLabel = () => (projOn() ? 'Hide SDOT projects on the map' : 'Show SDOT projects on the map');
@@ -475,13 +476,14 @@
         <div class="lg-proj"><b class="lg-pline"></b>SDOT project: planned or in design</div>
         <div class="lg-proj"><b class="lg-pline done"></b>SDOT project: completed</div>
         <div><b class="lg-ppt"></b>Head-start walk signal planned</div>
-        <button type="button" class="pausebtn" aria-pressed="${paused}">${paused ? 'Play' : 'Pause'} animation</button>
+        ${reduceMotion ? '<div class="lg-note">Animation is off: your device is set to reduce motion.</div>'
+          : `<button type="button" class="pausebtn" aria-pressed="${paused}">${paused ? 'Play' : 'Pause'} animation</button>`}
         </div>`;
       d.querySelector('.lg-toggle').onclick = e => {
         const c = d.classList.toggle('collapsed'); e.currentTarget.setAttribute('aria-expanded', !c);
       };
       L.DomEvent.disableClickPropagation(d);
-      d.querySelector('.pausebtn').onclick = e => {
+      const pb = d.querySelector('.pausebtn'); if (pb) pb.onclick = e => {
         paused = !paused; document.body.classList.toggle('paused', paused);
         e.target.textContent = `${paused ? 'Play' : 'Pause'} animation`; e.target.setAttribute('aria-pressed', paused);
         try { localStorage.setItem('ipm.paused', JSON.stringify(paused)); } catch { /* ignore */ }
