@@ -807,6 +807,25 @@ body.sheet-open #expandPanel, body.sheet-open #expandDetail, body.sheet-open #pa
 .pg-need th[scope="row"] { position: sticky; left: 0; background: #fff; z-index: 1; }
 .pg-need tr.on th[scope="row"] { background: #e3ebfa; }
 .pg-open { background: #f3f7fd; border-radius: 8px; padding: 6px 12px; margin: 4px 0 10px; }
+/* phones: one card per district (or equity level), bars on one scale */
+.pg-cards { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 10px; }
+.pg-card { border: 1px solid #dde2ea; border-radius: 10px; padding: 0 12px 10px; background: #fff; }
+.pg-card.on { border-color: #2f55c7; box-shadow: inset 3px 0 0 #2f55c7; }
+.pg-card-h { all: unset; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; width: 100%;
+  padding: 10px 0 6px; cursor: pointer; min-height: 44px; }
+.pg-card-h:focus-visible { outline: 3px solid #2f55c7; outline-offset: 2px; border-radius: 6px; }
+.pg-card-n { font-weight: 700; font-size: 16px; }
+.pg-card-go { margin-left: auto; color: #2f55c7; font-size: 13.5px; text-decoration: underline; }
+.pg-bar { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "l v" "t t"; gap: 2px 8px; margin: 6px 0; font-size: 13px; }
+.pg-bar-l { grid-area: l; color: #3f4a5c; }
+.pg-bar-v { grid-area: v; font-variant-numeric: tabular-nums; font-weight: 600; }
+.pg-bar-v small { font-weight: 400; color: #5a6475; }
+.pg-bar-t { grid-area: t; height: 8px; background: #eef1f5; border-radius: 4px; overflow: hidden; }
+.pg-bar-f { display: block; height: 100%; border-radius: 4px; min-width: 2px; }
+.pg-bar-f.k { background: #b3141b; }
+.pg-bar-f.w { background: #2f55c7; }
+.pg-card-foot { margin: 8px 0 0; font-size: 13px; color: #3f4a5c; }
+.pg-card .pg-open { margin: 10px 0 0; }
 .pg-open h4 { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
 .pg-open h4 .pg-link { font-weight: 400; }
 .pg-dim { display: flex; gap: 6px; margin: 6px 0 8px; flex-wrap: wrap; }

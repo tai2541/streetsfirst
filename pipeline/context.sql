@@ -158,7 +158,14 @@ select f2.location, list({'k': kind, 'd': d, 'm': m, 'days': days, 'yo': yo,
     'a': (select count(*) from crash_all c where c.location = f2.location and c.date >= f2.a_start and c.date < f2.a_start + f2.days
                                           and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)),
     'cb': (select count(*) from crash_all c where c.date >= f2.b_end - f2.days and c.date < f2.b_end and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)),
-    'ca': (select count(*) from crash_all c where c.date >= f2.a_start and c.date < f2.a_start + f2.days and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type))
+    'ca': (select count(*) from crash_all c where c.date >= f2.a_start and c.date < f2.a_start + f2.days and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)),
+    -- The same comparison one step earlier, before anything was built: the period before the "before", against the "before".
+    -- How much a place moves with no fix at all is the yardstick for the change after one. Only when that earlier
+    -- period starts in 2013 or later (SDOT's data before 2013 records far fewer crashes).
+    'pb': case when f2.b_end - 2 * f2.days - 30 >= date '2013-01-01' then (select count(*) from crash_all c where c.location = f2.location
+            and c.date >= f2.b_end - 2 * f2.days - 30 and c.date < f2.b_end - f2.days - 30 and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)) end,
+    'pcb': case when f2.b_end - 2 * f2.days - 30 >= date '2013-01-01' then (select count(*) from crash_all c
+            where c.date >= f2.b_end - 2 * f2.days - 30 and c.date < f2.b_end - f2.days - 30 and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)) end
   } order by d, kind, m) as before_after
 from f2 group by f2.location;
 

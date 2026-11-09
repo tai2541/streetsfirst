@@ -2148,6 +2148,38 @@
     return { crashes: sum('crashes'), ksi: sum('ksi'), pb: sum('pb'), places: near.length,
       worst: near.slice().sort((a, b) => a.x.rank - b.x.rank).slice(0, 4), all: near.slice().sort((a, b) => a.x.rank - b.x.rank) };
   }
+  // "What about my street?": the nearest stretch and the nearest corner on the address's own street, within 800 ft.
+  // The street comes from the address ("4500 Rainier Ave S, Seattle" -> Rainier Ave S); spellings are made to match
+  // SDOT's ("M L KING JR WAY S", "WY"). Only for a street that has any place in the list, so a spelling that doesn't
+  // match never reads as "no crashes on your street". Spots without a house number (map picks, schools) get none.
+  const stKey = s => streetWords(s.replace(/martin luther king/i, 'm l king')).map(w => (w === 'wy' ? 'way' : w)).sort().join(' ');
+  function addrStreet(label) {
+    if (!label) return null;
+    let parts = label.split(',').map(s => s.trim());
+    if (/^\d+[a-z]?$/i.test(parts[0]) && parts[1]) parts = [parts[0] + ' ' + parts[1]];   // OpenStreetMap: "4500, Rainier Avenue South"
+    const m = parts[0].match(/^\d+[a-z]?(?:-\d+)?\s+(.+)$/i);
+    if (!m) return null;
+    const name = m[1].replace(/\s+(#|apt\b|unit\b|ste\b|suite\b).*$/i, '').trim();
+    return name ? { name, key: stKey(name) } : null;
+  }
+  const placeSts = x => x.sts || (x.sts = (x.name.includes(' BETWEEN ') ? [x.name.split(' BETWEEN ')[0]] : x.name.split(' AND ')).map(stKey));
+  let stKnown = null;
+  function onMyStreet(g) {
+    if (g.school) return null;
+    const st = addrStreet(g.label); if (!st) return null;
+    if (!stKnown) { stKnown = new Set(); searchIdx.forEach(x => placeSts(x).forEach(k => stKnown.add(k))); }
+    if (!stKnown.has(st.key)) return null;
+    const k = Math.cos(g.lat * Math.PI / 180) * 111320;
+    let block = null, corner = null;
+    for (const x of searchIdx) {
+      if (Math.abs(x.lat - g.lat) > 0.003 || Math.abs(x.lon - g.lon) > 0.004) continue;
+      const m = Math.hypot((x.lon - g.lon) * k, (x.lat - g.lat) * 111320);
+      if (m > 244 || !placeSts(x).includes(st.key)) continue;
+      if (x.type === 'I') { if (!corner || m < corner.m) corner = { x, m }; }
+      else if (!block || m < block.m) block = { x, m };
+    }
+    return { name: st.name, list: [block, corner].filter(Boolean) };
+  }
   const small = () => matchMedia('(max-width: 760px)').matches;
   const distText = m => (m < 160 ? `${Math.round(m * 3.28084 / 10) * 10} ft` : `${(m / 1609.34).toFixed(1)} mi`);
   // Several pins, each { id, lat, lon, label (the address), name? (a nickname like "Home") }. Kept only in this
@@ -2214,7 +2246,12 @@
     detailEl.hidden = false; detailEl.classList.add('home', 'place'); applyLayout();
     renderGraphs = () => {};
     document.getElementById('detailTitle').textContent = '📍 ' + pinTitle(g) + (g.preview ? ' (not saved yet)' : '');
-    const body = document.getElementById('detailBody'), list = nb.all.slice(0, 10);
+    const body = document.getElementById('detailBody'), list = nb.all.slice(0, 10), mine = onMyStreet(g);
+    const card = (n, attr) => `<li><button type="button" class="home-card" ${attr}>
+            <span class="hc-rank" style="background:${TIERS[tierK(n.x.rank)].color}" title="${rankTxt(n.x.rank)}">${rankTxt(n.x.rank, false)}</span>
+            <span class="hc-main"><span class="hc-name">${esc(niceName(n.x.name))}</span>
+              <span class="hc-sub">${plural(n.x.crashes, 'crash', 'crashes')}${n.x.ksi ? ` · ${n.x.ksi} killed or seriously hurt someone` : ''}</span></span>
+            <span class="hc-val">${distText(n.m)}</span></button></li>`;
     body.innerHTML = `<div class="home-wrap">
       <div class="pin-head place-head">${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}</div>
       ${g.note ? `<p class="pin-warn">${esc(g.note)}</p>` : ''}
@@ -2223,12 +2260,12 @@
         from police crash reports ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}.
         ${(sch => sch ? `Nearest public school: <b>${esc(schoolName(sch.name))}</b> (about ${distText(sch.m)}).` : '')(schoolNear(g.lat, g.lon))}</p>
       <div class="stat-grid home-stats">${stat(fmt(nb.crashes), 'crashes')}${stat(fmt(nb.ksi), 'of them killed or seriously hurt someone')}${stat(fmt(nb.pb), 'involved people walking or biking')}</div>
+      ${mine ? `<section class="hsec hsec-mine"><h3>On ${esc(mine.name)}</h3>
+        ${mine.list.length ? `<ol class="home-top">${mine.list.map((n, i) => card(n, `data-mine="${i}"`)).join('')}</ol>
+          <p class="note">The closest stretch and corner of this street with reported crashes, within 800 feet.</p>`
+          : `<p class="note">No crashes reported on ${esc(mine.name)} within 800 feet of this address in these years.</p>`}</section>` : ''}
       <section class="hsec hsec-top"><h3>Places with crashes nearby</h3>
-        ${list.length ? `<ol class="home-top">${list.map((n, i) => `<li><button type="button" class="home-card" data-near="${i}">
-            <span class="hc-rank" style="background:${TIERS[tierK(n.x.rank)].color}" title="${rankTxt(n.x.rank)}">${rankTxt(n.x.rank, false)}</span>
-            <span class="hc-main"><span class="hc-name">${esc(niceName(n.x.name))}</span>
-              <span class="hc-sub">${plural(n.x.crashes, 'crash', 'crashes')}${n.x.ksi ? ` · ${n.x.ksi} killed or seriously hurt someone` : ''}</span></span>
-            <span class="hc-val">${distText(n.m)}</span></button></li>`).join('')}</ol>
+        ${list.length ? `<ol class="home-top">${list.map((n, i) => card(n, `data-near="${i}"`)).join('')}</ol>
           <div class="note">Ranked out of ${fmt(N)} places with crashes. ${nb.all.length > 10 ? `${nb.all.length - 10} more places nearby aren't listed here;
             ` : ''}places outside the ranked list are on the map as small grey dots.</div>`
           : '<p class="note">No crashes reported within a quarter mile in these years.</p>'}</section>
@@ -2238,6 +2275,7 @@
     body.scrollTop = 0; body.onchange = null;
     body.onclick = e => {
       const n = e.target.closest('[data-near]'); if (n) openNear(list[+n.dataset.near].x);
+      const o = e.target.closest('[data-mine]'); if (o) openNear(mine.list[+o.dataset.mine].x);
     };
     const m = g.preview ? previewMarker : pinMarkers.get(g.id);
     if (m) wirePin(body, g, m);
@@ -2311,13 +2349,15 @@
   }
   function drawPin(g) {
     const old = !g.preview && pinMarkers.get(g.id); if (old) pinLayer.removeLayer(old);
-    const nb = nearbySpots(g.lat, g.lon);
+    const nb = nearbySpots(g.lat, g.lon), mine = onMyStreet(g);
     // g.name is an optional nickname ("Home", "Maya's school"); g.label stays the real address for copying and reporting.
     const title = pinTitle(g);
     const html = `<div class="pin-pop"><div class="pin-head"><div class="pin-title">📍 ${esc(title)}</div>${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}${g.picked ? `<div class="pin-addr">Spot picked on the map${g.name ? '' : ' · nearest address'}</div>` : ''}${g.preview ? '<div class="pin-addr">Not saved yet</div>' : ''}</div>
       ${g.note ? `<p class="pin-warn">${esc(g.note)}</p>` : ''}
       <div class="pin-near">${nb.crashes
         ? `<p>Within a quarter mile (about a 5-minute walk), ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}: <b>${plural(nb.crashes, 'crash', 'crashes')}</b>${nb.ksi ? `; <b>${nb.ksi} of them killed or seriously hurt someone</b>` : '; none killed or seriously hurt anyone'}${nb.pb ? `; ${nb.pb} involved someone walking or biking` : ''}.</p>
+          ${mine ? `<p class="pin-mine"><b>On ${esc(mine.name)}:</b> ${mine.list.length ? mine.list.map(n => `<button type="button" class="linkbtn" data-open="${n.x.rank}">${rankTxt(n.x.rank)} · ${esc(niceName(n.x.name))}</button>
+            <span class="muted">${plural(n.x.crashes, 'crash', 'crashes')}, ${distText(n.m)}</span>`).join('; ') : 'no crashes reported within 800 feet.'}</p>` : ''}
           ${(sch => sch && !g.school ? `<p>Nearest public school: <b>${esc(schoolName(sch.name))}</b> (about ${distText(sch.m)}).</p>` : '')(schoolNear(g.lat, g.lon))}
           ${nb.ksi ? 'Places nearby with the most serious crashes' : 'Highest-ranked places nearby'} (ranked out of ${fmt(N)}):<ul>${nb.worst.map(n => `<li><button type="button" class="linkbtn" data-open="${n.x.rank}">${rankTxt(n.x.rank)} · ${esc(niceName(n.x.name))}</button>
             <span class="muted">${distText(n.m)}</span></li>`).join('')}</ul>`
@@ -3410,15 +3450,38 @@
         : x.fixed ? 'Work since ' + P.since : x.planned ? 'Planned or budgeted' : 'No dated work since ' + P.since + ' or planned project in the layers this site reads')
         + (x.state ? `. ${x.state}: state highway, WSDOT shares responsibility` : '')
         + (x.k === 0 ? '. No one killed or seriously hurt here in these years: ranked on its other crashes' : '')); };
+      const openList = () => `<div class="pg-open" id="pgOpen"><h4>${esc(gName(sel.g))}: top-50 places ${dim === 'district' ? linkBtn('progress=d' + sel.g) : ''}</h4>
+          ${(sel.list || []).length ? `<ul class="pg-list">${sel.list.map(x => `<li><span class="pg-l1"><span class="pg-rk">${rankTxt(x.r)}</span> ${placeBtn(x.loc)}</span>
+            <span class="pg-l2">${x.k ? `<b>${plural(x.k, 'crash', 'crashes')} that killed or seriously hurt someone.</b> ` : ''}${status(x)}</span></li>`).join('')}</ul>` : '<p class="note">None of today\'s top 50 are here.</p>'}</div>`;
+      // On a phone the wide table needs sideways scrolling, so each group is a card instead: a bar for each share (all on
+      // one scale, so a district's share of serious crashes can be set against its share of fixes), then its top-50 counts.
+      const cards = () => {
+        const share = (v, t) => (t ? 100 * (v || 0) / t : 0);
+        const max = Math.max(1, ...rows.flatMap(r => [share(r.ksi, T.ksi), share(r.lpi, T.lpi), share(r.other, T.other), share(r.proj_planned, T.proj)]));
+        const bar = (label, v, t, cls) => `<div class="pg-bar"><span class="pg-bar-l">${label}</span>
+            <span class="pg-bar-t" aria-hidden="true"><span class="pg-bar-f ${cls}" style="width:${(100 * share(v, t) / max).toFixed(1)}%"></span></span>
+            <span class="pg-bar-v">${pc(v, t)}</span></div>`;
+        return `<ul class="pg-cards">${rows.map(r => `<li class="pg-card${r.g === open ? ' on' : ''}">
+            <button type="button" class="pg-grp pg-card-h" data-grp="${esc(r.g)}" aria-expanded="${r.g === open}">
+              <span class="pg-card-n">${esc(gName(r.g))}</span>${dim === 'district' && member(r.g) ? `<small class="muted">${member(r.g)}</small>` : ''}
+              <span class="pg-card-go">${r.g === open ? 'Hide places' : 'Show places'}</span></button>
+            ${bar('Crashes that killed or seriously hurt someone', r.ksi, T.ksi, 'k')}
+            ${bar('Head-start walk signals', r.lpi, T.lpi, 'w')}
+            ${bar('Other fixes', r.other, T.other, 'w')}
+            ${bar('Planned sidewalks, walk signals and safety projects', r.proj_planned, T.proj, 'w')}
+            <p class="pg-card-foot">Citywide top 50: <b>${r.top50}</b>${r.top50 ? ` · on state highways: ${r.top50_state || 0} · none recorded<a href="#pgNoneNote" class="fn" aria-label="About none recorded">*</a>: ${r.top50_nothing}` : ''}</p>
+            ${r.g === open ? openList() : ''}</li>`).join('')}</ul>`;
+      };
+      const narrow = isNarrow();
       return `<section class="pg-sec" id="pg-need">
         <h3>Where serious crashes happen, and where SDOT's work is</h3>
         <div class="pg-dim" role="group" aria-label="Group by">
           <button type="button" class="seg-btn ${dim === 'district' ? 'on' : ''}" data-dim="district" aria-pressed="${dim === 'district'}">By council district</button>
           <button type="button" class="seg-btn ${dim === 'rse' ? 'on' : ''}" data-dim="rse" aria-pressed="${dim === 'rse'}">By the City's equity index</button>
         </div>
-        <p class="note">Each column is that group's share of the city total. ${dim === 'rse' ? `The City's Race and Social Equity Index sorts
+        <p class="note">Each ${narrow ? 'bar' : 'column'} is that group's share of the city total. ${dim === 'rse' ? `The City's Race and Social Equity Index sorts
           census tracts into five levels; "highest priority" is where the City says investment is needed most. ` : ''}Pick a ${dim === 'district' ? 'district' : 'group'} to list its top-50 places.</p>
-        ${tableWrap(dim === 'district' ? 'By council district' : 'By equity index', `<table class="pg-table pg-need">
+        ${narrow ? cards() : tableWrap(dim === 'district' ? 'By council district' : 'By equity index', `<table class="pg-table pg-need">
           <caption class="sr-only">Share of crashes where someone was killed or seriously hurt, fixes and planned projects, ${dim === 'district' ? 'by council district' : 'by equity index'}</caption>
           <tr><th scope="col"><span class="sr-only">${dim === 'district' ? 'District' : 'Equity level'}</span></th><th scope="col">Crashes that killed or seriously hurt someone</th>
             <th scope="col">Head-start walk signals</th><th scope="col">Other fixes</th><th scope="col">Planned sidewalks, walk signals and neighborhood safety projects</th>
@@ -3427,9 +3490,7 @@
             <td>${pc(r.ksi, T.ksi)}</td><td>${pc(r.lpi, T.lpi)}</td><td>${pc(r.other, T.other)}</td><td>${pc(r.proj_planned, T.proj)}</td>
             <td>${r.top50}</td><td>${r.top50_state || 0}</td><td>${r.top50_nothing}</td></tr>`).join('')}
         </table>`)}
-        ${sel ? `<div class="pg-open" id="pgOpen"><h4>${esc(gName(sel.g))}: top-50 places ${dim === 'district' ? linkBtn('progress=d' + sel.g) : ''}</h4>
-          ${(sel.list || []).length ? `<ul class="pg-list">${sel.list.map(x => `<li><span class="pg-l1"><span class="pg-rk">${rankTxt(x.r)}</span> ${placeBtn(x.loc)}</span>
-            <span class="pg-l2">${x.k ? `<b>${plural(x.k, 'crash', 'crashes')} that killed or seriously hurt someone.</b> ` : ''}${status(x)}</span></li>`).join('')}</ul>` : '<p class="note">None of today\'s top 50 are here.</p>'}</div>` : ''}
+        ${sel && !narrow ? openList() : ''}
         <p class="note" id="pgNoneNote">* None recorded: a city street with no counted safety fix since ${P.since} (older work and bus lanes aren't counted, though each place's page shows them), no planned SDOT project, head-start walk signal or no turn on red nearby, and no budget project named for the street, in the layers this site reads (the same test as each place's own page). Places on state highways, where WSDOT shares responsibility, are counted in their own column. The fix types counted (${FIX_KINDS}) are mostly intersection work, so stretches of street rarely have one.</p>
         <p class="note">Crashes: ${monthYear(P.window.d0)}–${throughMonth(P.window.d1)}. Fixes: dated fixes since January ${P.since} at places with
           crashes, counted once per place they reach (one long bike lane can reach many places); head-start walk signals are shown on their own because SDOT has added hundreds of them${(() => {
@@ -3452,8 +3513,8 @@
         const here = pc(w.b, w.a), city = pc(w.cb, w.ca);
         return `<li><span class="pg-l1"><b>${esc(w.k)}</b> · ${fmt(w.n)} ${w.n === 1 ? 'place' : 'places'}</span>
           <span class="pg-l2">${(what[w.m] || 'targeted crashes').replace(/^./, c => c.toUpperCase())}: ${fmt(w.b)} before, ${fmt(w.a)} after (${chg(here)}). Citywide over the same days: ${chg(city)}.
-          ${w.n_had ? `Of the ${fmt(w.n_had)} places that had any before, ${fmt(w.fewer)} had fewer after and ${fmt(w.not_fewer)} didn't.` : ''}
-          ${w.new_after ? `${fmt(w.new_after)} had none before and some after.` : ''}</span></li>`;
+          ${w.p_n >= 10 && w.pb ? `<br><span class="pg-yard">The same places in the years before, with nothing built yet${w.p_n < w.n ? ` (the ${fmt(w.p_n)} with crash data going back far enough)` : ''}:
+            ${chg(pc(w.pb, w.pa))}; citywide ${chg(pc(w.pcb, w.pca))}.</span>` : ''}${w.n < 30 ? ` <i>Few places, so this can easily be chance.</i>` : ''}</span></li>`;
       };
       const byK = {}; (W.places || []).forEach(x => (byK[x.k] = byK[x.k] || []).push(x));
       const placeRow = x => `<li><span class="pg-l1">${x.rank ? `<span class="pg-rk">${rankTxt(x.rank)}</span> ` : ''}${placeBtn(x.loc)}</span>
@@ -3463,9 +3524,14 @@
         <h3>Is it working?</h3>
         <p class="lead">For each fix SDOT's records date, the crashes that fix is meant to reduce, counted for the same length of time
           before and after (one to three years each, skipping the first month after it went in, or the whole year when SDOT gives only the year, as for most bike lanes). Next to it, how the same kind of
-          crash changed across the whole city over the same days.</p>
+          crash changed across the whole city over the same days, and how the same places changed in the years before, with nothing
+          built yet. A fix looks like it helped when its places did better than both.</p>
         <ul class="pg-list pg-working">${W.kinds.map(kindRow).join('')}</ul>
-        <p class="note">Fixes tend to go where crashes have been high, and places like that often see fewer crashes afterwards anyway,
+        <p class="note">${(() => { const h = W.kinds.reduce((s, w) => s + (w.p_had || 0), 0), f = W.kinds.reduce((s, w) => s + (w.p_fewer || 0), 0);
+            return h ? `Crash counts at one place go up and down a lot on their own: of the ${fmt(h)} places that had any of these crashes
+            in the years before their fix, ${fmt(f)} (${Math.round(100 * f / h)}%) had fewer in the next equal stretch, before anything was built.
+            So whether one place went down after a fix says little; the totals, next to the city and the years before, say more. ` : ''; })()}Fixes
+          tend to go where crashes have been high, and places like that often see fewer crashes afterwards anyway,
           so a drop here doesn't prove a fix worked, and a few crashes either way can be chance. A bike lane can bring more people
           biking, so more bike crashes can come with more riders; nothing here counts riders. Bus lanes are built for buses; they're
           shown because they change the street. All crashes in police reports count here, not only the worst ones.</p>
@@ -3487,7 +3553,7 @@
       if (n) n.onchange = () => { onlyNone = n.checked; draw('#pgNone'); announceThen(); };
       el.querySelectorAll('[data-dim]').forEach(b => (b.onclick = () => { dim = b.dataset.dim; open = null; draw(`[data-dim="${dim}"]`); }));
       el.querySelectorAll('.pg-grp').forEach(b => (b.onclick = () => { open = open === b.dataset.grp ? null : b.dataset.grp; draw(`.pg-grp[data-grp="${CSS.escape(b.dataset.grp)}"]`);
-        if (open) say(`${gName(open)}: ${(P.need.find(r => r.dim === dim && r.g === open).list || []).length} top-50 places listed below the table.`); }));
+        if (open) say(`${gName(open)}: ${(P.need.find(r => r.dim === dim && r.g === open).list || []).length} top-50 places listed below.`); }));
       el.querySelectorAll('[data-more]').forEach(b => (b.onclick = () => { showAll[b.dataset.more] = !showAll[b.dataset.more]; draw(`[data-more="${b.dataset.more}"]`); }));
       el.querySelectorAll('.pg-link').forEach(b => (b.onclick = () => {
         const url = location.href.split('#')[0] + '#' + b.dataset.link;
@@ -3514,6 +3580,7 @@
       say(`${pick}: ${Y.places.filter(fixedBy).length} of 50 got a fix before ${y0(C.d0)}. Showing ${L.length} places.`);
     }
     draw();
+    matchMedia('(max-width: 760px)').addEventListener('change', () => draw());
     // Opening the tab with a district picked on the list shows that district's row open (once per pick, so closing it sticks).
     progressSync = () => {
       const d = String(+document.getElementById('distFilter').value || '');
@@ -3737,7 +3804,7 @@
       check(document.querySelectorAll('#progress .pg-sec').length === 4, 'progress view did not draw');
       check(document.querySelectorAll('#pg-working .pg-working li').length >= 1, 'is it working? section has no fix kinds');
       check(document.querySelectorAll('#progress .pg-places tr').length >= 11, 'progress: past worst-50 table is short');
-      check(document.querySelectorAll('#progress .pg-need tr').length >= 8, 'progress: district table is short');
+      check(document.querySelectorAll('#progress .pg-need tr, #progress .pg-card').length >= 8, 'progress: district table is short');
       check(keyIdx().size === searchIdx.length, 'place link keys are not unique');
       check(schools().length >= 70 && schools().every(s => s.label && isFinite(s.lat)), 'school search list is short or broken');
       check(D.priorities.filter(p => p.rank_month_ago).length >= 150, 'few places have last month\'s rank');

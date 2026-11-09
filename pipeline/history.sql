@@ -241,14 +241,17 @@ from by_g b full join proj_g p using (dim, grp);
 -- didn't drop at all is worth a closer look.
 create or replace table working_fix as
 select x.location, x.district, r.rank, x.f.k as k, x.f.m as m, x.f.d as d, x.f.days as days,
-       x.f.b as b, x.f.a as a, x.f.cb as cb, x.f.ca as ca, x.f.yo as yo
+       x.f.b as b, x.f.a as a, x.f.cb as cb, x.f.ca as ca, x.f.yo as yo, x.f.pb as pb, x.f.pcb as pcb
 from (select location, council_district as district, unnest(before_after) as f from locations) x
 left join ranked r using (location);
 
 create or replace table working_kind as
-select k, m, count(*) as n, count(*) filter (where b > 0) as n_had, sum(b) as b, sum(a) as a, sum(cb) as cb, sum(ca) as ca,
-       count(*) filter (where b > 0 and a < b) as fewer, count(*) filter (where b > 0 and a >= b) as not_fewer,
-       count(*) filter (where b = 0 and a > 0) as new_after
+-- p_*: the same places one period earlier, before the fix (the "before" is that period's "after"): p_had of them had
+-- any of the targeted crashes then, p_fewer had fewer in the next period with nothing built yet.
+select k, m, count(*) as n, sum(b) as b, sum(a) as a, sum(cb) as cb, sum(ca) as ca,
+       count(pb) as p_n, sum(pb) as pb, sum(b) filter (where pb is not null) as pa,
+       sum(pcb) as pcb, sum(cb) filter (where pcb is not null) as pca,
+       count(*) filter (where pb > 0) as p_had, count(*) filter (where pb > 0 and b < pb) as p_fewer
 from working_fix group by k, m;
 
 -- places where the targeted crashes didn't go down: at least 2 after, and no fewer than before
@@ -287,8 +290,9 @@ copy (
                           'lpi': fixes_lpi, 'other': fixes_other, 'proj_planned': proj_planned, 'list': top50_list}
                          order by dim, grp) from need_work),
     'working': {
-      'kinds': (select list({'k': k, 'm': m, 'n': n, 'n_had': n_had, 'b': b, 'a': a, 'cb': cb, 'ca': ca,
-                             'fewer': fewer, 'not_fewer': not_fewer, 'new_after': new_after} order by n desc, k) from working_kind),
+      'kinds': (select list({'k': k, 'm': m, 'n': n, 'b': b, 'a': a, 'cb': cb, 'ca': ca,
+                             'p_n': p_n, 'pb': pb, 'pa': pa, 'pcb': pcb, 'pca': pca, 'p_had': p_had, 'p_fewer': p_fewer}
+                            order by n desc, k) from working_kind),
       'places': (select list({'loc': location, 'k': k, 'm': m, 'd': d, 'yo': yo, 'days': days, 'b': b, 'a': a, 'rank': rank, 'dist': district}
                              order by k, a - b desc, a desc, rank nulls last, location) from working_places)
     },
