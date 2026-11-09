@@ -190,6 +190,19 @@ foreach ($k in $minimum.Keys) {
     throw "Fetch check failed: $k changed from $($prev[$k]) to $($counts[$k]) rows (>25%). Keeping the previous data. Delete data\raw\counts.json to accept it."
   }
 }
+# Map credits: each Esri map layer's own credit line as Esri publishes it (it changes when their data providers do),
+# so the site always shows the current wording. A layer that can't be reached keeps last week's line.
+$credits = [ordered]@{}
+$prevCreditsFile = Join-Path $raw 'basemap_credits.json'
+$prevCredits = if (Test-Path $prevCreditsFile) { [IO.File]::ReadAllText($prevCreditsFile, [Text.Encoding]::UTF8) | ConvertFrom-Json } else { $null }
+foreach ($svc in 'Canvas/World_Light_Gray_Base', 'Canvas/World_Light_Gray_Reference', 'World_Street_Map', 'World_Imagery', 'Reference/World_Transportation') {
+  $text = $null
+  try { $text = (Invoke-RestMethod "https://server.arcgisonline.com/ArcGIS/rest/services/$svc/MapServer?f=json" -TimeoutSec 60).copyrightText } catch { }
+  if (-not $text -and $prevCredits) { $text = $prevCredits.$svc }
+  if (-not $text) { throw "Fetch check failed: no map credit line for $svc. Keeping the previous data." }
+  $credits[$svc] = $text.Trim()
+}
+[IO.File]::WriteAllText((Join-Path $tmp 'basemap_credits.json'), ($credits | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
 $counts | ConvertTo-Json | Set-Content (Join-Path $tmp 'counts.json')
 Set-Content (Join-Path $tmp 'fetched_at.txt') (Get-Date).ToString('yyyy-MM-ddTHH:mmzzz')   # with the time zone (runners use UTC)
 # Swap without a moment with no data: old -> raw.old, new -> raw, then delete the old copy.

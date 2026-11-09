@@ -294,16 +294,28 @@
   // ---------- map ----------
   const map = L.map('map', { zoomControl: true, zoomSnap: 0.25, zoomAnimation: !reduceMotion }).setView([47.61, -122.33], 12);
   const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
-  const esriAttr = 'Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors · Data: City of Seattle';
+  // Credits: each map layer's credit line exactly as Esri publishes it, fetched every week by the pipeline (D.credits),
+  // with names that two layers share listed once.
+  const credit = (...svcs) => {
+    const seen = new Set(), parts = [];
+    for (const s of svcs) for (const p of String((D.credits || {})[s] || 'Esri').replace(/^Sources?:\s*/i, '').split(/,\s*(?:and\s+)?|\s+and\s+/)) {
+      const t = p.trim().replace(/\(c\)\s*/gi, '© '), key = t.toLowerCase().replace(/^© /, '');
+      if (t && !seen.has(key)) { seen.add(key); parts.push(t); }
+    }
+    return 'Map: ' + esc(parts.join(', ')) + ' · Data: City of Seattle';
+  };
   // Tiles load while the map is dragged (Leaflet waits until a drag ends on phones, which leaves blank squares behind
   // a pan) and a wider ring of tiles is kept around the screen, so panning back and forth doesn't load them again.
   const tile = (path, opts = {}) => L.tileLayer(esri + path + '/MapServer/tile/{z}/{y}/{x}',
-    { maxZoom: 19, maxNativeZoom: 16, attribution: esriAttr, updateWhenIdle: false, updateInterval: 150, keepBuffer: 4, ...opts });
+    { maxZoom: 19, maxNativeZoom: 16, updateWhenIdle: false, updateInterval: 150, keepBuffer: 4, ...opts });
   const baseLayers = {
-    'Light gray': L.layerGroup([tile('Canvas/World_Light_Gray_Base'), tile('Canvas/World_Light_Gray_Reference')]),
-    'Streets': tile('World_Street_Map', { maxNativeZoom: 19 }),
+    'Light gray': L.layerGroup([
+      tile('Canvas/World_Light_Gray_Base', { attribution: credit('Canvas/World_Light_Gray_Base', 'Canvas/World_Light_Gray_Reference') }),
+      tile('Canvas/World_Light_Gray_Reference')
+    ]),
+    'Streets': tile('World_Street_Map', { maxNativeZoom: 19, attribution: credit('World_Street_Map') }),
     'Satellite': L.layerGroup([
-      tile('World_Imagery', { maxNativeZoom: 19, attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics · Data: City of Seattle' }),
+      tile('World_Imagery', { maxNativeZoom: 19, attribution: credit('World_Imagery', 'Reference/World_Transportation') }),
       tile('Reference/World_Transportation', { maxNativeZoom: 19 })
     ])
   };

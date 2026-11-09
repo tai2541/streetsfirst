@@ -22,7 +22,9 @@ $utf8 = New-Object Text.UTF8Encoding $false
 function Read-Utf8([string]$p) { [IO.File]::ReadAllText((Join-Path $PSScriptRoot $p), [Text.Encoding]::UTF8).Trim() }
 $fetched = if (Test-Path 'data\raw\fetched_at.txt') { (Read-Utf8 'data\raw\fetched_at.txt') } else { '' }
 $projEdited = if (Test-Path 'data\raw\proj_edited.json') { (Read-Utf8 'data\raw\proj_edited.json') } else { '{}' }
+$credits = if (Test-Path 'data\raw\basemap_credits.json') { (Read-Utf8 'data\raw\basemap_credits.json') } else { '{}' }
 $json = '{"fetchedAt":' + (ConvertTo-Json $fetched) +
+        ',"credits":'    + $credits +
         ',"meta":'       + (Read-Utf8 'site\data\meta.json') +
         ',"priorities":' + (Read-Utf8 'site\data\priorities.json') +
         ',"budget":'     + (Read-Utf8 'site\data\sdot_budget.json') +
