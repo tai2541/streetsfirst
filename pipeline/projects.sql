@@ -114,7 +114,8 @@ hits as (
     -- a direction written after the street in the title must be the place's own (1st Ave S is not 1st Ave)
     and not regexp_matches(c.tn, ' ' || k.m || ' (N|S|E|W|NE|NW|SE|SW) ')
     -- a bridge, viaduct or tunnel project is about that structure, so only places on a structure match it
-    and (not regexp_matches(c.tn, ' (BRIDGE|VIADUCT|TUNNEL|SPAN) ') or l.structure)
+    --   (on the structure itself: a ramp leading to a bridge isn't the bridge)
+    and (not regexp_matches(c.tn, ' (BRIDGE|VIADUCT|TUNNEL|SPAN) ') or (l.structure and regexp_matches(' ' || l.location || ' ', ' (BR|BRIDGE|VI|VIADUCT|TUNNEL|TUN|SPAN) ')))
 )
 select location, list({'c': pid, 't': title, 'y0': y0, 'y1': y1} order by y1 desc, pid) as cip
 from hits group by location;

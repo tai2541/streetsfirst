@@ -135,18 +135,23 @@ create or replace macro crash_kind(m, peds, cyclists, coll_type) as
 
 -- Equal periods, up to 3 years each side; the month it went in is skipped. Needs at least a year on both sides
 -- (crash data here starts 2011; the after period ends when the scored years end).
+-- Some SDOT layers give only a year, written as Dec 30 or 31 (most protected bike lanes): for those the whole year is
+-- skipped (before ends Jan 1 of that year, after starts Jan 1 of the next), since the real day could be any in it.
 create or replace table before_after as
-with f as (
-  select *, least(1095, d - date '2011-01-01', we() - (d + 30))::int as days from dated_fixes
-  where d >= date '2012-01-01'),
+with f0 as (
+  select *, month(d) = 12 and day(d) >= 30 as yo,
+         case when month(d) = 12 and day(d) >= 30 then make_date(year(d), 1, 1) else d end as b_end,
+         case when month(d) = 12 and day(d) >= 30 then make_date(year(d) + 1, 1, 1) else d + 30 end as a_start
+  from dated_fixes where d >= date '2012-01-01'),
+f as (select *, least(1095, b_end - date '2011-01-01', we() - a_start)::int as days from f0),
 f2 as (select * from f where days >= 365)
-select f2.location, list({'k': kind, 'd': d, 'm': m, 'days': days,
-    'b': (select count(*) from crash_all c where c.location = f2.location and c.date >= f2.d - f2.days and c.date < f2.d
+select f2.location, list({'k': kind, 'd': d, 'm': m, 'days': days, 'yo': yo,
+    'b': (select count(*) from crash_all c where c.location = f2.location and c.date >= f2.b_end - f2.days and c.date < f2.b_end
                                           and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)),
-    'a': (select count(*) from crash_all c where c.location = f2.location and c.date >= f2.d + 30 and c.date < f2.d + 30 + f2.days
+    'a': (select count(*) from crash_all c where c.location = f2.location and c.date >= f2.a_start and c.date < f2.a_start + f2.days
                                           and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)),
-    'cb': (select count(*) from crash_all c where c.date >= f2.d - f2.days and c.date < f2.d and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)),
-    'ca': (select count(*) from crash_all c where c.date >= f2.d + 30 and c.date < f2.d + 30 + f2.days and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type))
+    'cb': (select count(*) from crash_all c where c.date >= f2.b_end - f2.days and c.date < f2.b_end and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)),
+    'ca': (select count(*) from crash_all c where c.date >= f2.a_start and c.date < f2.a_start + f2.days and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type))
   } order by d, kind, m) as before_after
 from f2 group by f2.location;
 

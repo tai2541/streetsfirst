@@ -229,6 +229,7 @@ body.paused .top-mark .pulse { animation: none; transform: scale(1.7); opacity: 
   nav button { padding: 5px 9px; font-size: 13px; }
   /* iPhone Safari zooms the whole page into any text box or menu set smaller than 16px, and stays zoomed */
   input, select, textarea { font-size: 16px !important; }
+  .phone-intro { display: block !important; }
   /* small text buttons get a taller touch area */
   .fbtn { min-height: 32px; }
   .linkbtn:not([style*="inline"]) { min-height: 32px; }
@@ -389,6 +390,9 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 .stat:nth-child(2) { background: #fff0ef; } .stat:nth-child(2) b { color: #b3141b; }
 .stat:nth-child(3) { background: #eef4fe; } .stat:nth-child(3) b { color: #1f4fa8; }
 .stat:nth-child(4) { background: #ebf8f2; } .stat:nth-child(4) b { color: #147a55; }
+.phone-intro { display: none; margin: 0 0 10px; font-size: 14px; line-height: 1.45; color: #2a3342; }
+.phone-intro .intro-report { display: inline-block; margin-top: 4px; font-weight: 700; color: #0f7a54; }
+.pin-warn { margin: 6px 0; padding: 6px 9px; border-left: 3px solid #c77700; background: #fff7e6; border-radius: 4px; font-size: 13px; color: #4a3200; }
 #detailTitle .dcity { display: block; font-size: 12.5px; font-weight: 600; color: #5a6475; margin-top: 2px; }
 /* "Did the worst places get fixed?": fixes read green, no fix neutral, still among the worst red (not the tiles' default order) */
 .pg-stats .stat:nth-child(1), .pg-stats .stat:nth-child(2) { background: #ebf8f2; }

@@ -234,7 +234,7 @@ from by_g b full join proj_g p using (dim, grp);
 -- didn't drop at all is worth a closer look.
 create or replace table working_fix as
 select x.location, x.district, r.rank, x.f.k as k, x.f.m as m, x.f.d as d, x.f.days as days,
-       x.f.b as b, x.f.a as a, x.f.cb as cb, x.f.ca as ca
+       x.f.b as b, x.f.a as a, x.f.cb as cb, x.f.ca as ca, x.f.yo as yo
 from (select location, council_district as district, unnest(before_after) as f from locations) x
 left join ranked r using (location);
 
@@ -281,7 +281,7 @@ copy (
     'working': {
       'kinds': (select list({'k': k, 'm': m, 'n': n, 'n_had': n_had, 'b': b, 'a': a, 'cb': cb, 'ca': ca,
                              'fewer': fewer, 'not_fewer': not_fewer, 'new_after': new_after} order by n desc, k) from working_kind),
-      'places': (select list({'loc': location, 'k': k, 'm': m, 'd': d, 'days': days, 'b': b, 'a': a, 'rank': rank, 'dist': district}
+      'places': (select list({'loc': location, 'k': k, 'm': m, 'd': d, 'yo': yo, 'days': days, 'b': b, 'a': a, 'rank': rank, 'dist': district}
                              order by k, a - b desc, a desc, rank nulls last, location) from working_places)
     },
     'since': year(ws()),

@@ -178,8 +178,9 @@ select f.properties.PRIORITY as priority, gj_geom(f.geometry) as geom
 from (select unnest(features) f from read_json('data/raw/hin_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
-create or replace table hcl as   -- SDOT Vision Zero High Collision Locations (by year)
-select f.properties.HCL_YEAR as year, gj_geom(f.geometry) as geom
+create or replace table hcl as   -- SDOT Vision Zero High Collision Locations (by year; its list type, and whether it's a corner)
+select f.properties.HCL_YEAR as year, f.properties.TYPE as type,
+       coalesce(nullif(trim(f.properties.INTKEY::varchar), ''), null) is not null as at_corner, gj_geom(f.geometry) as geom
 from (select unnest(features) f from read_json('data/raw/hcl_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
@@ -251,8 +252,15 @@ s as (select p.location,
 len as (select unitdesc as location, max(ST_Length(geom)) as block_ft from streets group by unitdesc),
 h as (select p.location, min(case h.priority when 'High' then 1 when 'Mid' then 2 when 'Low' then 3 end) as hin_level
       from loc_pts p join hin h on ST_DWithin(p.geom, h.geom, 60) group by p.location),
-c as (select p.location, list(distinct c.year order by c.year) as hcl_years
-      from loc_pts p join hcl c on ST_DWithin(p.geom, c.geom, 80) group by p.location),
+-- A corner entry (SDOT gives it an intersection key) labels only the intersection, within 80 ft; a mid-block entry labels
+-- only the stretch whose street line runs within 40 ft of it. (Matching both by distance let a corner's entry spill onto
+-- short stretches beside it.)
+c as (select location, list(distinct year order by year) as hcl_years, list(distinct type order by type) as hcl_types
+      from (select p.location, c.year, c.type from loc_pts p join hcl c on c.at_corner and p.r <> 40 and ST_DWithin(p.geom, c.geom, 80)
+            union all
+            select s.unitdesc, c.year, c.type from streets s join hcl c on not c.at_corner and ST_DWithin(s.geom, c.geom, 40)
+            where s.unitdesc in (select location from loc_pts where r = 40))
+      group by location),
 lp as (select p.location,
          arg_min({'status': l.status, 'installed': l.installed, 'planned': l.planned_year},
                  {'s': case l.status when 'Existing' then 0 when 'Planned' then 1 else 2 end, 'd': ST_Distance(p.geom, l.geom),
@@ -269,7 +277,7 @@ sg as (select a.location, bool_or(ped_signal) ped_signal, bool_or(ped_audio) ped
 select a.location, a.addr_type, a.intkey, s.speed_limit, s.art_class, s.pavement_min,
        case when a.addr_type <> 'I' then len.block_ft end as block_ft,
        v.volume, v.volume_streets, v.volume_year, v.volume_estimated,
-       h.hin_level, coalesce(c.hcl_years, []) as hcl_years,
+       h.hin_level, coalesce(c.hcl_years, []) as hcl_years, c.hcl_types,
        lp.lpi.status as lpi_status, lp.lpi.installed as lpi_installed, lp.lpi.planned as lpi_planned,
        sg.location is not null as signalized, sg.ped_signal, sg.ped_audio, sg.lt_protected, sg.lt_installed, sg.signal_installed,
        -- reference group for expected harm
@@ -393,7 +401,7 @@ select e.*, x.addr_type, x.intkey, x.speed_limit, x.art_class,
                    when 4 then 'State route' when 5 then 'Freeway' else 'Neighborhood street' end as street_type,
   x.pavement_min, x.block_ft, x.volume, x.volume_streets, x.volume_year, x.volume_estimated,
   case x.hin_level when 1 then 'High' when 2 then 'Mid' when 3 then 'Low' end as sdot_hin,
-  x.hcl_years as sdot_hcl_years,
+  x.hcl_years as sdot_hcl_years, x.hcl_types as sdot_hcl_types,
   x.area, x.neighborhood,
   x.lpi_status, x.lpi_installed, x.lpi_planned, x.signalized, x.ped_signal, x.ped_audio, x.lt_protected, x.lt_installed, x.signal_installed,
   a.lon, a.lat,
@@ -592,7 +600,7 @@ create or replace table spot_export as
          round(pts_old, 1) pts_old,
          area, neighborhood, speed_limit, street_type, state_route, structure, pavement_min,
          volume, volume_streets, volume_year, volume_estimated,
-         sdot_hin, sdot_hcl_years, ksi_after_hcl,
+         sdot_hin, sdot_hcl_years, sdot_hcl_types, ksi_after_hcl,
          lpi_status, lpi_installed, lpi_planned, ped_after_lpi, signalized, ped_signal, ped_audio, lt_protected, lt_installed,
          confidence, crashes, unknown_sev, fatal, serious, injury, ksi, ksi_years, killed, seriously_injured,
          pb_crashes, ped_crashes, bike_crashes, speeding_crashes, ped_turn_after_lpi, left_turn_crashes, ped_turn_crashes, angle_crashes,
