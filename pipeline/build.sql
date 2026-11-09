@@ -719,7 +719,7 @@ copy (
     where dept = 'Seattle Department of Transportation' and year >= year(current_date) - 2),
   names as (select pid, arg_max(program, {'y': year, 'p': program}) as program, arg_max(project, {'y': year, 'p': project}) as project from b group by pid)
   select n.program, n.project, b.pid as code, b.year, round(sum(b.amount)) amount,
-         round(sum(b.amount) filter (where b.fund ilike '%Transportation Levy%')) as levy
+         round(sum(b.amount) filter (where b.fund ilike '%levy%')) as levy
   from b join names n using (pid)
   group by all having round(sum(b.amount)) <> 0
   order by n.program, n.project, b.year
@@ -777,8 +777,27 @@ copy (
     (select future_ksi_50 from validation where method = 'expected') as forward_top50_ksi,
     (select count(*) from collisions where date >= ws() and date < we() and peds + cyclists > 0
        and severity = 'Fatal Collision') as city_ped_bike_fatal,
-    (select count(*) from collisions where date >= ws() and date < we() and severity = 'Unknown'
-       and date >= date '2026-01-01') as unknown_since_2026,
+    -- the first month from which every scored month has at least 5% of reports with no severity (null if none)
+    (with m as (select date_trunc('month', date)::date mo, avg((severity = 'Unknown')::int) sh
+                from collisions where date < we() group by 1)
+     select min(mo) from m where not exists (select 1 from m m2 where m2.mo >= m.mo and m2.sh < 0.05)) as unknown_from,
+    (with m as (select date_trunc('month', date)::date mo, avg((severity = 'Unknown')::int) sh
+                from collisions where date < we() group by 1),
+          f as (select min(mo) s from m where not exists (select 1 from m m2 where m2.mo >= m.mo and m2.sh < 0.05))
+     select {'n': count(*) filter (where severity = 'Unknown'), 'share': round(avg((severity = 'Unknown')::int), 3)}
+     from collisions, f where date >= f.s and date >= ws() and date < we()) as unknown_recent,
+    -- the years of SDOT's traffic counts in use
+    (select {'from': min(count_year), 'to': max(count_year)} from volumes) as count_years,
+    -- the latest date SDOT gives for each kind of dated fix, from its citywide layers (signal changes from the places)
+    (select list({'k': k, 'd': d} order by d) from (
+       select kind k, max(d) d from fix_lines where status = 'Built' and d is not null group by kind
+       union all select 'Traffic circle', max(d) from circles
+       union all select kind, max(d) from dated_fixes where kind in ('Head-start walk signal', 'No turn on red', 'Protected left-turn signal') group by kind)) as fix_last,
+    -- voter-approved levy funds in the budget years shown, with the years each has money
+    (select list({'fund': regexp_replace(fund, '^[0-9]+ - ', ''), 'from': y0, 'to': y1} order by y0) from (
+       select fund, min(year) y0, max(year) y1 from capital_budget
+       where dept = 'Seattle Department of Transportation' and year >= year(current_date) - 2 and fund ilike '%levy%' and amount <> 0
+       group by fund)) as levy_funds,
     (select count(*) from collisions where date >= ws() and date < we() and speeding) as city_speeding,
     -- citywide shares, used to flag locations that are unusually wet/dark (Unknown/Other excluded)
     (select round(sum(wet_crashes)  / sum(road_known),  3) from locations) as city_wet_share,

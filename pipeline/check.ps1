@@ -36,6 +36,27 @@ if ($big) { $fails += "area files over 3 MB: $($big.Name -join ', ')" }
 # Text read with the wrong encoding shows up as mangled sequences (UTF-8 dash read as ANSI, etc.). ASCII-only pattern,
 # because Windows PowerShell reads this script file as ANSI.
 foreach ($f in $dataJs, $lateJs) { if ((Test-Path $f) -and ([IO.File]::ReadAllText($f, [Text.Encoding]::UTF8) -match '\u00E2\u20AC|\u00C3[\u0080-\u00BF]')) { $fails += "data/$(Split-Path $f -Leaf) has garbled characters (encoding)" } }
+# Every fact on the site comes from the pipeline. A year typed into the page's text goes stale, so any year in app.js or
+# index.html (outside comments) must be on this list of method choices and examples, each with its reason.
+$allowedYears = @(
+  'Older crashes \(from 2011\)',          # fetch.ps1 fetches older crashes from 2011 (a fixed choice)
+  'since 2013 and SDOT',                   # history.sql: SDOT's data before 2013 records far fewer injury crashes
+  'y === 2020 \|\| y === 2021', 'skip 2020.2021 \(pandemic',   # method: pandemic traffic left out of trends
+  "this site's rule until November 2026",  # when this site changed its own ranking rule
+  'planned for 2027',                      # an example of SDOT's wording
+  'y.yr === 2018\) \? 2018',               # history.sql: yearly snapshots start in 2018
+  'lastTap.t < 2000'                       # milliseconds, not a year
+)
+foreach ($f in 'app.js', 'index.html') {
+  $n = 0
+  foreach ($line in [IO.File]::ReadAllLines((Join-Path $root "site\$f"), [Text.Encoding]::UTF8)) {
+    $n++
+    if ($line -match '^\s*(//|<!--)') { continue }
+    if ($line -match '\b20[0-3][0-9]\b' -and -not ($allowedYears | Where-Object { $line -match $_ })) {
+      $fails += "site/$f line ${n} has a typed-in year (compute it in the pipeline, or add it to `$allowedYears with a reason): $($line.Trim().Substring(0, [Math]::Min(100, $line.Trim().Length)))"
+    }
+  }
+}
 foreach ($f in 'vendor\leaflet\leaflet.js', 'vendor\leaflet\leaflet.css', 'vendor\inter\inter.css', 'app.js', 'style.css', 'index.html', 'favicon.svg', 'favicon-32.png', 'apple-touch-icon.png') {
   if (-not (Test-Path (Join-Path $site $f))) { $fails += "$f is missing" }
 }

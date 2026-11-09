@@ -2866,17 +2866,18 @@
     refreshHome();
   }
 
+  // Fix kinds whose latest date in SDOT's data is more than two years before the scored years end: newer ones may be undated.
+  function staleFixDates() {
+    const end = +String(meta.window_to).slice(0, 4);
+    const old = (meta.fix_last || []).filter(f => f.d && f.k !== 'Bus lane' && +String(f.d).slice(0, 4) < end - 2);
+    if (!old.length) return '';
+    const items = old.map(f => `after ${String(f.d).slice(0, 4)} for ${f.k.toLowerCase()}s`);
+    return ` SDOT's data has no dates ${items.length > 1 ? items.slice(0, -1).join(', ') + ' or ' + items[items.length - 1] : items[0]}, so newer ones may not be counted.`;
+  }
   // ---------- capital budget tab ----------
   function budgetInit() {
     const years = [...new Set(D.budget.map(b => b.year))].sort();
     const thisYear = new Date().getFullYear();
-    const ABOUT = {
-      'Major Maintenance/Replacement': 'Keeping what exists working: arterial repaving, bridges and structures, sidewalk repair, signals.',
-      'Mobility-Capital': 'Building new: sidewalks, Vision Zero safety projects, protected bike lanes, curb ramps, transit corridors.',
-      'Central Waterfront': 'The Alaskan Way and waterfront rebuild.',
-      'Major Projects': 'Large one-off projects, such as SR 520 and the Magnolia Bridge.',
-      'Capital General Expense': 'Debt payments for past capital work.'
-    };
     const expand = s => s.replace(/^MC-TR-C\d+ -\s+/, '').replace(/^TRC\d+ - /, '')
       .replace(/\bPMP\b/, 'Pedestrian Master Plan').replace(/\bBMP\b/, 'Bicycle Master Plan')
       .replace(/\bCWF\b/, 'Central Waterfront').replace(/\bAWMC\b/, 'Alaskan Way Main Corridor')
@@ -2922,7 +2923,7 @@
       const rows = Object.entries(g.projects).sort((a, b) => sum(b[1]) - sum(a[1]))
         .map(([name, ys]) => `<tr><td>${name === "(blank)" ? "<i>Lines with no project named</i>" : esc(expand(name))}</td>${cells(ys)}</tr>`).join('');
       html += `<details><summary>${esc(prog)}: ${money(sum(g.total))}</summary>
-        <p class="note">${esc(ABOUT[prog] || '')}</p>
+        <p class="note">${progSummary(g)}</p>
         <div class="tablewrap"><table>${head}${rows}<tr class="total"><td>Program total</td>${cells(g.total)}</tr></table></div></details>`;
     });
     document.getElementById('budget').innerHTML = `
@@ -2936,9 +2937,18 @@
       ${html}
       <p class="note">Abbreviations: ST3 = Sound Transit 3; BUD = a budget-level entry in the city's data. Projects are matched
         across years by their city project number and shown under their newest name.</p>
-      ${D.budget.some(b => b.levy) && !D.budget.some(b => b.levy && b.year === 2025) ? `<p class="note">The Transportation Levy voters
-        approved in November 2024 shows up in this data from 2026 on; 2025 has no levy money in it, so 2025 may be understated.</p>` : ''}`;
+      ${(meta.levy_funds || []).length ? `<p class="note">Voter-approved levy money in this data: ${meta.levy_funds.map(f =>
+        `${esc(f.fund)} (${f.from === f.to ? f.from : f.from + '–' + f.to})`).join(', ')}. A year when one levy winds down and the
+        next starts can look lower or higher than its neighbors.</p>` : ''}`;
     function sum(o) { return Object.values(o).reduce((a, b) => a + b, 0); }
+    // "12 projects; the largest over these years: A, B and C" (from the budget data itself)
+    function progSummary(g) {
+      const named = Object.entries(g.projects).filter(([n]) => n !== '(blank)');
+      const top = named.filter(([, ys]) => sum(ys) > 0).sort((a, b) => sum(b[1]) - sum(a[1])).slice(0, 3).map(([n]) => esc(expand(n)));
+      if (!named.length) return '';
+      const list = top.length > 1 ? top.slice(0, -1).join(', ') + ' and ' + top[top.length - 1] : top[0] || '';
+      return `${fmt(named.length)} project${named.length === 1 ? '' : 's'}${top.length && named.length > 1 ? `; the largest over these years: ${list}` : ''}.`;
+    }
   }
 
   // ---------- about tab ----------
@@ -2963,7 +2973,9 @@
         <li><b>Crash harm.</b> Points per crash: killed or seriously injured ${k}, other injury ${weight('injury')},
           property damage only ${weight('pdo')}, × ${weight('ped_bike_mult')} when someone walking or biking was involved and someone was hurt.
           Fatal and serious count alike because whether a serious crash turns fatal often depends on things beyond the street
-          itself, like the person's age, the vehicle, or how quickly help arrives. Vision Zero programs use the same "KSI" grouping. Since January 2026 about 1 in 10 reports has no severity; those
+          itself, like the person's age, the vehicle, or how quickly help arrives. Vision Zero programs use the same "KSI" grouping. ${meta.unknown_from && meta.unknown_recent && meta.unknown_recent.share
+          ? `Since ${monthYear(meta.unknown_from)} about 1 in ${Math.round(1 / meta.unknown_recent.share)} reports has no severity`
+          : 'Some reports have no severity'}; those
           aren't treated as harmless: each gets the typical non-fatal/serious harm for similar streets.</li>
         <li><b>Repeated deaths compound.</b> The 1st fatal crash at a spot counts ${k}, the 2nd ${(k * g).toFixed(1)},
           the 3rd ${(k * g * g).toFixed(1)} (each × ${g} the last). This extra weight then goes through step 3 like all fatal/serious
@@ -2988,7 +3000,7 @@
         added together) or using a block, × 365 × 5. Weekday counts overstate weekends a little. Blocks and intersections share one
         list, but a long block carries its traffic farther, so long blocks can look riskier than they are. This surfaces places that are dangerous <i>for how busy they are</i>. Only spots with an SDOT
         count and at least ${weight('risk_min_crashes')} crashes are ranked; volumes under ${fmt(weight('risk_vol_floor'))}
-        count as ${fmt(weight('risk_vol_floor'))}. SDOT's counts range from 2013 to 2024 and some are estimates; each
+        count as ${fmt(weight('risk_vol_floor'))}. SDOT's counts range from ${meta.count_years ? meta.count_years.from + ' to ' + meta.count_years.to : 'several years'} and some are estimates; each
         spot shows which it uses.</p>
       <p class="note">Why isn't this the default? Total harm counts every person hurt. A busy street with many injuries
         affects more people than a quiet one with a high rate.</p>`;
@@ -3025,7 +3037,7 @@
           return 'Against simply counting crashes, this site\'s ranking caught ' + pairs.map(([n, a, b]) =>
             `${verdict(a, b)} in the ${n} (${both(a)}, against ${both(b)})`).join(', and ') +
             `. The differences are a few crashes out of ${fmt(meta.test_ksi_total)}${two ? ' and ' + fmt(meta.test2_ksi_total) : ''}, and Test 1 was also used to choose the method, so read the ranking as a guide that does about as well as counting crashes, not a precise forecast.` +
-            (meta.unknown_since_2026 ? ` Test 1's later years include ${fmt(meta.unknown_since_2026)} crash reports from 2026 that don't list a severity yet, which lowers its totals.` : '');
+            (meta.unknown_from && meta.unknown_recent && meta.unknown_recent.n ? ` Test 1's later years include ${fmt(meta.unknown_recent.n)} crash reports from ${monthYear(meta.unknown_from)} on that don't list a severity, which lowers its totals.` : '');
         })()}</p>
       ${V.expected_split && V.expected ? `<p class="note">Intersections and stretches are ranked together in one list, so the top of the list
         is whichever places are most likely to hurt people. Ranking them apart and alternating (the way SDOT lists its High Collision
@@ -3124,8 +3136,9 @@
         <li>The latest 3 months of crashes aren't scored: police reports arrive late, so those months look safer than they were.
           Citywide totals at the top include the ${fmt(meta.city_ksi_unlocated || 0)} fatal or serious reports that have no location.</li>
         <li>${fmt(meta.dropped_no_location)} crash reports (${meta.dropped_fatal} fatal, ${meta.dropped_ksi} fatal or serious) have no location and can't be placed.</li>
-        <li>${fmt(meta.unknown_severity)} scored crash reports have unknown severity (almost all since January 2026, when SDOT's
-          data began leaving it blank). They get the typical harm of a non-fatal crash on similar streets.</li>
+        <li>${fmt(meta.unknown_severity)} scored crash reports have unknown severity${meta.unknown_from && meta.unknown_recent && meta.unknown_severity
+          ? ` (${fmt(meta.unknown_recent.n)} of them since ${monthYear(meta.unknown_from)}, when SDOT's data began leaving it blank much more often)` : ''}.
+          They get the typical harm of a non-fatal crash on similar streets.</li>
         <li>Scores count crashes, not people: a crash that hurt three people counts once, at its worst injury. The death and
           injury numbers shown for each place count people.</li>
         <li>Only police-reported crashes. Minor crashes, and falls by people biking with no vehicle involved, often go unreported.</li>
@@ -3289,8 +3302,7 @@
         <p class="note">"Fix" means something SDOT publishes with a date: head-start walk signals (the walk light turns on a few seconds
           before the green), no turn on red, protected left-turn arrows, new traffic signals, traffic circles, protected bike lanes, and finished new
           sidewalk and neighborhood safety projects. "—": none of these in SDOT's published data. Repaving, signal timing, signs, paint,
-          speed humps (no install dates) and bus lanes aren't counted, so a place can have had work that doesn't show here. SDOT's
-          protected bike lane dates stop in 2021 and its traffic circle dates in 2007.</p>
+          speed humps (no install dates) and bus lanes aren't counted, so a place can have had work that doesn't show here.${staleFixDates()}</p>
       </section>`;
     }
 
