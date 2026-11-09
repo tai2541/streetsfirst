@@ -779,7 +779,7 @@ copy (
     'council': (select list({'d': district, 'member': member, 'url': url,
                  'geom': ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(geom, 40), 'EPSG:2926', 'EPSG:4326'))::json} order by district) from council),
     'schools': (select list([name, round(ST_Y(ST_Transform(geom, 'EPSG:2926', 'EPSG:4326')), 5)::varchar,
-                             round(ST_X(ST_Transform(geom, 'EPSG:2926', 'EPSG:4326')), 5)::varchar] order by name) from schools)
+                             round(ST_X(ST_Transform(geom, 'EPSG:2926', 'EPSG:4326')), 5)::varchar, type] order by name) from schools)
   } as ctx
 ) to 'site/data/context.json' (format json, array false);
 

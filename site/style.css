@@ -923,3 +923,6 @@ main { overflow: hidden; overflow: clip; }
 
 /* a pop-up that scrolls: keep its scrollbar off the text */
 .leaflet-popup-content.leaflet-popup-scrolled { box-sizing: border-box; padding-right: 10px; }
+
+/* links on the dark summary cards */
+.city-summary a { color: var(--amber); font-weight: 600; text-underline-offset: 2px; }

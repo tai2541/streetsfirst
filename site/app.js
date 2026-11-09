@@ -571,6 +571,7 @@
     const dist = +document.getElementById('distFilter').value || 0;
     // the citywide summary card steps aside while a district's list is shown, so the list starts near the top
     { const cs = document.getElementById('citySummary'); if (cs) cs.hidden = !!dist; }
+    distCard(dist);
     const keep = p => (!dist || p.council_district === dist) && (!type || p.addr_type === type || (type === 'B' && p.addr_type === 'A'))
         && (!onlyFatal || p.killed > 0) && (!ongoing || p.ksi_years >= 3) && (!noPlan || !(p.proj_ids && p.proj_ids.length));
     // With a district picked, places are ranked again within it: each kind apart (one list for "how busy"), up to 25
@@ -1494,6 +1495,20 @@
       <p class="workline w-${w.cls}"><b>${w.cls === 'done' ? 'Done here' : w.cls === 'planned' ? 'Planned or budgeted' : 'SDOT work recorded'}:</b> ${esc(w.text)}.</p>${why}`;
   }
 
+  // One plain sentence on what drives the rank, from the same parts as "How this score is calculated" below.
+  function whyRank(p) {
+    if (mode !== 'ksi' || p.rank_ksi == null || p.expected_harm == null || p.crashes < 5) return '';
+    const other = p.harm - p.ksi_harm, fs = p.expected_harm - other;          // harm from other crashes; blended fatal/serious part
+    const own = p.ksi_harm, typ = p.crashes * p.ref_ksi_harm_per_crash, w = p.eb_weight;
+    const parts = [other >= fs
+      ? `most of the score comes from its ${plural(p.crashes, 'crash', 'crashes')} of all kinds, each counted by how badly people were hurt`
+      : `most of the score comes from its ${plural(p.ksi, 'crash', 'crashes')} that killed or seriously hurt someone`];
+    if (w < 0.9 && Math.abs(own - typ) > 0.2 * Math.max(own, typ, 1))
+      parts.push(`fatal and serious crashes are rare, so that part is ${100 - Math.round(100 * w)}% based on what's typical for ${groupName(p.ref_group)},
+        which ${own > typ ? 'lowers it from' : 'raises it above'} this place's own record`);
+    if (p.request_boost >= 0.05) parts.push(`repair reports nearby raise it ${Math.round(100 * p.request_boost)}%`);
+    return `<p class="note why-rank"><b>Why ${rankTxt(p.rank_ksi)}:</b> ${parts.join('; ')}. <a href="#" class="why-more">How it's calculated</a></p>`;
+  }
   function mathBox(p) {
     const k = weight('ksi_prior_crashes');
     const ksiLine = `
@@ -1585,6 +1600,7 @@
         ${p.ksi > (p.killed ?? 0) + (p.seriously_injured ?? 0) ? `<p class="note">SDOT's data codes ${plural(p.ksi, 'crash', 'crashes')} here as fatal
           or serious but lists ${(p.killed ?? 0) + (p.seriously_injured ?? 0) || 'no'} ${(p.killed ?? 0) + (p.seriously_injured ?? 0) === 1 ? 'person' : 'people'} killed or seriously hurt in them: some police reports give
           the severity without counting the people. Each such crash had at least one person killed or seriously hurt.</p>` : ''}
+        ${whyRank(p)}
         <div class="chips dchips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</div>
         ${reportBox(p.name)}
         ${civicBox(p.council_district ? { d: p.council_district, member: p.council_member, url: p.council_url } : councilAt(p.lat, p.lon),
@@ -1642,6 +1658,14 @@
         const s = h.closest('.dsec'), id = s.dataset.sec;
         collapsed[id] = !collapsed[id];
         s.classList.toggle('collapsed', collapsed[id]); h.setAttribute('aria-expanded', String(!collapsed[id]));
+        return;
+      }
+      // "How it's calculated": open that section and bring it into view
+      if (e.target.closest('.why-more')) {
+        e.preventDefault();
+        const s = body.querySelector('.dsec-math'), h = s && s.querySelector('.dsec-h'); if (!s) return;
+        collapsed.math = false; s.classList.remove('collapsed'); h.setAttribute('aria-expanded', 'true');
+        s.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); h.focus({ preventScroll: true });
         return;
       }
       const tb = e.target.closest('[data-traffic]');
@@ -1798,6 +1822,14 @@
   document.getElementById('closeDetail').onclick = () => closeDetail(true);
   // picking a district (or going back to all of Seattle) frames its places
   document.getElementById('distFilter').addEventListener('change', () => setTimeout(showAll, 0));
+  // The district picked goes in the address (?d=2), so a link to the list, or to a place opened from it, keeps it.
+  const distToUrl = () => {
+    const d = document.getElementById('distFilter').value, u = new URLSearchParams(location.search);
+    if (d) u.set('d', d); else u.delete('d');
+    const qs = u.toString();
+    history.replaceState(history.state, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+  };
+  document.getElementById('distFilter').addEventListener('change', distToUrl);
   ['topN', 'addrFilter', 'distFilter', 'onlyFatal', 'onlyOngoing', 'noPlan'].forEach(id => (document.getElementById(id).onchange = () => { render(); refreshHome(); }));
 
   function weight(k) { const w = meta.weights.find(x => x.k === k); return w ? w.v : '?'; }
@@ -1828,6 +1860,14 @@
   const sStatus = document.getElementById('searchStatus');
   const say = t => { sStatus.textContent = ''; setTimeout(() => (sStatus.textContent = t), 50); };
   const closeList = () => { sList.hidden = true; sInput.setAttribute('aria-expanded', 'false'); sInput.removeAttribute('aria-activedescendant'); };
+  // Public schools, searchable by name ("Rainier Beach High"): picking one pins it like an address, with crashes nearby.
+  const schoolLabel = (n, t) => n.replace(/\s+-\s+interim$/i, '') + ({ 'Elementary': ' Elementary', 'Option Elementary': ' Elementary',
+    'Middle School': ' Middle School', 'High School': ' High School', 'Option High School': ' High School', 'K-8': ' K-8' }[t] || ' School');
+  let schoolIdx = null;
+  const schools = () => schoolIdx || (schoolIdx = (CTX.schools || []).filter(s => s[0]).map(([n, la, lo, t]) => {
+    const label = schoolLabel(n, t);
+    return { school: true, label, lat: +la, lon: +lo, key: ' ' + normQ(label + ' school') + ' ' };
+  }));
   function runSearch() {
     ensureKeys();
     // "12th and Jackson", "45th & Roosevelt", "MLK at Othello": the joining word isn't part of either street's name, and
@@ -1843,24 +1883,31 @@
     const all = searchIdx.filter(s => words.every(w => s.key.includes(w)));
     const inName = s => words.every(w => s.nkey.includes(' ' + w));
     const named = all.filter(inName), first = corner ? named.filter(s => s.type === 'I') : [];
-    sHits = first.concat(named.filter(s => !first.includes(s)), all.filter(s => !inName(s))).slice(0, 8);
-    const nPlaces = sHits.length;
+    // Schools: first when the words say school, otherwise after places named for a street (before neighborhood-only matches).
+    const sch = corner ? [] : schools().filter(s => words.every(w => s.key.includes(' ' + w))).slice(0, 3);
+    const schFirst = /\b(school|elementary|middle|high|k-?8)\b/.test(raw);
+    sHits = (schFirst ? sch : []).concat(first, named.filter(s => !first.includes(s)), schFirst ? [] : sch, all.filter(s => !inName(s))).slice(0, 8);
+    const nPlaces = sHits.filter(s => !s.school).length, nSchools = sHits.length - nPlaces;
     // Text can also be pinned as an address: offered when it has a number in it or matches no scored place.
     const addr = { addr: true, text: sInput.value.trim() };
     // A house number ("4500 Rainier Ave S") puts the address first; "12th and Jackson" is a corner, not an address.
     if (/^\d+\s/.test(addr.text) && !corner) sHits.unshift(addr); else if (/\d/.test(addr.text) || !nPlaces) sHits.push(addr);
     sActive = -1; sInput.removeAttribute('aria-activedescendant');
-    say(nPlaces ? `${nPlaces === 8 ? '8 or more' : nPlaces} matching places` : 'No matching crash location. You can pin it as an address.');
-    sList.innerHTML = sHits.map((s, i) => s.addr
+    say(nPlaces || nSchools ? [nPlaces && `${nPlaces === 8 ? '8 or more' : nPlaces} matching places`, nSchools && plural(nSchools, 'school')].filter(Boolean).join(', ')
+      : 'No matching crash location. You can pin it as an address.');
+    sList.innerHTML = sHits.map((s, i) => s.school
+      ? `<li role="option" id="sr-${i}" data-i="${i}" class="school-opt"><span>🏫 ${esc(s.label)}</span><small>Public school · crashes within a quarter mile</small></li>`
+      : s.addr
       ? `<li role="option" id="sr-${i}" data-i="${i}" class="addr-opt"><span>📍 Find this address on the map: <b>${esc(s.text)}</b><small class="pin-privacy">Looked up with Esri’s address search. You can then add it to your pins, which are saved only on this device.</small></span></li>`
       : `<li role="option" id="sr-${i}" data-i="${i}">
         <span>${esc(niceName(s.name))}${s.area ? `<small class="hood">${esc(s.area)}</small>` : ''}</span><small>${rankTxt(s.rank)} · ${plural(s.crashes, 'crash', 'crashes')}</small></li>`).join('') +
-      (!nPlaces ? `<li class="none">No crash location with that name.${sHits.some(x => x.addr) ? ' Use the address option above to see crashes nearby.' : ' Only places with a reported crash are scored.'}</li>` : '');
+      (!nPlaces && !nSchools ? `<li class="none">No crash location with that name.${sHits.some(x => x.addr) ? ' Use the address option above to see crashes nearby.' : ' Only places with a reported crash are scored.'}</li>` : '');
     sList.hidden = false; sInput.setAttribute('aria-expanded', 'true');
   }
   function pick(i) {
     const s = sHits[i]; if (!s) return;
     if (s.addr) { closeList(); pinAddress(s.text); return; }
+    if (s.school) { closeList(); sInput.value = s.label; showAddress({ lat: s.lat, lon: s.lon, label: s.label }); return; }
     closeList(); sInput.value = niceName(s.name);
     const p = byId.get(s.rank);
     if (p) select(p, true, sInput); else selectLite(s);
@@ -3354,6 +3401,30 @@
     });
   })();
 
+  // With a district picked, a card for it in place of the city's: its share of the city's crashes that killed or seriously
+  // hurt someone, its places in the citywide top 50, and its share of the City's recent fixes. Same numbers as the district
+  // table on "Is it getting fixed?" (they arrive with data-late.js; until then the card waits).
+  function distCard(dist) {
+    const el = document.getElementById('distSummary'); if (!el) return;
+    const P = D.progress, rows = P && P.need ? P.need.filter(r => r.dim === 'district') : [];
+    const r = rows.find(x => x.g === String(dist));
+    if (!dist || !r) { el.hidden = true; return; }
+    const tot = k => rows.reduce((t, x) => t + (x[k] || 0), 0), pct = (a, b) => (b ? Math.round(100 * a / b) : 0);
+    const c = (CTX.council || []).find(x => String(x.d) === r.g);
+    el.innerHTML = `<div class="cs-head">District ${esc(r.g)}${c && c.member ? ' · Councilmember ' + esc(c.member) : ''} · ${windowTxt()}</div>
+      <div class="cs-nums">
+        <div><b>${fmt(r.ksi)}</b><span>crashes that killed or seriously hurt someone (${pct(r.ksi, tot('ksi'))}% of the city's)</span></div>
+        <div><b>${fmt(r.top50)}</b><span>of the citywide top 50 places</span></div>
+        <div><b>${fmt(r.top50_nothing)}</b><span>of those with no work or project recorded*</span></div>
+      </div>
+      <div class="cs-foot">Of the fixes SDOT dated since January ${esc(P.since)}, ${pct(r.lpi, tot('lpi'))}% of head-start walk signals and
+        ${pct(r.other, tot('other'))}% of other fixes are in this district. *In the SDOT layers this site reads.
+        <a href="#progress=d${esc(r.g)}">Compare districts</a></div>`;
+    el.hidden = false;
+  }
+  // A shared link's district (?d=2), when it's one of the choices.
+  { const d = new URLSearchParams(location.search).get('d'), sel = document.getElementById('distFilter');
+    if (d && [...sel.options].some(o => o.value === d)) sel.value = d; }
   render();
 
   // Shareable links: #p=<key> opens a place by a key made from its name, so the link keeps working when ranks change.
@@ -3477,6 +3548,7 @@
       check(document.querySelectorAll('#progress .pg-places tr').length >= 11, 'progress: past worst-50 table is short');
       check(document.querySelectorAll('#progress .pg-need tr').length >= 8, 'progress: district table is short');
       check(keyIdx().size === searchIdx.length, 'place link keys are not unique');
+      check(schools().length >= 70 && schools().every(s => s.label && isFinite(s.lat)), 'school search list is short or broken');
       check(D.priorities.filter(p => p.rank_month_ago).length >= 150, 'few places have last month\'s rank');
       const far = searchIdx[searchIdx.length - 1];
       selectLite(far);
@@ -3493,13 +3565,13 @@
     if (L.failed) { sInput.placeholder = 'Search couldn’t load. Reload the page to try again.'; return; }
     D.search = L.search; D.progress = L.progress; D.budget = L.budget;
     setSearch(L.search);
-    budgetInit(); progressInit();
+    budgetInit(); progressInit(); distCard(+document.getElementById('distFilter').value || 0);
     pins.forEach(drawPin);
     if (sInput.value.trim() && document.activeElement === sInput) runSearch();
     if (location.hash && location.hash !== '#selftest' && !spotOpen() && openFromHash()) return;
     refreshHome();
   });
-  if (location.hash === '#selftest') { history.replaceState(null, '', location.pathname); selfTest(); }
+  if (location.hash === '#selftest') { history.replaceState(null, '', location.pathname + location.search); selfTest(); }
   else if (!openFromHash()) {
     refreshHome();
     if (layer.getLayers().length) map.fitBounds(layer.getBounds(), { paddingTopLeft: [leftPad() + 30, 30], paddingBottomRight: [isNarrow() ? 30 : detailEl.offsetWidth + 30, isNarrow() ? cover + 20 : 30], maxZoom: 15 });
