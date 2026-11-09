@@ -54,8 +54,8 @@ from (
 create or replace table loc_shape as
 select p.location, p.r, coalesce(b.geom, p.geom) as geom
 from loc_pts p
-left join (select unitdesc, ST_Union_Agg(geom) as geom from streets group by unitdesc) b
-  on p.r = 40 and b.unitdesc = p.location;
+left join (select loc_name, ST_Union_Agg(geom) as geom from streets group by loc_name) b
+  on p.r = 40 and b.loc_name = p.location;
 
 create or replace table loc_proj as
 select p.location, list(j.id order by j.stage = 'done', j.year nulls last, j.id) as proj_ids,
@@ -149,7 +149,7 @@ copy (
       'sidewalk_design': (select count(*) from proj where kind = 'sidewalk' and stage = 'design'),
       'sidewalk_done': (select count(*) from proj where kind = 'sidewalk' and stage = 'done'),
       'sidewalk_left_out': (select count(*) from proj_raw_sidewalk
-                            where not (planning = 'Y' or (planning is null and year <= year(current_date)))),
+                            where not coalesce(planning = 'Y' or (planning is null and year <= year(current_date)), false)),
       'safety_planned': (select count(*) from proj where kind = 'safety' and stage = 'planned'),
       'safety_done': (select count(*) from proj where kind = 'safety' and stage = 'done'),
       'lpi_planned': (select count(*) from proj where kind = 'lpi'),

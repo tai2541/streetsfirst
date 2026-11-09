@@ -142,7 +142,7 @@ f as (
   group by t.yr, t.location
 )
 select t.yr, t.rk as rank_then, t.location, t.crashes as crashes_then, t.ksi as ksi_then,
-  r.rank as rank_now, r.state_route, r.structure,
+  r.rank_noboost as rank_now, r.state_route, r.structure,   -- rank today on crashes only, like the past years beside it
   coalesce(r.lat, hp.lat) as lat, coalesce(r.lon, hp.lon) as lon, r.council_district as district,
   f.fixes,
   case when f.first_fix is null or f.first_fix >= w.c1 then 'none'

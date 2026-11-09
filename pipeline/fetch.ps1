@@ -131,14 +131,19 @@ Get-ArcGISLayer "$gis/Public_School/FeatureServer/0" 'NAME,SCHOOL,TYPE,GRADE' 's
 # Seattle street addresses, for suggestions while someone types an address in the search box: King County's address
 # points (house number, street, ZIP, location only; no parcel fields). One point per address (PRIM_ADDR = 1), so the units
 # of a building aren't listed separately. If the county's server can't be reached, last week's copy is kept.
+$addrSkipped = $false
+$prevAddr = $null
+if (Test-Path (Join-Path $raw 'counts.json')) { $prevAddr = (Get-Content (Join-Path $raw 'counts.json') -Raw | ConvertFrom-Json).addresses }
 try {
   Get-ArcGISLayer 'https://gismaps.kingcounty.gov/arcgis/rest/services/Address/KingCo_AddressPoints/MapServer/0' `
     'ADDR_NUM,ADDR_PD,ADDR_SN,ADDR_ST,ADDR_SD,ZIP5' 'addresses' "CTYNAME = 'SEATTLE' AND PRIM_ADDR = 1"
 } catch {
-  Write-Warning "Address points not fetched ($($_.Exception.Message)); keeping last week's."
+  # Last week's raw files exist only on a machine that ran the fetch before (not on the weekly runner). Without them,
+  # address suggestions pause until the next run; search still finds addresses through "Find this address".
+  Write-Warning "Address points not fetched ($($_.Exception.Message))."
   Remove-Item (Join-Path $tmp 'addresses_*.json') -ErrorAction SilentlyContinue
-  Copy-Item (Join-Path $raw 'addresses_*.json') $tmp -ErrorAction SilentlyContinue
-  $counts['addresses'] = @(Get-ChildItem (Join-Path $tmp 'addresses_*.json') -ErrorAction SilentlyContinue).Count * 1000
+  if (Test-Path (Join-Path $raw 'addresses_000.json')) { Copy-Item (Join-Path $raw 'addresses_*.json') $tmp; $counts['addresses'] = $prevAddr }
+  else { '{"type":"FeatureCollection","features":[]}' | Set-Content (Join-Path $tmp 'addresses_000.json'); $addrSkipped = $true }
 }
 Get-ArcGISLayer "$gis/Race_and_Social_Equity_Composite_Index_Current/FeatureServer/0" `
   'GEOID,NAMELSAD,COMPOSITE_QUINTILE,COMPOSITE_PERCENTILE,INDEX_YEAR' 'rse'
@@ -182,7 +187,7 @@ Get-WithRetry 'https://metro.kingcounty.gov/GTFS/google_transit.zip' $gtfsZip 30
 $gtfsDir = Join-Path $tmp 'gtfs'
 Expand-Archive $gtfsZip $gtfsDir -Force
 Remove-Item $gtfsZip
-foreach ($f in 'stops.txt', 'stop_times.txt', 'trips.txt', 'calendar.txt', 'routes.txt') {
+foreach ($f in 'stops.txt', 'stop_times.txt', 'trips.txt', 'calendar.txt', 'calendar_dates.txt', 'routes.txt', 'shapes.txt') {
   if (-not (Test-Path (Join-Path $gtfsDir $f))) { throw "GTFS is missing $f" }
 }
 $counts['gtfs_stops'] = (Get-Content (Join-Path $gtfsDir 'stops.txt')).Count - 1
@@ -199,6 +204,7 @@ $volatile = @('proj_sidewalk', 'proj_nispp')   # small project lists: big swings
 $prev = @{}
 $prevFile = Join-Path $raw 'counts.json'
 if (Test-Path $prevFile) { (Get-Content $prevFile -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $prev[$_.Name] = [int]$_.Value } }
+if ($addrSkipped) { $minimum.Remove('addresses') }
 foreach ($k in $minimum.Keys) {
   if (-not $counts.ContainsKey($k) -or $counts[$k] -lt $minimum[$k]) { throw "Fetch check failed: $k has $($counts[$k]) rows (minimum $($minimum[$k])). Keeping the previous data." }
   if ($k -notin $volatile -and $prev.ContainsKey($k) -and $prev[$k] -gt 0 -and [math]::Abs($counts[$k] - $prev[$k]) / $prev[$k] -gt 0.25) {

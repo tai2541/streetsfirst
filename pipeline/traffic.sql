@@ -39,7 +39,7 @@ where f.geometry is not null and f.properties.RemovalDate is null;
 create or replace table loc_fix_hits as
 select location, kind, case when d >= date '1990-01-01' then d end as d, status from (
   select a.location, fp.kind, fp.d, fp.status
-  from locations_all a join streets s on s.unitdesc = a.location join fix_points fp on fp.segkey = s.compkey
+  from locations_all a join streets s on s.loc_name = a.location join fix_points fp on fp.segkey = s.compkey
   where a.addr_type <> 'I'
   union all
   select p.location, fp.kind, fp.d, fp.status

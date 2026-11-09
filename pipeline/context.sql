@@ -116,7 +116,7 @@ select coalesce(ik.location, m.location, trim(r.LOCATION)) as location,
        r.coordinates[1] as lon, r.coordinates[2] as lat
 from raw r left join ik on r.ADDRTYPE = 'I' and ik.intkey = r.INTKEY
 left join loc_merge m on m.raw = trim(r.LOCATION)
-where r.LOCATION is not null
+where r.LOCATION is not null and r.coordinates is not null
 -- the same duplicate-report rule as the scored crashes
 qualify row_number() over (partition by r.LOCATION, r.INCDATE, r.MAXSEVERITYDESC, r.ST_COLDESC, r.PEDCOUNT, r.PEDCYLCOUNT order by r.INCKEY) = 1;
 

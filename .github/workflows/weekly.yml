@@ -64,6 +64,12 @@ jobs:
             try { Invoke-WebRequest "$env:SITE_URL/data/counts.json" -OutFile data\raw\counts.json -UseBasicParsing; Write-Host 'Got last counts (old address).' }
             catch { Write-Host "No published counts yet (first run?): $($_.Exception.Message)" }
           }
+      # Last run's map credit lines, so one Esri layer that can't be reached this week keeps last week's wording.
+      - name: Get last map credits from the live site
+        run: |
+          New-Item -ItemType Directory -Force data\raw | Out-Null
+          try { Invoke-WebRequest "$env:SITE_URL/seattle/data/basemap_credits.json" -OutFile data\raw\basemap_credits.json -UseBasicParsing; Write-Host 'Got last map credits.' }
+          catch { Write-Host "No published map credits yet: $($_.Exception.Message)" }
 
       - name: Fetch and build
         run: powershell -ExecutionPolicy Bypass -File run.ps1

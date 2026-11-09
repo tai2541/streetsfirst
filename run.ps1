@@ -123,6 +123,8 @@ Copy-Item (Join-Path $PSScriptRoot 'site') $city -Recurse
 # counts are published so the next weekly run can compare against them (see .github/workflows/weekly.yml).
 Remove-Item (Join-Path $city 'data\*.json')
 if (Test-Path 'data\raw\counts.json') { Copy-Item 'data\raw\counts.json' (Join-Path $city 'data\counts.json') }
+# The map credit lines too, so next week's run can fall back to them if an Esri layer can't be reached.
+if (Test-Path 'data\raw\basemap_credits.json') { Copy-Item 'data\raw\basemap_credits.json' (Join-Path $city 'data\basemap_credits.json') }
 $idx = Join-Path $city 'index.html'
 $html = [IO.File]::ReadAllText($idx)
 $html = $html -replace 'src="data/data\.js(\?v=[0-9a-f]*)?"', "src=`"data/data.js?v=$dataTag`""

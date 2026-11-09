@@ -195,6 +195,7 @@
       p.rank = { ksi: p.rank_ksi, risk: p.rank_risk }[mode] ?? null;
       p.score = { ksi: p.score_ksi, risk: p.score_risk }[mode] ?? null;
     });
+    byId.forEach(p => { if (p.more) { p.rank = { ksi: p.rank_ksi, risk: p.rank_risk }[mode] ?? null; p.score = { ksi: p.score_ksi, risk: p.score_risk }[mode] ?? null; } });
     // Locations without a rank in this mode (e.g. no traffic count for "risk") sort last and aren't shown.
     D.priorities.sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
     document.getElementById('modeHint').textContent = MODES[mode].hint;
@@ -559,7 +560,7 @@
     const ksi = mode === 'ksi', c = legendCtl.getContainer();
     const l = ['Top 10', '11–25', '26–50', '51+'];
     c.querySelectorAll('.lg-tl').forEach((e, i) => { e.textContent = l[i]; });
-    c.querySelectorAll('.lg-shape').forEach(e => { e.hidden = !ksi; });
+
   };
   map.on('dragstart', () => {
     if (!matchMedia('(max-width: 760px)').matches) return;
@@ -776,7 +777,7 @@
   }
   function toggleExpand() {
     expanded = !expanded; store.set('expanded', expanded); applyLayout();
-    if (current) { select(current, false, null, true); flyVisible([current.lat, current.lon], map.getZoom()); }
+    if (current && current.location) { select(current, false, null, true); flyVisible([current.lat, current.lon], map.getZoom()); }
   }
   document.getElementById('expandDetail').onclick = toggleExpand;
   document.getElementById('expandPanel').onclick = toggleLeft;
@@ -1102,7 +1103,7 @@
     const fixes = placeFixes(p).filter(f => f.k !== 'Bus lane');
     const recent = fixes.filter(f => +f.d.slice(0, 4) >= ys[0] - 1).sort((a, b) => a.d.localeCompare(b.d));
     const m = p.rank_month_ago, mv = m && p.rank_ksi ? m - p.rank_ksi : 0;   // same basis as the list card (last month's rank includes repair reports), in either mode
-    return `<div class="legend rh-legend" aria-hidden="true">${[['t0', 'Top 5'], ['t1', '6–12'], ['t2', '13–25'], ['t3', '26+']].map(([c, l]) =>
+    return `<div class="legend rh-legend" aria-hidden="true">${[['t0', 'Top 10'], ['t1', '11–25'], ['t2', '26–50'], ['t3', '51+']].map(([c, l]) =>
         `<span><i class="rh-${c}"></i>${l}</span>`).join('')}</div>
       <ol class="rank-hist" style="--n:${cells.length}" aria-label="Rank over the years, by 5-year periods of crashes">
         ${cells.map(c => `<li class="${cls(c.r)}" data-tip="${esc(`<b>${c.sr}</b><br>${c.r ? 'Ranked ' + rankTxt(c.r) : 'No crashes'}`)}">
@@ -1567,7 +1568,7 @@
     if (from !== undefined && !keepFocus) opener = from;
     if (from !== undefined && !keepFocus && from !== document.getElementById('tabbtn-progress')) progReturn = null;
     current = p;
-    if (location.hash !== '#p=' + keyOf(p.location)) history.pushState(null, '', '#p=' + keyOf(p.location));
+    if (location.hash !== '#p=' + keyOf(p.location)) history.pushState({ sfPlace: 1, prev: location.hash }, '', '#p=' + keyOf(p.location));
     markCurrent();
     const li = document.querySelector(`#list li[data-id="${p.rank_ksi}"]`);
     // (desktop only: on a phone the list is either hidden under the details or already showing the card; scrolling it
@@ -1587,10 +1588,13 @@
          <div class="dsec-b" id="sec-${id}">${html}</div></section>`;
     const chips = reasons(p).filter(r => !(r.cls === 'conf' && p.crashes < 5));   // the note under the summary says it
     // With a district picked, the title uses the same number as the list (#2 in District 2) and gives the citywide rank too.
-    const dSel = document.getElementById('distFilter'), inDist = p.dr && dSel && dSel.value;
+    const dSel = document.getElementById('distFilter'), tSel2 = document.getElementById('addrFilter');
+    const inDist = p.dr && ((dSel && dSel.value) || (tSel2 && tSel2.value));
+    const listName = [tSel2 && tSel2.value ? (tSel2.value === 'I' ? 'of intersections' : 'of stretches') : '',
+      dSel && dSel.value ? 'in ' + dSel.selectedOptions[0].text : ''].filter(Boolean).join(' ');
     document.getElementById('detailTitle').innerHTML = inDist
-      ? `<span class="drank" title="${esc(`#${p.dr} in ${dSel.selectedOptions[0].text}`)}">#${fmt(p.dr)}</span> ${esc(p.name)}` +
-        `<small class="dcity">in ${esc(dSel.selectedOptions[0].text)} · ${mode === 'risk' && p.rank != null ? '#' + fmt(p.rank) : rankTxt(p.rank_ksi)} citywide</small>`
+      ? `<span class="drank" title="${esc(`#${p.dr} ${listName}`)}">#${fmt(p.dr)}</span> ${esc(p.name)}` +
+        `<small class="dcity">${esc(listName)} · ${mode === 'risk' && p.rank != null ? '#' + fmt(p.rank) : rankTxt(p.rank_ksi)} citywide</small>`
       : `<span class="drank" title="${esc(mode === 'risk' && p.rank != null ? 'Rank once you account for how busy it is' : rankTxt(p.rank_ksi))}">${mode === 'risk' && p.rank != null ? '#' + fmt(p.rank) : rankTxt(p.rank_ksi, false)}</span> ${esc(p.name)}`;
     document.getElementById('detailBody').innerHTML = `
       <div class="dhead">
@@ -1784,8 +1788,8 @@
   function selectBrief(s, state, noFly) {
     rememberView();
     current = { rank_ksi: s.rank, rank: null, lat: s.lat, lon: s.lon };
-    opener = document.getElementById('search');
-    if (location.hash !== '#p=' + keyOf(s.name)) history.pushState(null, '', '#p=' + keyOf(s.name));
+    if (!opener) opener = document.getElementById('search');
+    if (location.hash !== '#p=' + keyOf(s.name)) history.pushState({ sfPlace: 1, prev: location.hash }, '', '#p=' + keyOf(s.name));
     markCurrent();
     document.getElementById('detailTitle').innerHTML = `<span class="drank" title="${esc(rankTxt(s.rank))}">${rankTxt(s.rank, false)}</span> ${esc(niceName(s.name))}`;
     document.getElementById('detailBody').innerHTML = `
@@ -1822,7 +1826,8 @@
     else { const g = trafficOn ? tLayer : layer; if (g.getLayers().length) (reduceMotion ? map.fitBounds : map.flyToBounds).call(map, g.getBounds(), { paddingTopLeft: [leftPad() + 30, 30], paddingBottomRight: [right, isNarrow() ? cover + 20 : 30], maxZoom: 15 }); }
     viewBefore = null;
     if (tSel) { tSel = null; tLines.forEach(line => line.setStyle(lineStyle(line._t, false))); document.querySelectorAll('.tlist li.selected').forEach(li => li.classList.remove('selected')); }
-    history.replaceState(null, '', location.pathname + location.search);
+    if (location.hash && history.state && history.state.sfPlace && !history.state.prev) history.back();   // undo the entry this place added
+    else history.replaceState(null, '', location.pathname + location.search);
     liteToken++;
     if (restoreFocus && progReturn) { const n = progReturn; progReturn = null; opener = null; homeFocus = null; returnToProgress(n); return; }
     const hc = homeFocus != null && document.querySelector(`#detailBody [data-home="${homeFocus}"]`); homeFocus = null;
@@ -1844,7 +1849,10 @@
     history.replaceState(history.state, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
   };
   document.getElementById('distFilter').addEventListener('change', distToUrl);
-  ['topN', 'addrFilter', 'distFilter', 'onlyFatal', 'onlyOngoing', 'noPlan'].forEach(id => (document.getElementById(id).onchange = () => { render(); refreshHome(); }));
+  ['topN', 'addrFilter', 'distFilter', 'onlyFatal', 'onlyOngoing', 'noPlan'].forEach(id => (document.getElementById(id).onchange = () => {
+    render(); refreshHome();
+    if (spotOpen() && current && current.location) select(current, false, null, true);   // its number in the list may have changed
+  }));
 
   function weight(k) { const w = meta.weights.find(x => x.k === k); return w ? w.v : '?'; }
 
@@ -2074,10 +2082,13 @@
     return /^\s*\d/.test(typed) && t.length > 0 && t.some(w => !f.has(w));
   };
   function searchMsg(html) { sList.innerHTML = `<li class="none">${html}</li>`; sList.hidden = false; sInput.setAttribute('aria-expanded', 'true'); say(sList.textContent); }
+  let geoToken = 0;
   async function pinAddress(text) {
     if (!text) return;
+    const tok = ++geoToken;
     searchMsg('Finding that address…');
     const g = await geocode(text);
+    if (tok !== geoToken) return;   // a newer lookup has started
     if (g && g.offline) return searchMsg('Address search needs a connection. Check your signal and try again.');
     if (!g) return searchMsg(`Couldn't find “${esc(text)}”. Try a street address like “600 4th Ave”.`);
     if (!inSeattle(g.lat, g.lon)) return searchMsg(`“${esc(g.label)}” is outside Seattle. This map covers Seattle only.`);
@@ -2428,7 +2439,7 @@
       // A widened list or details panel would squeeze the sheet to nothing: narrow them while it's open, restore after.
       unwidened = { left: leftExpanded, right: expanded };
       leftExpanded = expanded = false; applyPanel(); applyLayout();
-      if (current) select(current, false, null, true);
+      if (current && current.location) select(current, false, null, true);
     }
     if (cur) { cur.classList.remove('open'); cur.hidden = true; }   // sheet to sheet: swap without sliding
     el.hidden = false;
@@ -2446,7 +2457,7 @@
     setTimeout(() => { if (!cur.classList.contains('open')) cur.hidden = true; }, reduceMotion ? 0 : 360);
     if (unwidened) {
       leftExpanded = unwidened.left; expanded = unwidened.right; unwidened = null; applyPanel(); applyLayout();
-      if (current) select(current, false, null, true);
+      if (current && current.location) select(current, false, null, true);
     }
   }
   // The list's title bar says what the list shows right now. It stays put while the list scrolls, so it still says
@@ -2578,8 +2589,8 @@
     return best;
   }
   const safetyAlong = pts => D.priorities
-    .filter(p => p.rank != null && p.rank <= 200 && distToLine(p.lat, p.lon, pts) <= 25)
-    .sort((a, b) => a.rank - b.rank);
+    .filter(p => p.rank_ksi != null && p.rank_ksi <= 200 && distToLine(p.lat, p.lon, pts) <= 25)
+    .sort((a, b) => a.rank_ksi - b.rank_ksi);
 
   const TMODES = {
     bus: {
@@ -2909,7 +2920,7 @@
     Object.entries(byProg).sort((a, b) => sum(b[1].total) - sum(a[1].total)).forEach(([prog, g]) => {
       years.forEach(y => (grand[y] = (grand[y] || 0) + (g.total[y] || 0)));
       const rows = Object.entries(g.projects).sort((a, b) => sum(b[1]) - sum(a[1]))
-        .map(([name, ys]) => `<tr><td>${esc(expand(name))}</td>${cells(ys)}</tr>`).join('');
+        .map(([name, ys]) => `<tr><td>${name === "(blank)" ? "<i>Lines with no project named</i>" : esc(expand(name))}</td>${cells(ys)}</tr>`).join('');
       html += `<details><summary>${esc(prog)}: ${money(sum(g.total))}</summary>
         <p class="note">${esc(ABOUT[prog] || '')}</p>
         <div class="tablewrap"><table>${head}${rows}<tr class="total"><td>Program total</td>${cells(g.total)}</tr></table></div></details>`;
@@ -3237,7 +3248,7 @@
           <div class="stat"><b>${G.fixed.a.length}</b><span>got a fix before ${y0(C.d0)}</span></div>
           <div class="stat"><b>${G.during.a.length}</b><span>got their first fix in ${cmpSpan}</span></div>
           <div class="stat"><b>${G.none.a.length}</b><span>had no fix before ${cmpEnd + 1} in SDOT's published data</span></div>
-          <div class="stat"><b>${still}</b><span>are still in today's top 50</span></div>
+          <div class="stat"><b>${still}</b><span>are in today's top 50 (crashes only)</span></div>
         </div>
         ${(() => {
           const isI = x => x.t === 'I', all = [...G.fixed.a, ...G.during.a, ...G.none.a];
@@ -3269,7 +3280,7 @@
           <caption class="sr-only">The 50 places ranked worst in ${pick}, their fixes since, and how they're doing now</caption>
           <tr><th scope="col">Rank in ${pick}</th><th scope="col">Place</th><th scope="col">All crashes ${then}</th>
             <th scope="col">Killed or seriously hurt<br><span class="muted">${then} → ${cmpSpan}</span></th>
-            <th scope="col">Fixes since ${y0(Y.d0)}</th><th scope="col">Rank today</th></tr>
+            <th scope="col">Fixes since ${y0(Y.d0)}</th><th scope="col">Rank today (crashes only)</th></tr>
           ${more('places', shown, 10, x => `<tr><td>${rankTxt(x.r)}</td><th scope="row">${placeBtn(x.loc)}${x.d ? `<br><small class="muted">District ${x.d}</small>` : ''}${x.state
               ? `<br><small class="pg-state">State highway (${esc(x.state)}): WSDOT shares responsibility</small>` : ''}</th>
             <td>${x.c}</td><td>${x.ksi} → ${x.ksi_cmp}</td><td>${fixCell(x)}</td>
@@ -3422,7 +3433,7 @@
         csv(`seattle-worst-50-${pick}.csv`, [[`Streets First (Seattle), from SDOT's police-reported crash data and SDOT's published records; data as of ${asOf}`],
           [`Ranked on crashes from ${then}; compared with ${cmpSpan}. Intersections and stretches are ranked together in one list.`],
           [`Rank in ${pick} (crashes only)`, 'Type', 'Place', 'Council district', `All crashes ${then}`, `Killed or seriously hurt crashes ${then}`,
-          `Killed or seriously hurt crashes ${cmpSpan}`, 'Fix group', 'Fixes (year)', 'Rank today (with repair reports)', 'Link'],
+          `Killed or seriously hurt crashes ${cmpSpan}`, 'Fix group', 'Fixes (year)', 'Rank today (crashes only)', 'Link'],
           ...Y.places.map(x => [x.r, typeWord(x.t), niceName(x.loc), x.d || '', x.c, x.ksi, x.ksi_cmp,
             fixedBy(x) ? `Fixed before ${y0(C.d0)}` : x.g === 'none' ? `No fix before ${cmpEnd + 1}` : `First fix in ${cmpSpan}`,
             (x.fx || []).map(f => `${f.k} (${f.y}${f.y > cmpEnd ? ', after the comparison years' : ''})`).join('; '),
@@ -3558,7 +3569,11 @@
     const d = new URLSearchParams(location.search).get('d') || '', sel = document.getElementById('distFilter');
     if ([...sel.options].some(o => o.value === d) && sel.value !== d) { sel.value = d; render(); refreshHome(); }
   });
-  window.addEventListener('hashchange', () => { if (!location.hash && spotOpen()) closeDetail(false); else openFromHash(); });
+  window.addEventListener('hashchange', () => {
+    if (!location.hash && spotOpen()) closeDetail(false);
+    else if (!location.hash && openSheet() && lastTab) showTab(lastTab);   // Back from a sheet's link closes the sheet
+    else openFromHash();
+  });
   // ---------- desktop overview: the details panel never closes; with nothing picked it shows where to start ----------
   let homeFocus = null;   // the overview card a spot was opened from, to return focus to it
   function renderHome() {

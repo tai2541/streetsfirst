@@ -92,6 +92,9 @@ qualify row_number() over (partition by LOCATION, INCDATE, MAXSEVERITYDESC, ST_C
 -- Split roadways: SDOT names each side of a divided street separately ("M L KING JR WR WAY S" and "... ER ...",
 -- light rail in the median), so one intersection appears twice 15-20 m apart. Merge the two sides when they
 -- are within ~60 m of each other. NB/SB/EB/WB are left alone: those are separate bridges and ramps.
+-- Dates made from epoch milliseconds (to_timestamp) follow the session time zone: fixed to UTC so a local build and the
+-- weekly build (which runs in UTC) agree to the day.
+set TimeZone = 'UTC';
 create or replace macro road_norm(t) as regexp_replace(t, ' (WR|ER|NR|SR) ', ' ', 'g');
 create or replace table loc_merge as
 with p as (select location raw, road_norm(location) k, avg(lon) lon, avg(lat) lat from collisions group by location),
@@ -107,12 +110,7 @@ select make_timestamp(INCDATE::bigint * 1000)::date as date, MAXSEVERITYDESC as 
        coalesce(FATALITIES, 0) as fatalities, coalesce(SERIOUSINJURIES, 0) as serious_injuries
 from raw where LOCATION is null or coordinates is null;
 
-create or replace table collisions_dropped as   -- disclosed on the site
-with raw as (select unnest(features, recursive := true) from read_json('data/raw/collisions_*.json', maximum_object_size = 50000000))
-select count(*) n,
-       count(*) filter (where MAXSEVERITYDESC in ('Fatal Collision', 'Serious Injury Collision')) ksi,
-       count(*) filter (where MAXSEVERITYDESC = 'Fatal Collision') fatal
-from raw where LOCATION is null or coordinates is null;
+
 
 create or replace table requests as
 select servicerequestnumber as id,
@@ -140,6 +138,15 @@ select (w_end - interval 60 month)::date as w_start, w_end,
 from e;
 create or replace macro ws() as (select w_start from scoring_window);
 create or replace macro we() as (select w_end from scoring_window);
+-- The fetch starts a few months before the scored years; if SDOT's data ever fell far enough behind that the scored years
+-- began before the first crash fetched, the early months would be silently missing. Stop instead.
+create or replace temp table window_ok as select case when (select min(date) from collisions) > ws() + interval 31 day
+            then error('The scored years start before the first crash fetched: widen $Since in fetch.ps1') end;
+create or replace table collisions_dropped as   -- disclosed on the site: reports in the scored years with no location
+select count(*) n,
+       count(*) filter (where severity in ('Fatal Collision', 'Serious Injury Collision')) ksi,
+       count(*) filter (where severity = 'Fatal Collision') fatal
+from collisions_unlocated where date >= ws() and date < we();
 
 -- ---------------------------------------------------------------- location context (spatial)
 -- Everything is projected to WA State Plane North (EPSG:2926, US feet) for distance math.
@@ -159,6 +166,7 @@ from collisions c left join atype using (location) left join ik using (location)
 
 create or replace table streets as
 select f.properties.COMPKEY as compkey, f.properties.UNITDESC as unitdesc,
+       coalesce((select m.location from loc_merge m where m.raw = f.properties.UNITDESC), f.properties.UNITDESC) as loc_name,   -- the place name it belongs to (close split-roadway pairs merged, as for crashes)
        nullif(f.properties.SPEEDLIMIT, 0) as speed, f.properties.ARTCLASS as artclass,
        nullif(f.properties.PVMTCONDINDX1, 0) as pci,
        gj_geom(f.geometry) as geom
@@ -256,10 +264,10 @@ s as (select p.location,
       where ST_Distance(p.geom, s.geom) <= p.r
         -- a freeway or ramp passing over or beside a place isn't its street (it gave downtown corners I-5's 60 mph),
         -- unless the place is that ramp
-        and (s.unitdesc = p.location
+        and (s.loc_name = p.location
              or not regexp_matches(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''), '^(I ?5|I ?90|I ?405|SR ?[0-9]+)( |$)| RP( |$)'))
       group by p.location),
-len as (select unitdesc as location, max(ST_Length(geom)) as block_ft from streets group by unitdesc),
+len as (select loc_name as location, max(ST_Length(geom)) as block_ft from streets group by loc_name),
 h as (select p.location, min(case h.priority when 'High' then 1 when 'Mid' then 2 when 'Low' then 3 end) as hin_level
       from loc_pts p join hin h on ST_DWithin(p.geom, h.geom, 60) group by p.location),
 -- A corner entry (SDOT gives it an intersection key) labels only the intersection, within 80 ft; a mid-block entry labels
@@ -597,10 +605,14 @@ create or replace macro export_set() as table
      or location in (select location from (
           select location,
             row_number() over (partition by council_district, addr_type = 'I' order by rank) as n_ksi,
-            row_number() over (partition by council_district, rank_risk is null order by rank_risk) as n_risk,
+            row_number() over (partition by council_district, addr_type = 'I', rank_risk is null order by rank_risk) as n_risk,
             rank_risk
           from ranked where council_district is not null)
-        where n_ksi <= 50 or (rank_risk is not null and n_risk <= 50));
+        where n_ksi <= 50 or (rank_risk is not null and n_risk <= 50))
+     -- and for "how busy", each kind's top 200 citywide (the district lists above are per kind too)
+     or location in (select location from (
+          select location, row_number() over (partition by addr_type = 'I' order by rank_risk) as n
+          from ranked where rank_risk is not null) where n <= 200);
 
 -- Map areas for the on-demand detail files: a grid of about 1.1 km x 1.1 km cells.
 create or replace macro cell_of(lat, lon) as floor(lat / 0.01)::int || '_' || floor(-lon / 0.015)::int;
@@ -701,14 +713,15 @@ copy (
 -- Vision Zero BUD"; later years use it as the code), and shown under their newest name and program.
 copy (
   with b as (
-    select *, coalesce(nullif(regexp_extract(project, '^(MC-TR-C[0-9]+)', 1), ''), nullif(regexp_extract(code, '^(MC-TR-C[0-9]+)', 1), ''), code) as pid
+    select *, coalesce(nullif(regexp_extract(project, '^(MC-TR-C[0-9]+)', 1), ''), nullif(regexp_extract(code, '^(MC-TR-C[0-9]+)', 1), ''),
+                      nullif(nullif(trim(code), ''), '(blank)'), program || ' / ' || project) as pid
     from capital_budget
     where dept = 'Seattle Department of Transportation' and year >= year(current_date) - 2),
   names as (select pid, arg_max(program, {'y': year, 'p': program}) as program, arg_max(project, {'y': year, 'p': project}) as project from b group by pid)
   select n.program, n.project, b.pid as code, b.year, round(sum(b.amount)) amount,
          round(sum(b.amount) filter (where b.fund ilike '%Transportation Levy%')) as levy
   from b join names n using (pid)
-  group by all having sum(b.amount) <> 0
+  group by all having round(sum(b.amount)) <> 0
   order by n.program, n.project, b.year
 ) to 'site/data/sdot_budget.json' (format json, array true);
 
@@ -756,7 +769,7 @@ copy (
     (select sum(ksi) filter (where rank <= 50) from ranked) as top50_ksi,
     -- how many of the top 50 are intersections, and how many miles the stretches among them add up to
     (select count(*) filter (where rank <= 50 and is_int) from ranked) as top50_intersections,
-    (select round(sum((select sum(ST_Length(s.geom)) from streets s where s.unitdesc = r.location)) / 5280, 1)
+    (select round(sum((select sum(ST_Length(s.geom)) from streets s where s.loc_name = r.location)) / 5280, 1)
        from ranked r where not r.is_int and r.rank <= 50) as top50_stretch_miles,
     (select sum(ksi) from ranked) as city_ksi_crashes,
     -- looking ahead: the top 50 ranked on the first 3 years (the site's rule, so the validation's own number), and
