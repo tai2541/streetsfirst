@@ -19,16 +19,20 @@ $dataJs = Join-Path $site 'data\data.js'
 if (-not (Test-Path $dataJs)) { $fails += 'data/data.js is missing' }
 else {
   $kb = (Get-Item $dataJs).Length / 1KB
-  if ($kb -lt 1000) { $fails += "data/data.js is only $([int]$kb) KB" }
-  if ($kb -gt 8000) { $fails += "data/data.js is $([int]$kb) KB (over 8 MB: too slow for phones; move more data to on-demand files)" }
+  if ($kb -lt 800) { $fails += "data/data.js is only $([int]$kb) KB" }
+  if ($kb -gt 6000) { $fails += "data/data.js is $([int]$kb) KB (over 6 MB: too slow for phones' first screen; move more data to data-late.js or on-demand files)" }
 }
+# search, "Is it getting fixed?" and the budget
+$lateJs = Join-Path $site 'data\data-late.js'
+if (-not (Test-Path $lateJs)) { $fails += 'data/data-late.js is missing' }
+elseif ((Get-Item $lateJs).Length / 1KB -lt 300) { $fails += "data/data-late.js is only $([int]((Get-Item $lateJs).Length / 1KB)) KB" }
 $more = @(Get-ChildItem (Join-Path $site 'data\more') -Filter *.js -ErrorAction SilentlyContinue)
 if ($more.Count -lt 100) { $fails += "only $($more.Count) area files in data/more" }
 $big = $more | Where-Object { $_.Length -gt 3MB }
 if ($big) { $fails += "area files over 3 MB: $($big.Name -join ', ')" }
 # Text read with the wrong encoding shows up as mangled sequences (UTF-8 dash read as ANSI, etc.). ASCII-only pattern,
 # because Windows PowerShell reads this script file as ANSI.
-if ((Test-Path $dataJs) -and ([IO.File]::ReadAllText($dataJs, [Text.Encoding]::UTF8) -match '\u00E2\u20AC|\u00C3[\u0080-\u00BF]')) { $fails += 'data/data.js has garbled characters (encoding)' }
+foreach ($f in $dataJs, $lateJs) { if ((Test-Path $f) -and ([IO.File]::ReadAllText($f, [Text.Encoding]::UTF8) -match '\u00E2\u20AC|\u00C3[\u0080-\u00BF]')) { $fails += "data/$(Split-Path $f -Leaf) has garbled characters (encoding)" } }
 foreach ($f in 'vendor\leaflet\leaflet.js', 'vendor\leaflet\leaflet.css', 'vendor\inter\inter.css', 'app.js', 'style.css', 'index.html', 'favicon.svg', 'favicon-32.png', 'apple-touch-icon.png') {
   if (-not (Test-Path (Join-Path $site $f))) { $fails += "$f is missing" }
 }

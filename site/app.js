@@ -8,6 +8,16 @@
   }
   D.details = D.details || {};   // filled per map area as places are opened (data/more/<cell>.js)
   const meta = D.meta;
+  // Search, "Is it getting fixed?" and the budget come in a second file (data/data-late.js), asked for only now that the
+  // map's own data is in, so the first screen doesn't share the connection with them. Same build fingerprint.
+  const lateReady = new Promise(res => {
+    if (window.SITE_LATE) { res(window.SITE_LATE); return; }
+    window.siteLateReady = res;
+    const sc = document.createElement('script');
+    sc.src = 'data/data-late.js' + (D.version ? '?v=' + D.version : '');
+    sc.onerror = () => res({ failed: true });
+    document.head.appendChild(sc);
+  });
   const fmt = n => Number(n).toLocaleString('en-US');
   const money = n => (n < 0 ? '−' : '') + '$' + (Math.abs(n) >= 1e8 ? Math.round(Math.abs(n) / 1e6) + 'M' : Math.abs(n) >= 1e6 ? (Math.abs(n) / 1e6).toFixed(1) + 'M' : fmt(Math.round(Math.abs(n))));
   const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
@@ -1791,7 +1801,8 @@
   function weight(k) { const w = meta.weights.find(x => x.k === k); return w ? w.v : '?'; }
 
   // ---------- search: every scored location ----------
-  const searchIdx = (D.search || []).map(r => ({ name: r[0], lat: +r[1], lon: +r[2], rank: +r[3], crashes: +r[4], ksi: +r[5], pb: +r[6], type: r[7], hood: r[8] || '', area: r[9] || '', cell: r[10] || '' }));
+  let searchIdx = [];
+  const toSearchRow = r => ({ name: r[0], lat: +r[1], lon: +r[2], rank: +r[3], crashes: +r[4], ksi: +r[5], pb: +r[6], type: r[7], hood: r[8] || '', area: r[9] || '', cell: r[10] || '' });
   // A short, stable key for a place's name (two 32-bit FNV-1a hashes), for links that survive rank changes.
   function keyOf(name) {
     let a = 0x811c9dc5, b = 0x01000193 ^ 0x5bd1e995;
@@ -1807,8 +1818,9 @@
   const keyBatch = n => { for (const end = Math.min(searchIdx.length, keysAt + n); keysAt < end; keysAt++) {
     const s = searchIdx[keysAt]; s.nkey = ' ' + normQ(niceName(s.name)) + ' '; s.key = s.nkey + ' ' + normQ(s.hood + ' ' + s.area); } };
   const ensureKeys = () => keyBatch(Infinity);
-  (function idleKeys() { if (keysAt >= searchIdx.length) return; keyBatch(800);
-    (window.requestIdleCallback || (f => setTimeout(f, 30)))(idleKeys); })();
+  function idleKeys() { if (keysAt >= searchIdx.length) return; keyBatch(800);
+    (window.requestIdleCallback || (f => setTimeout(f, 30)))(idleKeys); }
+  const setSearch = rows => { searchIdx = (rows || []).map(toSearchRow); keyMap = null; keysAt = 0; idleKeys(); };
   const sInput = document.getElementById('search'), sList = document.getElementById('searchResults');
   let sHits = [], sActive = -1;
   const sStatus = document.getElementById('searchStatus');
@@ -2695,7 +2707,7 @@
   }
 
   // ---------- capital budget tab ----------
-  (function budget() {
+  function budgetInit() {
     const years = [...new Set(D.budget.map(b => b.year))].sort();
     const thisYear = new Date().getFullYear();
     const ABOUT = {
@@ -2767,7 +2779,7 @@
       ${D.budget.some(b => b.levy) && !D.budget.some(b => b.levy && b.year === 2025) ? `<p class="note">The Transportation Levy voters
         approved in November 2024 shows up in this data from 2026 on; 2025 has no levy money in it, so 2025 may be understated.</p>` : ''}`;
     function sum(o) { return Object.values(o).reduce((a, b) => a + b, 0); }
-  })();
+  }
 
   // ---------- about tab ----------
   function renderAbout() {
@@ -3004,7 +3016,7 @@
     : esc(niceName(loc));
   let progressLink = () => false;
 
-  (function progress() {
+  function progressInit() {
     const P = D.progress, el = document.getElementById('progress');
     if (!P || !el) return;
     const M = P.month, C = P.cmp;
@@ -3281,7 +3293,7 @@
       if (target) setTimeout(() => { const body = target.closest('.bs-body'); if (body) body.scrollTop = target.offsetTop - 8; }, 400);
       return true;
     };
-  })();
+  }
 
   (function staleNotice() {
     const fetched = D.fetchedAt && new Date(D.fetchedAt.replace(' ', 'T'));
@@ -3430,6 +3442,8 @@
     const fails = [], wait = async (ok, ms = 8000) => { for (let t = 0; t < ms && !ok(); t += 100) await new Promise(r => setTimeout(r, 100)); return ok(); };
     const check = (ok, what) => { if (!ok) fails.push(what); };
     try {
+      const L0 = await lateReady; check(!L0.failed, 'data-late.js did not load');
+      await wait(() => searchIdx.length > 0);
       check(N > 1000, `only ${N} places scored`);
       check(D.priorities.length >= 200, `only ${D.priorities.length} ranked spots`);
       check(searchIdx.length === N, `search index has ${searchIdx.length} of ${N} places`);
@@ -3457,6 +3471,17 @@
   }
 
   ready = true;
+  // The second data file: search, the two pages that need it, saved pins' nearby counts, and a shared link that was waiting.
+  lateReady.then(L => {
+    if (L.failed) { sInput.placeholder = 'Search couldn’t load. Reload the page to try again.'; return; }
+    D.search = L.search; D.progress = L.progress; D.budget = L.budget;
+    setSearch(L.search);
+    budgetInit(); progressInit();
+    pins.forEach(drawPin);
+    if (sInput.value.trim() && document.activeElement === sInput) runSearch();
+    if (location.hash && location.hash !== '#selftest' && !spotOpen() && openFromHash()) return;
+    refreshHome();
+  });
   if (location.hash === '#selftest') { history.replaceState(null, '', location.pathname); selfTest(); }
   else if (!openFromHash()) {
     refreshHome();
