@@ -431,13 +431,15 @@ select e.*, x.addr_type, x.intkey, x.speed_limit, x.art_class,
   x.lpi_status, x.lpi_installed, x.lpi_planned, x.ntor_status, x.ntor_installed, x.ntor_planned, x.ntor_approaches, x.signalized, x.ped_signal, x.ped_audio, x.lt_protected, x.lt_installed, x.signal_installed,
   a.lon, a.lat,
   -- state facilities: WSDOT owns or shares responsibility
+  -- (a stretch is judged by its own street, not the cross streets that bound it)
   -- Aurora Ave N is SR 99 and Lake City Way NE is SR 522, although SDOT classes them as city arterials.
-  case when regexp_matches(e.location, '\bAURORA (AVE N|BR)\b|\bSR ?99\b|ALASKAN WY VI|BATTERY ST TUNNEL') then 'SR 99'
-       when regexp_matches(e.location, '\bLAKE CITY WAY NE\b|\bSR ?522\b') then 'SR 522'
-       when regexp_matches(e.location, '\bSR ?509\b|\b1ST AVE? S BR\b') then 'SR 509'
-       when regexp_matches(e.location, '\bN(E)? 145TH ST\b') and a.lon > -122.3445 then 'SR 523'
-       when regexp_matches(e.location, '\bSR ?520\b') then 'SR 520'
-       when regexp_matches(e.location, '\bI ?5\b|\bI ?90\b') then 'Interstate'
+  case when regexp_matches(regexp_replace(e.location, ' BETWEEN .*', ''), '\bAURORA (AVE N|BR)\b|\bSR ?99\b|ALASKAN WY VI|BATTERY ST TUNNEL') then 'SR 99'
+       when regexp_matches(regexp_replace(e.location, ' BETWEEN .*', ''), '\bLAKE CITY WAY NE\b|\bSR ?522\b') then 'SR 522'
+       when regexp_matches(regexp_replace(e.location, ' BETWEEN .*', ''), '\bSR ?509\b|\b1ST AVE? S BR\b') then 'SR 509'
+       when regexp_matches(regexp_replace(e.location, ' BETWEEN .*', ''), '\bN(E)? 145TH ST\b') and a.lon > -122.3445 then 'SR 523'
+       when regexp_matches(regexp_replace(e.location, ' BETWEEN .*', ''), '\bMONTLAKE BLVD (E|NE)\b|\bSR ?513\b') then 'SR 513'
+       when regexp_matches(regexp_replace(e.location, ' BETWEEN .*', ''), '\bSR ?520\b') then 'SR 520'
+       when regexp_matches(regexp_replace(e.location, ' BETWEEN .*', ''), '\bI ?5\b|\bI ?90\b') then 'Interstate'
        when x.art_class in (4, 5) then 'State route' end as state_route,
   regexp_matches(e.location, '(\bBR\b|BRIDGE|VIADUCT|TUNNEL|\bON RP\b|\bOFF RP\b)') as structure,
   case when e.crashes < 5 then 'low' when e.crashes < 15 then 'medium' else 'high' end as confidence

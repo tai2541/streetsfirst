@@ -3379,7 +3379,7 @@
         ${tableWrap(dim === 'district' ? 'By council district' : 'By equity index', `<table class="pg-table pg-need">
           <caption class="sr-only">Share of crashes where someone was killed or seriously hurt, fixes and planned projects, ${dim === 'district' ? 'by council district' : 'by equity index'}</caption>
           <tr><th scope="col"><span class="sr-only">${dim === 'district' ? 'District' : 'Equity level'}</span></th><th scope="col">Killed or seriously hurt</th>
-            <th scope="col">Head-start walk signals</th><th scope="col">Other fixes</th><th scope="col">Planned projects</th>
+            <th scope="col">Head-start walk signals</th><th scope="col">Other fixes</th><th scope="col">Planned sidewalks, walk signals and neighborhood safety projects</th>
             <th scope="col">Places in the citywide top 50</th><th scope="col">…on state highways</th><th scope="col">…none recorded<a href="#pgNoneNote" class="fn">*</a></th></tr>
           ${rows.map(r => `<tr class="${r.g === open ? 'on' : ''}"><th scope="row"><button type="button" class="linkbtn pg-grp" data-grp="${esc(r.g)}" aria-expanded="${r.g === open}">${esc(gName(r.g))}</button>${dim === 'district' && member(r.g) ? `<br><small class="muted">${member(r.g)}</small>` : ''}</th>
             <td>${pc(r.ksi, T.ksi)}</td><td>${pc(r.lpi, T.lpi)}</td><td>${pc(r.other, T.other)}</td><td>${pc(r.proj_planned, T.proj)}</td>
@@ -3387,11 +3387,12 @@
         </table>`)}
         ${sel ? `<div class="pg-open" id="pgOpen"><h4>${esc(gName(sel.g))}: top-50 places ${dim === 'district' ? linkBtn('progress=d' + sel.g) : ''}</h4>
           ${(sel.list || []).length ? `<ul class="pg-list">${sel.list.map(x => `<li><span class="pg-l1"><span class="pg-rk">${rankTxt(x.r)}</span> ${placeBtn(x.loc)}</span>
-            <span class="pg-l2">${status(x)}</span></li>`).join('')}</ul>` : '<p class="note">None of today\'s top 50 are here.</p>'}</div>` : ''}
+            <span class="pg-l2">${x.k ? `<b>${x.k} killed or seriously hurt.</b> ` : ''}${status(x)}</span></li>`).join('')}</ul>` : '<p class="note">None of today\'s top 50 are here.</p>'}</div>` : ''}
         <p class="note" id="pgNoneNote">* None recorded: a city street with no dated work since ${P.since}, no planned SDOT project, head-start walk signal or no turn on red nearby, and no budget project named for the street, in the layers this site reads (the same test as each place's own page). Places on state highways, where WSDOT shares responsibility, are counted in their own column. The fix types counted (${FIX_KINDS}) are mostly intersection work, so stretches of street rarely have one.</p>
         <p class="note">Crashes: ${monthYear(P.window.d0)}–${throughMonth(P.window.d1)}. Fixes: the dated fixes listed above, at places with
           crashes, since January ${P.since}; head-start walk signals are shown on their own because SDOT has added hundreds of them, mostly downtown.
-          Planned projects: SDOT's published project maps (new sidewalks, neighborhood safety projects, planned head-start walk signals).
+          Planned: SDOT's published project maps (new sidewalks, neighborhood safety projects, planned head-start walk signals). Large corridor
+          and capital projects aren't in these maps, so this column is not a measure of money or investment by district.
           The City's budget data doesn't say where money is spent, so this counts fixes and projects, not dollars, and a large project
           counts the same as a small one.</p>
       </section>`;

@@ -82,7 +82,9 @@ create or replace table council as
 select f.properties.C_DISTRICT::int as district,
        case when not exists (select 1 from council_now) or lower(trim(f.properties.Name)) in (select n from council_now)
             then f.properties.Name end as member,
-       f.properties.Website as url, gj_geom(f.geometry) as geom
+       -- the district map's link, when it is a council page (one district's has been a stray file link); else the council's own page
+       case when regexp_matches(f.properties.Website, '^https://(www\.)?seattle\.gov/council/[a-z]')
+            then f.properties.Website else 'https://www.seattle.gov/council' end as url, gj_geom(f.geometry) as geom
 from (select unnest(features) f from read_json('data/raw/council_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
