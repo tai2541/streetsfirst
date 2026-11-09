@@ -1860,6 +1860,72 @@
   const sStatus = document.getElementById('searchStatus');
   const say = t => { sStatus.textContent = ''; setTimeout(() => (sStatus.textContent = t), 50); };
   const closeList = () => { sList.hidden = true; sInput.setAttribute('aria-expanded', 'false'); sInput.removeAttribute('aria-activedescendant'); };
+  // ---------- address suggestions while typing ("1913n 120th st" -> 1913 N 120th St) ----------
+  // From King County's address points (fetched weekly with the rest of the data): the street list comes with data-late.js,
+  // each street's house numbers in a small file (data/addr/<n>.js) loaded the first time someone types that street.
+  // Nothing typed leaves the page for this; only "Find this address" asks Esri's service.
+  let addrStreets = [];                         // [{ name, toks, shard, zip }]
+  const addrShards = new Map(), addrWait = new Map();
+  window.SITE_ADDR = (o, tag) => {
+    if (tag !== D.version) { const w = addrWait.get(o.s); addrWait.delete(o.s); if (w) w.rej(new Error('stale')); return; }
+    const m = new Map(o.streets.map(x => [x.s, x.a])); addrShards.set(o.s, m);
+    const w = addrWait.get(o.s); addrWait.delete(o.s); if (w) w.res(m);
+  };
+  const loadAddr = s => addrShards.has(s) ? Promise.resolve(addrShards.get(s)) : (addrWait.get(s) || {}).p || (() => {
+    const w = {}; w.p = new Promise((res, rej) => { w.res = res; w.rej = rej; }); addrWait.set(s, w);
+    const sc = document.createElement('script');
+    sc.src = `data/addr/${s}.js?v=${D.version || ''}`;
+    const done = () => sc.remove();
+    sc.onload = done; sc.onerror = () => { done(); addrWait.delete(s); w.rej(new Error('failed')); };
+    document.head.appendChild(sc);
+    return w.p;
+  })();
+  const ADDR_WORD = { avenue: 'ave', av: 'ave', street: 'st', boulevard: 'blvd', place: 'pl', drive: 'dr', road: 'rd', court: 'ct',
+    lane: 'ln', terrace: 'ter', parkway: 'pkwy', north: 'n', south: 's', east: 'e', west: 'w', northeast: 'ne', northwest: 'nw',
+    southeast: 'se', southwest: 'sw', mlk: 'martin luther king jr', 'm.l.k.': 'martin luther king jr' };
+  // "1913n 120th st seattle wa 98133" -> { num: '1913', words: ['n', '120th', 'st'], zip: '98133' }; null if it doesn't start with a number
+  function parseAddr(text) {
+    const m = text.toLowerCase().replace(/[,#.]/g, ' ').match(/^\s*(\d+)[a-z]?(?:(ne|nw|se|sw|[nsew])(?=\s))?\s+(.+)$/);
+    if (!m) return null;
+    const zip = (m[3].match(/\b(98\d{3})\b/) || [])[1] || null;
+    const words = ((m[2] ? m[2] + ' ' : '') + m[3]).split(/\s+/).filter(Boolean).map(w => ADDR_WORD[w] || w).join(' ').split(' ')
+      .filter(w => !/^(seattle|wa|washington|usa|us|98\d{3})$/.test(w));
+    return words.length ? { num: m[1], words, zip } : null;
+  }
+  // Streets whose words start with what was typed (all of it), best first: more exact words, then the typed ZIP.
+  function addrStreetHits(words, zip) {
+    const out = [];
+    for (const s of addrStreets) {
+      let exact = 0;
+      if (!words.every(w => s.toks.some(t => t === w ? (exact++, true) : t.startsWith(w)))) continue;
+      out.push({ s, sc: exact * 10 + (zip && s.zip === zip ? 5 : 0) - s.toks.length });
+    }
+    return out.sort((a, b) => b.sc - a.sc).slice(0, 6).map(x => x.s);
+  }
+  // Suggestions for the typed text from the files already here; asks for the missing ones and searches again when they arrive.
+  function addrSuggest(text) {
+    const q = parseAddr(text); if (!q || !addrStreets.length) return [];
+    const streets = addrStreetHits(q.words, q.zip), out = [], missing = [];
+    for (const s of streets) {
+      const m = addrShards.get(s.shard); if (!m) { missing.push(s.shard); continue; }
+      const a = m.get(s.id) || [], pt = i => ({ addrPick: true, label: `${a[i]} ${s.name}`, zip: s.zip, lat: 47 + a[i + 1] / 1e5, lon: -122 + a[i + 2] / 1e5 });
+      let any = false, best = -1;
+      for (let i = 0; i < a.length; i += 3) {
+        const n = String(a[i]);
+        if (n.startsWith(q.num)) { out.push({ ...pt(i), exact: n === q.num ? 2 : 1 }); any = true; }
+        else if (best < 0 || Math.abs(a[i] - +q.num) < Math.abs(a[best] - +q.num)) best = i;
+      }
+      // The number isn't in the county's list (4500 Rainier Ave S isn't): the nearest listed number on that street, if close.
+      if (!any && best >= 0 && q.num.length >= 3 && Math.abs(a[best] - +q.num) <= 100) out.push({ ...pt(best), exact: 0, near: true });
+    }
+    if (missing.length) Promise.all([...new Set(missing)].map(loadAddr)).then(() => {
+      if (document.activeElement === sInput && sInput.value === text) runSearch();
+    }, () => {});
+    const found = out.some(x => !x.near);   // nearest-number guesses only when no street has the number
+    return out.filter(x => !found || !x.near).sort((a, b) => b.exact - a.exact || a.label.length - b.label.length).slice(0, 5);
+  }
+  const setAddrStreets = rows => { addrStreets = (rows || []).map(([name, shard, zip], id) => ({ id, name, toks: name.toLowerCase().split(' '), shard: +shard, zip })); };
+
   // Public schools, searchable by name ("Rainier Beach High"): picking one pins it like an address, with crashes nearby.
   const schoolLabel = (n, t) => n.replace(/\s+-\s+interim$/i, '') + ({ 'Elementary': ' Elementary', 'Option Elementary': ' Elementary',
     'Middle School': ' Middle School', 'High School': ' High School', 'Option High School': ' High School', 'K-8': ' K-8' }[t] || ' School');
@@ -1887,27 +1953,34 @@
     const sch = corner ? [] : schools().filter(s => words.every(w => s.key.includes(' ' + w))).slice(0, 3);
     const schFirst = /\b(school|elementary|middle|high|k-?8)\b/.test(raw);
     sHits = (schFirst ? sch : []).concat(first, named.filter(s => !first.includes(s)), schFirst ? [] : sch, all.filter(s => !inName(s))).slice(0, 8);
-    const nPlaces = sHits.filter(s => !s.school).length, nSchools = sHits.length - nPlaces;
+    const nPlaces = sHits.filter(s => !s.school && !s.addrPick && !s.addr).length, nSchools = sHits.filter(s => s.school).length;
     // Text can also be pinned as an address: offered when it has a number in it or matches no scored place.
     const addr = { addr: true, text: sInput.value.trim() };
+    // Addresses from the county's list go first; "Find this address" (Esri) stays as the fallback at the end.
+    const sugg = corner ? [] : addrSuggest(sInput.value);
+    if (sugg.length) { sHits = sugg.concat(sHits).slice(0, 8); sHits.push(addr); }
     // A house number ("4500 Rainier Ave S") puts the address first; "12th and Jackson" is a corner, not an address.
     // (also "1913n 120th st", a direction typed against the number)
-    if (/^\d+(?:ne|nw|se|sw|[nsew])?\s/i.test(addr.text) && !corner) sHits.unshift(addr); else if (/\d/.test(addr.text) || !nPlaces) sHits.push(addr);
+    if (sugg.length) { /* already placed */ } else if (/^\d+(?:ne|nw|se|sw|[nsew])?\s/i.test(addr.text) && !corner) sHits.unshift(addr); else if (/\d/.test(addr.text) || !nPlaces) sHits.push(addr);
     sActive = -1; sInput.removeAttribute('aria-activedescendant');
-    say(nPlaces || nSchools ? [nPlaces && `${nPlaces === 8 ? '8 or more' : nPlaces} matching places`, nSchools && plural(nSchools, 'school')].filter(Boolean).join(', ')
+    const nSugg = sugg.length;
+    say(nPlaces || nSchools || nSugg ? [nSugg && plural(nSugg, 'address', 'addresses'), nPlaces && `${nPlaces === 8 ? '8 or more' : nPlaces} matching places`, nSchools && plural(nSchools, 'school')].filter(Boolean).join(', ')
       : 'No matching crash location. You can pin it as an address.');
-    sList.innerHTML = sHits.map((s, i) => s.school
+    sList.innerHTML = sHits.map((s, i) => s.addrPick
+      ? `<li role="option" id="sr-${i}" data-i="${i}" class="addr-pick"><span>📍 ${esc(s.label)}</span><small>Seattle ${esc(s.zip || '')} · ${s.near ? 'nearest listed address' : 'address'}</small></li>`
+      : s.school
       ? `<li role="option" id="sr-${i}" data-i="${i}" class="school-opt"><span>🏫 ${esc(s.label)}</span><small>Public school · crashes within a quarter mile</small></li>`
       : s.addr
       ? `<li role="option" id="sr-${i}" data-i="${i}" class="addr-opt"><span>📍 Find this address on the map: <b>${esc(s.text)}</b><small class="pin-privacy">Looked up with Esri’s address search. You can then add it to your pins, which are saved only on this device.</small></span></li>`
       : `<li role="option" id="sr-${i}" data-i="${i}">
         <span>${esc(niceName(s.name))}${s.area ? `<small class="hood">${esc(s.area)}</small>` : ''}</span><small>${rankTxt(s.rank)} · ${plural(s.crashes, 'crash', 'crashes')}</small></li>`).join('') +
-      (!nPlaces && !nSchools ? `<li class="none">No crash location with that name.${sHits.some(x => x.addr) ? ' Use the address option above to see crashes nearby.' : ' Only places with a reported crash are scored.'}</li>` : '');
+      (!nPlaces && !nSchools && !nSugg ? `<li class="none">No crash location with that name.${sHits.some(x => x.addr) ? ' Use the address option above to see crashes nearby.' : ' Only places with a reported crash are scored.'}</li>` : '');
     sList.hidden = false; sInput.setAttribute('aria-expanded', 'true');
   }
   function pick(i) {
     const s = sHits[i]; if (!s) return;
     if (s.addr) { closeList(); pinAddress(s.text); return; }
+    if (s.addrPick) { closeList(); sInput.value = s.label; showAddress({ lat: s.lat, lon: s.lon, label: `${s.label}, Seattle, WA ${s.zip || ''}`.trim() }); return; }
     if (s.school) { closeList(); sInput.value = s.label; showAddress({ lat: s.lat, lon: s.lon, label: s.label }); return; }
     closeList(); sInput.value = niceName(s.name);
     const p = byId.get(s.rank);
@@ -3565,7 +3638,7 @@
   lateReady.then(L => {
     if (L.failed) { sInput.placeholder = 'Search couldn’t load. Reload the page to try again.'; return; }
     D.search = L.search; D.progress = L.progress; D.budget = L.budget;
-    setSearch(L.search);
+    setSearch(L.search); setAddrStreets(L.addrStreets);
     budgetInit(); progressInit(); distCard(+document.getElementById('distFilter').value || 0);
     pins.forEach(drawPin);
     if (sInput.value.trim() && document.activeElement === sInput) runSearch();

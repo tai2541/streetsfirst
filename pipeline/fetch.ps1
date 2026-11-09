@@ -128,6 +128,18 @@ Get-ArcGISLayer "$gis/SDOT_Bike_Facilities/FeatureServer/2" 'UNITDESC,SEGKEY,CAT
 Get-ArcGISLayer "$gis/Traffic_Circles_view/FeatureServer/0" 'INTKEY,UNITDESC,INSTALL_DATE' 'circles' "CURRENT_STATUS = 'INSVC'"
 Get-ArcGISLayer "$gis/Public_School/FeatureServer/0" 'NAME,SCHOOL,TYPE,GRADE' 'schools' `
   "TYPE IN ('Elementary','Middle School','High School','Option Elementary','Option High School','K-8')"
+# Seattle street addresses, for suggestions while someone types an address in the search box: King County's address
+# points (house number, street, ZIP, location only; no parcel fields). One point per address (PRIM_ADDR = 1), so the units
+# of a building aren't listed separately. If the county's server can't be reached, last week's copy is kept.
+try {
+  Get-ArcGISLayer 'https://gismaps.kingcounty.gov/arcgis/rest/services/Address/KingCo_AddressPoints/MapServer/0' `
+    'ADDR_NUM,ADDR_PD,ADDR_SN,ADDR_ST,ADDR_SD,ZIP5' 'addresses' "CTYNAME = 'SEATTLE' AND PRIM_ADDR = 1"
+} catch {
+  Write-Warning "Address points not fetched ($($_.Exception.Message)); keeping last week's."
+  Remove-Item (Join-Path $tmp 'addresses_*.json') -ErrorAction SilentlyContinue
+  Copy-Item (Join-Path $raw 'addresses_*.json') $tmp -ErrorAction SilentlyContinue
+  $counts['addresses'] = @(Get-ChildItem (Join-Path $tmp 'addresses_*.json') -ErrorAction SilentlyContinue).Count * 1000
+}
 Get-ArcGISLayer "$gis/Race_and_Social_Equity_Composite_Index_Current/FeatureServer/0" `
   'GEOID,NAMELSAD,COMPOSITE_QUINTILE,COMPOSITE_PERCENTILE,INDEX_YEAR' 'rse'
 Get-ArcGISLayer "$gis/Council_District_Member_Info/FeatureServer/0" 'C_DISTRICT,DISPLAY_NAME,Name,Website' 'council'
@@ -181,7 +193,8 @@ $minimum = @{ collisions = 20000; requests = 50000; budget = 10000; streets = 20
               hin = 50; hcl = 100; lpi = 500; ntor = 400; signals = 800; districts = 7; hoods_main = 15; hoods_sub = 80
               volhist_years = 8; humps = 50; cushions = 30; radar = 30; bikelanes = 200; buslanes = 500; busvol = 2000; gtfs_stops = 3000
               sw_missing = 8000; sw_poor = 1500; proj_sidewalk = 20; proj_nispp = 5
-              crashhist = 50000; crosswalks = 4000; curbramps = 25000; bikefac = 1500; circles = 500; schools = 70; rse = 150; council = 7 }
+              crashhist = 50000; crosswalks = 4000; curbramps = 25000; bikefac = 1500; circles = 500; schools = 70; rse = 150; council = 7
+              addresses = 150000 }
 $volatile = @('proj_sidewalk', 'proj_nispp')   # small project lists: big swings are normal
 $prev = @{}
 $prevFile = Join-Path $raw 'counts.json'

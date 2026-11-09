@@ -28,6 +28,8 @@ if (-not (Test-Path $lateJs)) { $fails += 'data/data-late.js is missing' }
 elseif ((Get-Item $lateJs).Length / 1KB -lt 300) { $fails += "data/data-late.js is only $([int]((Get-Item $lateJs).Length / 1KB)) KB" }
 $more = @(Get-ChildItem (Join-Path $site 'data\more') -Filter *.js -ErrorAction SilentlyContinue)
 if ($more.Count -lt 100) { $fails += "only $($more.Count) area files in data/more" }
+$addrFiles = @(Get-ChildItem (Join-Path $site 'data\addr') -Filter *.js -ErrorAction SilentlyContinue)
+if ($addrFiles.Count -lt 60) { $fails += "only $($addrFiles.Count) address files in data/addr" }
 $big = $more | Where-Object { $_.Length -gt 3MB }
 if ($big) { $fails += "area files over 3 MB: $($big.Name -join ', ')" }
 # Text read with the wrong encoding shows up as mangled sequences (UTF-8 dash read as ANSI, etc.). ASCII-only pattern,

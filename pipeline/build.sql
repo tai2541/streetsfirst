@@ -490,6 +490,8 @@ from all_types a left join scored s using (location);
 .read pipeline/projects.sql
 -- what's on the street, nearby school, equity index, council district, before/after (context only, not scored)
 .read pipeline/context.sql
+-- street addresses for search suggestions (not scored)
+.read pipeline/addresses.sql
 
 -- ---------------------------------------------------------------- final ranking
 create or replace table priorities as
