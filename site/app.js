@@ -1660,12 +1660,14 @@
 
   // ---------- every other place: full details from its map area's file (data/more/<cell>.js), loaded on first use ----------
   // Script tags rather than fetch, so the site also works opened straight from disk.
-  const moreCache = new Map(), moreWait = new Map();
+  const moreCache = new Map(), moreWait = new Map(), moreTries = new Map();
   // Each area file says which build it belongs to. One from a newer build (the site was updated while this page was open)
   // could describe places differently, so it isn't used; the page asks for a reload instead.
   let staleShown = false;
+  const staleCells = new Set();   // areas whose file came from a newer build: the place asks for a reload, not a retry
   window.SITE_MORE = (o, v) => {
     if (v && D.version && v !== D.version) {
+      staleCells.add(o.cell);
       if (!staleShown) { staleShown = true; toast('The data was just updated. Reload the page to see the newest version.'); }
       return;
     }
@@ -1675,9 +1677,15 @@
     if (moreCache.has(cell)) return Promise.resolve(moreCache.get(cell));
     if (!moreWait.has(cell)) moreWait.set(cell, new Promise((res, rej) => {
       const sc = document.createElement('script');
-      sc.src = `data/more/${cell}.js${D.version ? `?v=${D.version}` : ''}`;   // the fingerprint, so a new build is fetched fresh
-      sc.onload = () => { moreWait.delete(cell); moreCache.has(cell) ? res(moreCache.get(cell)) : rej(new Error('empty')); };
-      sc.onerror = () => { moreWait.delete(cell); sc.remove(); rej(new Error('failed')); };
+      // the fingerprint, so a new build is fetched fresh; after a failed try, a try number too, so the browser doesn't wait
+      // behind the earlier request that hung
+      const n = moreTries.get(cell) || 0;
+      sc.src = `data/more/${cell}.js?v=${D.version || ''}${n ? '&try=' + n : ''}`;
+      // A request that hangs (a weak signal) gives up after 15 s, so opening the place again starts a fresh one.
+      const done = () => { clearTimeout(t); moreWait.delete(cell); sc.remove(); };
+      const t = setTimeout(() => { done(); moreTries.set(cell, n + 1); rej(new Error('timeout')); }, 15000);
+      sc.onload = () => { done(); moreCache.has(cell) ? res(moreCache.get(cell)) : rej(new Error(staleCells.has(cell) ? 'stale' : 'empty')); };
+      sc.onerror = () => { done(); moreTries.set(cell, n + 1); rej(new Error('failed')); };
       document.head.appendChild(sc);
     }));
     return moreWait.get(cell);
@@ -1738,10 +1746,12 @@
         ${reportBox(niceName(s.name))}
         <p class="verdict">${plural(s.crashes, 'crash', 'crashes')} from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}${s.ksi ? `; ${s.ksi} killed or seriously injured someone` : ''}${s.pb ? `; ${s.pb} involved people walking or biking` : ''}.</p>
         <p class="verdict2">Ranks <b>#${fmt(kRank(s.rank))}</b> of ${fmt(kindCount(s.rank))} ${kindsOf(s.rank)} with crashes (${topShare(s.rank)}).</p>
-        <p class="note">${state === 'failed'
-          ? 'The full crash and request details for this place couldn’t be loaded. Check your connection and try again.'
-          : 'Loading the full crash and request details…'}</p>
+        <p class="note">${state !== 'failed' ? 'Loading the full crash and request details…'
+          : staleCells.has(s.cell) ? 'This site was just updated, so this place’s details come from a newer version. <button type="button" class="linkbtn brief-reload">Reload the page</button>'
+          : 'The full crash and request details for this place couldn’t be loaded. Check your connection. <button type="button" class="linkbtn brief-retry">Try again</button>'}</p>
       </div>`;
+    { const b = document.querySelector('#detailBody .brief-retry'); if (b) b.onclick = () => selectLite(s); }
+    { const b = document.querySelector('#detailBody .brief-reload'); if (b) b.onclick = () => location.reload(); }
     const wasHidden = detailEl.hidden;
     detailEl.hidden = false; detailEl.classList.remove('home', 'place'); phoneDetailShown(wasHidden); applyLayout();
     if (!noFly) flyVisible([s.lat, s.lon], 17);
@@ -1791,13 +1801,21 @@
   let keyMap = null;
   const keyIdx = () => keyMap || (keyMap = new Map(searchIdx.map(s => [keyOf(s.name), s])));
   const normQ = t => t.toLowerCase().replace(/&/g, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ');
-  searchIdx.forEach(s => { s.nkey = ' ' + normQ(niceName(s.name)) + ' '; s.key = s.nkey + ' ' + normQ(s.hood + ' ' + s.area); });
+  // Search keys for 11,887 places take a moment to build, so they're made in small batches after the page is up (or all at
+  // once on the first search, whichever comes first) instead of holding up the first screen.
+  let keysAt = 0;
+  const keyBatch = n => { for (const end = Math.min(searchIdx.length, keysAt + n); keysAt < end; keysAt++) {
+    const s = searchIdx[keysAt]; s.nkey = ' ' + normQ(niceName(s.name)) + ' '; s.key = s.nkey + ' ' + normQ(s.hood + ' ' + s.area); } };
+  const ensureKeys = () => keyBatch(Infinity);
+  (function idleKeys() { if (keysAt >= searchIdx.length) return; keyBatch(800);
+    (window.requestIdleCallback || (f => setTimeout(f, 30)))(idleKeys); })();
   const sInput = document.getElementById('search'), sList = document.getElementById('searchResults');
   let sHits = [], sActive = -1;
   const sStatus = document.getElementById('searchStatus');
   const say = t => { sStatus.textContent = ''; setTimeout(() => (sStatus.textContent = t), 50); };
   const closeList = () => { sList.hidden = true; sInput.setAttribute('aria-expanded', 'false'); sInput.removeAttribute('aria-activedescendant'); };
   function runSearch() {
+    ensureKeys();
     // "12th and Jackson", "45th & Roosevelt", "MLK at Othello": the joining word isn't part of either street's name, and
     // a corner typed that way puts intersections first. Common spellings match SDOT's (MLK = M L King, Avenue = Ave).
     const raw = sInput.value.toLowerCase().trim();
@@ -1834,6 +1852,8 @@
     if (p) select(p, true, sInput); else selectLite(s);
   }
   sInput.addEventListener('input', runSearch);
+  // typed while the page was still loading: search it now that it's ready (only if the box still has focus)
+  if (sInput.value.trim() && document.activeElement === sInput) runSearch();
   sInput.addEventListener('keydown', e => {
     if (sList.hidden) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -1865,20 +1885,23 @@
   const inSeattle = (lat, lon) => lat > SEA.s && lat < SEA.n && lon > SEA.w && lon < SEA.e;
   map.createPane('pin'); map.getPane('pin').style.zIndex = 660;
   const pinLayer = L.layerGroup().addTo(map);
+  // Each lookup gives up after 8 s. If both lookups fail to connect, the answer is { offline: true }, not "not found".
+  const timed = () => (typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(8000) } : {});
   async function geocode(text) {
     const q = encodeURIComponent(/seattle/i.test(text) ? text : text + ', Seattle, WA');
+    let failed = 0;
     try {
       const r = await fetch('https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates' +
-        `?SingleLine=${q}&f=json&maxLocations=1&searchExtent=${SEA.w},${SEA.s},${SEA.e},${SEA.n}`).then(x => x.json());
+        `?SingleLine=${q}&f=json&maxLocations=1&searchExtent=${SEA.w},${SEA.s},${SEA.e},${SEA.n}`, timed()).then(x => x.json());
       const c = r.candidates && r.candidates[0];
       if (c && c.score >= 80) return { lat: c.location.y, lon: c.location.x, label: c.address };
-    } catch { /* try the next one */ }
+    } catch { failed++; }
     try {
       const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=jsonv2&limit=1` +
-        `&viewbox=${SEA.w},${SEA.n},${SEA.e},${SEA.s}&bounded=1`).then(x => x.json());
+        `&viewbox=${SEA.w},${SEA.n},${SEA.e},${SEA.s}&bounded=1`, timed()).then(x => x.json());
       if (r[0]) return { lat: +r[0].lat, lon: +r[0].lon, label: r[0].display_name.split(', ').slice(0, 3).join(', ') };
-    } catch { /* not found */ }
-    return null;
+    } catch { failed++; }
+    return failed === 2 || navigator.onLine === false ? { offline: true } : null;
   }
   // Did the lookup keep the street that was typed? (NE 50th St and 50th Ave NE are different streets; a geocoder can swap
   // them.) Every typed street word, in one spelling, has to be in the address it found.
@@ -1895,6 +1918,7 @@
     if (!text) return;
     searchMsg('Finding that address…');
     const g = await geocode(text);
+    if (g && g.offline) return searchMsg('Address search needs a connection. Check your signal and try again.');
     if (!g) return searchMsg(`Couldn't find “${esc(text)}”. Try a street address like “600 4th Ave”.`);
     if (!inSeattle(g.lat, g.lon)) return searchMsg(`“${esc(g.label)}” is outside Seattle. This map covers Seattle only.`);
     if (streetChanged(text, g.label)) g.note = `You typed “${text}”. The map's address search found this instead; check it's the place you meant.`;

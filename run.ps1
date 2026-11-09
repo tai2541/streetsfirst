@@ -77,8 +77,8 @@ Write-Host "Wrote $n area files to site\data\more"
 
 # Publishable copy: dist/ is site/ plus versioned addresses. site/ stays the clean source (open site/index.html locally).
 # Cache-busting: each file's address in index.html carries a short fingerprint of its contents (data.js?v=3f9a...).
-# Browsers can then keep a file as long as they like and still get the new one as soon as it changes, because a
-# changed file has a new address. Unchanged files keep their fingerprint, so returning visitors don't download them.
+# A changed file gets a new address, so a browser never mixes in an old copy of it. (GitHub Pages ignores the ?v= part
+# and lets browsers keep files about 10 minutes, then checks for a newer one; unchanged files answer that check cheaply.)
 # The area files use the data fingerprint too (app.js adds it when it loads one).
 $appTag = Get-Tag @(Join-Path $PSScriptRoot 'site\app.js')
 $cssTag = Get-Tag @(Join-Path $PSScriptRoot 'site\style.css')
