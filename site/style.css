@@ -389,6 +389,7 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 .stat:nth-child(2) { background: #fff0ef; } .stat:nth-child(2) b { color: #b3141b; }
 .stat:nth-child(3) { background: #eef4fe; } .stat:nth-child(3) b { color: #1f4fa8; }
 .stat:nth-child(4) { background: #ebf8f2; } .stat:nth-child(4) b { color: #147a55; }
+#detailTitle .dcity { display: block; font-size: 12.5px; font-weight: 600; color: #5a6475; margin-top: 2px; }
 /* "Did the worst places get fixed?": fixes read green, no fix neutral, still among the worst red (not the tiles' default order) */
 .pg-stats .stat:nth-child(1), .pg-stats .stat:nth-child(2) { background: #ebf8f2; }
 .pg-stats .stat:nth-child(1) b, .pg-stats .stat:nth-child(2) b { color: #147a55; }
@@ -781,6 +782,7 @@ body.sheet-open #expandPanel, body.sheet-open #expandDetail, body.sheet-open #pa
 @container (max-width: 560px) { .pg-stats { grid-template-columns: 1fr 1fr; } }
 .pg-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 10px 0 6px; font-size: 13px; }
 .pg-table th { vertical-align: bottom; }
+.pg-table tr:first-child th:first-child { text-align: left; }   /* over the left-aligned place names */
 .pg-table td, .pg-table th[scope=row] { vertical-align: top; }
 .pg-table th[scope=row] { text-align: left; font-weight: 400; color: inherit; }
 .pg-table tr.ref th, .pg-table tr.ref td { color: #3f4a5c; font-style: italic; }

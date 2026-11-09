@@ -728,6 +728,9 @@ copy (
        and severity in ('Fatal Collision', 'Serious Injury Collision')) as city_ped_bike_ksi,
     (select round(sum(ksi) filter (where rank <= 50) * 1.0 / sum(ksi), 3) from ranked) as top50_ksi_share,
     (select sum(ksi) filter (where rank <= 50) from ranked) as top50_ksi,
+    -- the top 50 is 25 intersections and 25 stretches of street; how many miles those stretches add up to
+    (select round(sum((select sum(ST_Length(s.geom)) from streets s where s.unitdesc = r.location)) / 5280, 1)
+       from ranked r where not r.is_int and r.rank <= 50) as top50_stretch_miles,
     (select sum(ksi) from ranked) as city_ksi_crashes,
     -- looking ahead: the top 50 ranked on the first 3 years (the site's rule, so the validation's own number), and
     -- their share of the next 2 years' KSI crashes

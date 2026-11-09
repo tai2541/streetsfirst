@@ -15,6 +15,8 @@
   const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : (many || one + 's')}`;
   const ft = m => Math.round(m * 3.28084 / 10) * 10;        // meters -> feet, rounded to 10
   const monthYear = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  // the scored crash window as "Jul 2021–Jun 2026" (window_to is its last day)
+  const windowTxt = () => monthYear(meta.window_from) + '–' + monthYear(meta.window_to);
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // SDOT's location names, made readable: abbreviations spelled out, travel direction in words, bridge markers dropped.
@@ -247,7 +249,7 @@
     }
     const first = p.sdot_hcl_years && p.sdot_hcl_years[0];
     if (first && first <= +meta.window_from.slice(0, 4) && p.ksi_after_hcl >= 2)
-      return { short: `On SDOT's High Collision list since ${first}; ${p.ksi_after_hcl} fatal/serious crashes since`,
+      return { short: `On SDOT's High Collision list since ${first}; ${p.ksi_after_hcl} fatal/serious crashes ${windowTxt()}`,
         long: `SDOT first put this on its High Collision Locations list in ${first}. Since then (in the scored years) ${p.ksi_after_hcl} crashes have killed or seriously injured someone. Being listed doesn't mean it was redesigned.` };
     return null;
   }
@@ -283,7 +285,7 @@
     const parts = [];
     if (recent.length) parts.push(`Work since ${y0}: ${list(recent)}`);
     if (planned.length) parts.push(`Planned nearby: ${planned.join(', ')}`);
-    if (cip.length) parts.push(`Budget project named for this street: ${cip[0].t} (${cip[0].y0 === cip[0].y1 ? cip[0].y0 : cip[0].y0 + '–' + cip[0].y1})`);
+    if (cip.length) parts.push(`Money budgeted ${cip[0].y0 === cip[0].y1 ? 'in ' + cip[0].y0 : cip[0].y0 + '–' + cip[0].y1} for a project named for this street, “${cip[0].t}” (it may not reach this spot)`);
     if (!recent.length && older.length) parts.push(`Older work only: ${list(older)}`);
     if (!recent.length && bus.length) parts.push(`Bus lane ${bus[0].y} (not counted as a safety fix)`);
     const cls = recent.length ? 'done' : planned.length || cip.length ? 'planned' : 'none';
@@ -543,6 +545,8 @@
     const ongoing = document.getElementById('onlyOngoing').checked;
     const noPlan = document.getElementById('noPlan').checked;
     const dist = +document.getElementById('distFilter').value || 0;
+    // the citywide summary card steps aside while a district's list is shown, so the list starts near the top
+    { const cs = document.getElementById('citySummary'); if (cs) cs.hidden = !!dist; }
     const keep = p => (!dist || p.council_district === dist) && (!type || p.addr_type === type || (type === 'B' && p.addr_type === 'A'))
         && (!onlyFatal || p.killed > 0) && (!ongoing || p.ksi_years >= 3) && (!noPlan || !(p.proj_ids && p.proj_ids.length));
     // With a district picked, places are ranked again within it: each kind apart (one list for "how busy"), up to 25
@@ -1027,6 +1031,9 @@
     tipEl.style.left = x + 'px'; tipEl.style.top = (e.clientY + 14) + 'px';
   });
 
+  // Charts that count every report on file say so when that's a different number from the ranked years' count.
+  const fileNote = (det, p) => det && det.crashes && det.crashes.length !== p.crashes
+    ? `<div class="note">Counts all ${fmt(det.crashes.length)} crash reports on file here; the ranking uses the ${fmt(p.crashes)} from ${windowTxt()}.</div>` : '';
   // When crashes happen: 3-hour blocks through the day, from the time in each police report.
   function todChart(crashes) {
     const known = crashes.filter(c => c.h != null);
@@ -1451,7 +1458,7 @@
           so it isn't overlooked.</p>` : '';
     const w = workSummary(p);
     return `<p class="verdict">${esc(parts.join(' '))}</p><p class="verdict2">${line2}</p>
-      <p class="workline w-${w.cls}"><b>Done here:</b> ${esc(w.text)}.</p>${why}`;
+      <p class="workline w-${w.cls}"><b>${w.cls === 'done' ? 'Done here' : w.cls === 'planned' ? 'Planned or budgeted' : 'SDOT work recorded'}:</b> ${esc(w.text)}.</p>${why}`;
   }
 
   function mathBox(p) {
@@ -1503,7 +1510,7 @@
     if (from !== undefined && !keepFocus) opener = from;
     if (from !== undefined && !keepFocus && from !== document.getElementById('tabbtn-progress')) progReturn = null;
     current = p;
-    if (location.hash !== '#p=' + keyOf(p.location)) history.replaceState(null, '', '#p=' + keyOf(p.location));
+    if (location.hash !== '#p=' + keyOf(p.location)) history.pushState(null, '', '#p=' + keyOf(p.location));
     markCurrent();
     const li = document.querySelector(`#list li[data-id="${p.rank_ksi}"]`);
     // (desktop only: on a phone the list is either hidden under the details or already showing the card; scrolling it
@@ -1522,7 +1529,12 @@
          <h3><button type="button" class="dsec-h" aria-expanded="${!collapsed[id]}" aria-controls="sec-${id}">${title}</button></h3>
          <div class="dsec-b" id="sec-${id}">${html}</div></section>`;
     const chips = reasons(p).filter(r => !(r.cls === 'conf' && p.crashes < 5));   // the note under the summary says it
-    document.getElementById('detailTitle').innerHTML = `<span class="drank" title="${esc(mode === 'risk' && p.rank != null ? 'Rank once you account for how busy it is' : rankTxt(p.rank_ksi))}">${mode === 'risk' && p.rank != null ? '#' + fmt(p.rank) : rankTxt(p.rank_ksi, false)}</span> ${esc(p.name)}`;
+    // With a district picked, the title uses the same number as the list (#2 in District 2) and gives the citywide rank too.
+    const dSel = document.getElementById('distFilter'), inDist = p.dr && dSel && dSel.value;
+    document.getElementById('detailTitle').innerHTML = inDist
+      ? `<span class="drank" title="${esc(`#${p.dr} in ${dSel.selectedOptions[0].text}`)}">#${fmt(p.dr)}</span> ${esc(p.name)}` +
+        `<small class="dcity">in ${esc(dSel.selectedOptions[0].text)} · ${mode === 'risk' && p.rank != null ? '#' + fmt(p.rank) : rankTxt(p.rank_ksi)} citywide</small>`
+      : `<span class="drank" title="${esc(mode === 'risk' && p.rank != null ? 'Rank once you account for how busy it is' : rankTxt(p.rank_ksi))}">${mode === 'risk' && p.rank != null ? '#' + fmt(p.rank) : rankTxt(p.rank_ksi, false)}</span> ${esc(p.name)}`;
     document.getElementById('detailBody').innerHTML = `
       <div class="dhead">
         ${p.neighborhood ? `<div class="where">${esc(p.neighborhood)}${p.area && p.area !== p.neighborhood ? ` <span class="muted">· ${esc(p.area)}</span>` : ''}</div>` : ''}
@@ -1551,6 +1563,7 @@
           ${sidewalksHere(p) ? sec('walk', 'Sidewalks here', sidewalksHere(p)) : ''}
           ${sec('types', 'What kind of crashes', `
             ${hbars(types, '#2a78d6', 'crashes')}
+            ${fileNote(det, p)}
             ${untyped ? `<div class="note">${untyped} crash${untyped > 1 ? 'es have' : ' has'} no type recorded.</div>` : ''}
             <ul class="tight">
               <li>Wet/icy road: ${p.wet_crashes} of ${p.road_known} with known conditions (${pct(p.wet_crashes, p.road_known)}%; city ${Math.round(100 * meta.city_wet_share)}%)</li>
@@ -1580,7 +1593,7 @@
       const w = g.clientWidth; if (Math.abs(w - (g._w || 0)) < 8 && g.innerHTML) return; g._w = w;
       g.innerHTML = '<div class="gcol"><h3 class="gh">Crashes and repair reports over time</h3>' + timeChart(det, p, Math.min(w - 34, 760)) + '</div>' +
         '<div class="gcol"><h3 class="gh">Crashes by year</h3>' + yearChart(det.crashes) + '</div>' +
-        '<div class="gcol"><h3 class="gh">Time of day</h3>' + todChart(det.crashes) + '</div>' +
+        '<div class="gcol"><h3 class="gh">Time of day</h3>' + todChart(det.crashes) + fileNote(det, p) + '</div>' +
         (p.rank_years ? '<div class="gcol"><h3 class="gh">Rank over the years</h3>' + rankHistory(p) + '</div>' : '');
     };
     renderGraphs();
@@ -1689,7 +1702,7 @@
     rememberView();
     current = { rank_ksi: s.rank, rank: null, lat: s.lat, lon: s.lon };
     opener = document.getElementById('search');
-    history.replaceState(null, '', '#p=' + keyOf(s.name));
+    if (location.hash !== '#p=' + keyOf(s.name)) history.pushState(null, '', '#p=' + keyOf(s.name));
     markCurrent();
     document.getElementById('detailTitle').innerHTML = `<span class="drank" title="${esc(rankTxt(s.rank))}">${rankTxt(s.rank, false)}</span> ${esc(niceName(s.name))}`;
     document.getElementById('detailBody').innerHTML = `
@@ -2222,7 +2235,10 @@
       t = 'Top ' + n + ' ' + (tr ? (m === 'bus' ? 'slow bus streets' : 'busiest streets') : (m === 'missing' ? 'missing sidewalks' : 'sidewalks in poor condition'));
     } else {
       const n = el('list').querySelectorAll('li[data-id]:not(.extra)').length, top = +el('topN').value;
-      const parts = [n ? (n < top ? n + (n === 1 ? ' place' : ' places') : 'Top ' + n) : 'No places match', el('mode').selectedOptions[0].text];
+      const ids = [...el('list').querySelectorAll('li[data-id]:not(.extra)')].map(li => +li.dataset.id);
+      const nI = ids.filter(r => r % 2).length, nS = ids.length - nI;
+      const parts = [n ? (el('distFilter').value && el('mode').value === 'ksi' ? `Top ${nI} intersections + ${nS} stretches`
+        : n < top ? n + (n === 1 ? ' place' : ' places') : 'Top ' + n) : 'No places match', el('mode').selectedOptions[0].text];
       if (el('distFilter').value) parts.push(el('distFilter').selectedOptions[0].text);
       if (el('addrFilter').value) parts.push(el('addrFilter').selectedOptions[0].text);
       [['onlyFatal', 'Someone died'], ['onlyOngoing', 'Repeat serious crashes'], ['noPlan', 'No published SDOT project']]
@@ -2762,9 +2778,17 @@
         ${(meta.validation || []).map(v => `<tr class="${v.method === 'expected_split' ? 'total' : ''}"><td>${vname[v.method] || v.method}</td><td>${v.k50}</td><td>${v.k200}</td>${two ? `<td>${v.b50}</td><td>${v.b200}</td>` : ''}</tr>`).join('')}
       </tbody></table>
       <p class="note">Ranking on fatal/serious crashes alone does worst: they're rare enough that a place's count swings a lot from year to year, so past counts alone say little about what comes next.
-        Blending them with crash counts came out ahead in ${two ? 'both tests' : 'this test'}, but narrowly: ${two
-          ? `${ex2.k50} and ${ex2.b50} in the top 50, against ${cc.k50} and ${cc.b50} for simply counting crashes`
-          : `${ex2.k50} in the top 50, against ${cc.k50} for simply counting crashes`}. Read the ranking as a strong guide, not a precise forecast.</p>
+        ${(() => {
+          // Said from the numbers in the table, whichever way they fall.
+          const pairs = [['top 50', [ex2.k50, two && ex2.b50], [cc.k50, two && cc.b50]], ['top 200', [ex2.k200, two && ex2.b200], [cc.k200, two && cc.b200]]];
+          const both = a => a.filter(x => x !== false && x != null).map(fmt).join(' and ');
+          const verdict = (a, b) => { const d = a.filter(x => x !== false && x != null).map((x, i) => x - b[i]);
+            return d.every(x => x > 0) ? 'more' : d.every(x => x < 0) ? 'fewer' : d.every(x => x === 0) ? 'the same number' : 'about the same number'; };
+          return 'Against simply counting crashes, this site\'s ranking caught ' + pairs.map(([n, a, b]) =>
+            `${verdict(a, b)} in the ${n} (${both(a)}, against ${both(b)})`).join(', and ') +
+            `. The differences are a few crashes out of ${fmt(meta.test_ksi_total)}${two ? ' and ' + fmt(meta.test2_ksi_total) : ''}, and Test 1 was also used to choose the method, so read the ranking as a guide that does about as well as counting crashes, not a precise forecast.` +
+            (meta.unknown_since_2026 ? ` Test 1's later years include ${fmt(meta.unknown_since_2026)} crash reports from 2026 that don't list a severity yet, which lowers its totals.` : '');
+        })()}</p>
       ${V.expected_split && V.expected ? `<p class="note">Ranking intersections and stretches apart, the way SDOT lists its High Collision
         Locations, keeps them from competing with each other, and half of every top list is stretches. It does as well in the top 50
         (${ex2.k50}${two ? ' and ' + ex2.b50 : ''}, against ${one.k50}${two ? ' and ' + one.b50 : ''} for one combined list) but catches fewer in the
@@ -2967,7 +2991,11 @@
         const f = G.fixed, n = G.none;
         const part = g => `${g.a.length === 1 ? 'the 1 place' : `the ${g.a.length} places`} ${g === f ? `fixed before ${y0(C.d0)}` : `with no fix by ${cmpEnd + 1}`}
           had ${fmt(sum(g.a, 'ksi'))} crashes where someone was killed or seriously hurt in ${then} and ${fmt(sum(g.a, 'ksi_cmp'))} in ${cmpSpan}`;
-        return f.a.length && n.a.length ? `In short: ${part(f)}; ${part(n)}. Citywide, these crashes went ${change(Y.ksi_city, C.ksi_city)}.` : '';
+        // The fixes counted are mostly intersection treatments, so the groups also differ in kind of place: said from the data.
+        const st = g => g.a.filter(x => x.r % 2 === 0).length, stAll = st(f) + st(G.during) + st(n);
+        const kinds = stAll && st(n) > st(f) + st(G.during)
+          ? ` Of the ${stAll} stretches of street in this list, ${st(n) === stAll ? 'all' : st(n)} are in “no fix”: the fixes counted here (walk signals, turn arrows, signals) are mostly made at intersections, so these groups differ in the kind of place as well as in fixes, and this doesn't show what a fix does.` : '';
+        return f.a.length && n.a.length ? `In short: ${part(f)}; ${part(n)}. Citywide, these crashes went ${change(Y.ksi_city, C.ksi_city)}.${kinds}` : '';
       };
       return `<section class="pg-sec" id="pg-then">
         <h3>Did the worst places get fixed?</h3>
@@ -3020,7 +3048,7 @@
     function monthPart() {
       const ins = M.moves.filter(m => m.in50 === 'in'), outs = M.moves.filter(m => m.in50 === 'out');
       const dk = m => kRank(m.was) - kRank(m.now);   // moves among the place's own kind
-      const up = M.moves.filter(m => !m.in50 && m.was && dk(m) >= 3), down = M.moves.filter(m => !m.in50 && m.was && -dk(m) >= 3);
+      const up = M.moves.filter(m => !m.in50 && m.was && dk(m) >= 5), down = M.moves.filter(m => !m.in50 && m.was && -dk(m) >= 5);
       const arrow = m => !m.was ? 'new' : dk(m) > 0 ? `▲${dk(m)}` : `▼${-dk(m)}`;
       const row = m => `<li><span class="pg-l1"><span class="pg-rk">${rankTxt(m.now)}</span> ${placeBtn(m.loc)}</span>
         <span class="pg-l2">${m.was ? `${arrow(m)}: was ${rankTxt(m.was, false)} a month ago` : 'not ranked a month ago'}</span></li>`;
@@ -3080,7 +3108,7 @@
           <caption class="sr-only">Share of crashes where someone was killed or seriously hurt, fixes and planned projects, ${dim === 'district' ? 'by council district' : 'by equity index'}</caption>
           <tr><th scope="col"><span class="sr-only">${dim === 'district' ? 'District' : 'Equity level'}</span></th><th scope="col">Killed or seriously hurt</th>
             <th scope="col">Head-start walk signals</th><th scope="col">Other fixes</th><th scope="col">Planned projects</th>
-            <th scope="col">Top-50 places</th><th scope="col">…with nothing done or planned</th></tr>
+            <th scope="col">Places in the citywide top 50</th><th scope="col">…with no work since ${P.since} or published SDOT project recorded in the layers this site reads</th></tr>
           ${rows.map(r => `<tr class="${r.g === open ? 'on' : ''}"><th scope="row"><button type="button" class="linkbtn pg-grp" data-grp="${esc(r.g)}" aria-expanded="${r.g === open}">${esc(gName(r.g))}</button>${dim === 'district' && member(r.g) ? `<br><small class="muted">${member(r.g)}</small>` : ''}</th>
             <td>${pc(r.ksi, T.ksi)}</td><td>${pc(r.lpi, T.lpi)}</td><td>${pc(r.other, T.other)}</td><td>${pc(r.proj_planned, T.proj)}</td>
             <td>${r.top50}</td><td>${r.top50_nothing}</td></tr>`).join('')}
@@ -3169,12 +3197,12 @@
         <div><b data-n="${meta.city_serious}">${fmt(meta.city_serious)}</b><span>seriously injured</span></div>
       </div>
       <div class="cs-foot"><b class="cs-hi">About 1 in ${oneIn}</b> of the crashes that killed or seriously hurt someone
-        (${fmt(meta.top50_ksi)} of ${fmt(ksiAll)}) happened at just <b class="cs-hi">50 spots</b>, out of
-        ${fmt(meta.locations_scored)} places with crashes. Those 50 are the top of the "Most likely to hurt people" ranking, picked using these same crashes.${pbShare ? `
+        (${fmt(meta.top50_ksi)} of ${fmt(ksiAll)}) happened at just <b class="cs-hi">25 intersections and 25 stretches of street</b>${meta.top50_stretch_miles ? ` (the stretches add up to about ${meta.top50_stretch_miles} miles)` : ''}, out of
+        ${fmt(meta.locations_scored)} places with crashes. Those are the top of the "Most likely to hurt people" ranking, picked using these same crashes.${pbShare ? `
         Citywide, <b class="cs-hi">${pbShare}%</b> of these crashes involved someone walking or biking.` : ''}</div>
       ${meta.forward_top50_ksi ? `<div class="cs-note">Predicting is harder: ranked on the first 3 years, the top 50 had
         ${fmt(meta.forward_top50_ksi)} of the next 2 years' ${fmt(meta.test_ksi_total)} fatal or serious crashes
-        (${Math.round(100 * meta.forward_top50_ksi / meta.test_ksi_total)}%). From police reports in SDOT's data; freeways not included.</div>` : ''}`;
+        (${Math.round(100 * meta.forward_top50_ksi / meta.test_ksi_total)}%). From police reports in SDOT's data; freeways are mostly not in it.</div>` : ''}`;
     if (reduceMotion) return;
     el.querySelectorAll('b[data-n]').forEach(b => {
       const to = +b.dataset.n, pct = b.hasAttribute('data-pct'), t0 = performance.now(), dur = 1100;
@@ -3208,7 +3236,8 @@
     if (s) { selectLite(s); viewBefore = null; return true; }
     return false;
   }
-  window.addEventListener('hashchange', openFromHash);
+  // Back and Forward: open the place in the address, or close it when the address has none.
+  window.addEventListener('hashchange', () => { if (!location.hash && spotOpen()) closeDetail(false); else openFromHash(); });
   // ---------- desktop overview: the details panel never closes; with nothing picked it shows where to start ----------
   let homeFocus = null;   // the overview card a spot was opened from, to return focus to it
   function renderHome() {
