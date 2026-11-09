@@ -224,7 +224,7 @@
     if (p.addr_type === 'I') {
       if (p.signalized && p.lt_protected === false && manyLeft)
         out.push(`${lt} left-turn crashes; no protected left-turn arrow in SDOT signal data`);
-      if (p.signalized && p.lpi_status !== 'Existing' && p.ped_turn_crashes >= 2)
+      if (p.signalized && p.lpi_status !== 'Existing' && p.ntor_status !== 'Existing' && p.ped_turn_crashes >= 2)
         out.push(`${p.ped_turn_crashes} people walking hit by turning drivers; ${p.lpi_status === 'Planned'
           ? `head-start walk signal planned${p.lpi_planned ? ' for ' + p.lpi_planned : ''}` : p.lpi_status === 'Not Feasible'
           ? 'SDOT assessed a head-start walk signal as not feasible here' : 'no head-start walk signal'} (SDOT data)`);
@@ -276,6 +276,7 @@
     const done = [], bus = [];
     if (p.lpi_status === 'Existing' && p.lpi_installed) done.push({ y: +p.lpi_installed.slice(0, 4), k: 'head-start walk signal' });
     if (p.lt_protected && p.lt_installed) done.push({ y: +p.lt_installed.slice(0, 4), k: 'protected left turn' });
+    if (p.ntor_status === 'Existing' && p.ntor_installed) done.push({ y: +p.ntor_installed.slice(0, 4), k: 'no turn on red' });
     if (p.signalized && p.signal_installed && +p.signal_installed.slice(0, 4) >= 1990) done.push({ y: +p.signal_installed.slice(0, 4), k: 'signal installed or rebuilt' });
     (p.fixes || []).filter(f => f.s === 'Built' && f.d).forEach(f => (f.k === 'Bus lane' ? bus : done).push({ y: +f.d.slice(0, 4), k: f.k.toLowerCase() }));
     projectsAt(p).filter(j => j.stage === 'done' && j.year).forEach(j => done.push({ y: +j.year, k: projKind(j) }));
@@ -285,6 +286,7 @@
     const recent = done.filter(f => f.y >= y0), older = done.filter(f => f.y < y0);
     const planned = [...new Set(projectsAt(p).filter(j => j.stage !== 'done').map(projKind))];
     if (p.lpi_status === 'Planned' && !planned.includes('head-start walk signal')) planned.push('head-start walk signal');
+    if (p.ntor_status === 'Planned') planned.push('no turn on red');
     const cip = p.cip || [];
     const parts = [];
     if (recent.length) parts.push(`Since ${y0}: ${list(recent)}`);
@@ -1292,6 +1294,10 @@
     if (p.lpi_status === 'Existing') items.push(`<b>Head-start walk signal</b> (Leading Pedestrian Interval: the walk light comes on a few seconds before cars get a green) since ${p.lpi_installed ? monthYear(p.lpi_installed) : 'an unknown date'}.`);
     else if (p.lpi_status === 'Planned') items.push(`Head-start walk signal <b>planned</b>${p.lpi_planned ? ' for ' + p.lpi_planned : ''}.`);
     else if (p.lpi_status === 'Not Feasible') items.push(`Head-start walk signal judged <b>not feasible</b> by SDOT.`);
+    const appr = p.ntor_approaches ? ` (${esc(p.ntor_approaches)} ${/[,&/]| and /.test(p.ntor_approaches) ? 'approaches' : 'approach'})` : '';
+    if (p.ntor_status === 'Existing') items.push(`<b>No turn on red</b>${appr} since ${p.ntor_installed ? fixDate(p.ntor_installed) : 'an unknown date'}.`);
+    else if (p.ntor_status === 'Planned') items.push(`No turn on red <b>planned</b>${p.ntor_planned ? ' for ' + esc(p.ntor_planned) : ''}.`);
+    else if (p.ntor_status === 'Not Feasible') items.push(`No turn on red judged <b>not feasible</b> by SDOT.`);
     if (p.lt_protected) items.push(`Protected left-turn signal${p.lt_installed ? ' since ' + p.lt_installed.slice(0, 4) : ''}.`);
     if (p.signalized && p.ped_audio) items.push('Accessible (audible) pedestrian signals.');
     (p.fixes || []).forEach(f => {
@@ -3018,7 +3024,7 @@
         // The fixes counted are mostly intersection treatments, so the groups also differ in kind of place: said from the data.
         const st = g => g.a.filter(x => x.r % 2 === 0).length, stAll = st(f) + st(G.during) + st(n);
         const kinds = stAll && st(n) > st(f) + st(G.during)
-          ? ` Of the ${stAll} stretches of street in this list, ${st(n) === stAll ? 'all' : st(n)} are in “no fix”: the fixes counted here (walk signals, turn arrows, signals) are mostly made at intersections, so these groups differ in the kind of place as well as in fixes, and this doesn't show what a fix does.` : '';
+          ? ` Of the ${stAll} stretches of street in this list, ${st(n) === stAll ? 'all' : st(n)} are in “no fix”: the fixes counted here (walk signals, no turn on red, turn arrows, signals) are mostly made at intersections, so these groups differ in the kind of place as well as in fixes, and this doesn't show what a fix does.` : '';
         return f.a.length && n.a.length ? `In short: ${part(f)}; ${part(n)}. Citywide, these crashes went ${change(Y.ksi_city, C.ksi_city)}.${kinds}` : '';
       };
       return `<section class="pg-sec" id="pg-then">

@@ -124,6 +124,7 @@ select location, date, peds, cyclists, coll_type from collisions;
 -- Dated things SDOT built at each place, and the kind of crash each one is meant to reduce.
 create or replace table dated_fixes as
 select location, 'Head-start walk signal' as kind, lpi_installed as d, 'ped' as m from locations where lpi_status = 'Existing' and lpi_installed is not null
+union all select location, 'No turn on red', ntor_installed, 'ped' from locations where ntor_status = 'Existing' and ntor_installed is not null
 union all select location, 'Protected left-turn signal', lt_installed, 'left' from locations where lt_protected and lt_installed is not null
 union all select location, f.k, f.d, case when f.k = 'Protected bike lane' then 'bike' else 'all' end
   from (select location, unnest(fixes) f from locations) where f.d is not null and f.s = 'Built'

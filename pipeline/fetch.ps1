@@ -110,6 +110,8 @@ Get-ArcGISLayer "$gis/Seattle_Bus_Volumes/FeatureServer/0" 'TLINK_ID,FULLNAME_L,
 Get-ArcGISLayer "$gis/Vision_Zero_High_Injury_Network_Score/FeatureServer/2" 'SEGMENT_NAME,FROM_,TO_,LENGTH_MI,HIN_SCORE,PRIORITY' 'hin'
 Get-ArcGISLayer "$gis/Vision_Zero_High_Collision_Locations/FeatureServer/0" 'HCL_YEAR,LOCATION,INTKEY,TYPE' 'hcl'
 Get-ArcGISLayer "$gis/Vision_Zero_-_Leading_Pedestrian_Intervals_ACTIVE/FeatureServer/8" 'LOCATION,LPI_Status,LPI_Install_Date,LPI_Planned_Year' 'lpi'
+# No turn on red (NTOR), SDOT's companion to the head-start walk signal: Existing (with date), Planned (with year), Not Feasible
+Get-ArcGISLayer "$gis/Vision_Zero_-_No_Turns_on_Red_ACTIVE/FeatureServer/8" 'LOCATION,NTOR_Status,NTOR_Install_Date,NTOR_Planned_Year,Approaches' 'ntor'
 Get-ArcGISLayer "$gis/nma_nhoods_main/FeatureServer/0" 'L_HOOD' 'hoods_main'          # 20 areas (Ballard, West Seattle...)
 Get-ArcGISLayer "$gis/nma_nhoods_sub/FeatureServer/0" 'L_HOOD,S_HOOD' 'hoods_sub'        # 94 neighborhoods
 Get-ArcGISLayer "$gis/Seattle_City_Council_Districts/FeatureServer/0" 'C_DISTRICT,DISPLAY_NAME' 'districts'   # city outline + districts
@@ -176,7 +178,7 @@ Write-Host "gtfs stops: $($counts['gtfs_stops'])"
 
 # ---- 5. Sanity checks, then swap into data/raw ----
 $minimum = @{ collisions = 20000; requests = 50000; budget = 10000; streets = 20000; volumes = 1000
-              hin = 50; hcl = 100; lpi = 500; signals = 800; districts = 7; hoods_main = 15; hoods_sub = 80
+              hin = 50; hcl = 100; lpi = 500; ntor = 400; signals = 800; districts = 7; hoods_main = 15; hoods_sub = 80
               volhist_years = 8; humps = 50; cushions = 30; radar = 30; bikelanes = 200; buslanes = 500; busvol = 2000; gtfs_stops = 3000
               sw_missing = 8000; sw_poor = 1500; proj_sidewalk = 20; proj_nispp = 5
               crashhist = 50000; crosswalks = 4000; curbramps = 25000; bikefac = 1500; circles = 500; schools = 70; rse = 150; council = 7 }

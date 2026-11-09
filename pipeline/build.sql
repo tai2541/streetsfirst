@@ -192,6 +192,14 @@ select f.properties.LPI_Status as status,
 from (select unnest(features) f from read_json('data/raw/lpi_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
+create or replace table ntor as   -- No turn on red at a signal (all or some approaches)
+select f.properties.NTOR_Status as status,
+       make_timestamp(f.properties.NTOR_Install_Date::bigint * 1000)::date as installed,
+       f.properties.NTOR_Planned_Year as planned_year, nullif(trim(f.properties.Approaches), '') as approaches,
+       ST_Centroid(gj_geom(f.geometry)) as geom
+from (select unnest(features) f from read_json('data/raw/ntor_*.json', maximum_object_size = 50000000))
+where f.geometry is not null;
+
 create or replace table signals as
 select f.properties.INTKEY as intkey,
        f.properties.PEDSIGNALYN = 'Y' as ped_signal,
@@ -267,6 +275,12 @@ lp as (select p.location,
                   'i': l.installed, 'p': l.planned_year}) as lpi
        from loc_pts p join locations_all a using (location) join lpi l on ST_DWithin(p.geom, l.geom, 100)
        where a.addr_type = 'I' group by p.location),
+nt as (select p.location,   -- same rule as head-start signals: the nearest record within 100 ft, Existing first
+         arg_min({'status': n.status, 'installed': n.installed, 'planned': n.planned_year, 'approaches': n.approaches},
+                 {'s': case n.status when 'Existing' then 0 when 'Planned' then 1 else 2 end, 'd': ST_Distance(p.geom, n.geom),
+                  'i': n.installed, 'p': n.planned_year}) as ntor
+       from loc_pts p join locations_all a using (location) join ntor n on ST_DWithin(p.geom, n.geom, 100)
+       where a.addr_type = 'I' group by p.location),
 sg as (select a.location, bool_or(ped_signal) ped_signal, bool_or(ped_audio) ped_audio,
               bool_or(lt_protected) lt_protected, min(lt_installed) filter (where lt_protected) lt_installed,
               max(installed) signal_installed   -- the newest signal install (a new or rebuilt signal)
@@ -279,6 +293,7 @@ select a.location, a.addr_type, a.intkey, s.speed_limit, s.art_class, s.pavement
        v.volume, v.volume_streets, v.volume_year, v.volume_estimated,
        h.hin_level, coalesce(c.hcl_years, []) as hcl_years, c.hcl_types,
        lp.lpi.status as lpi_status, lp.lpi.installed as lpi_installed, lp.lpi.planned as lpi_planned,
+       nt.ntor.status as ntor_status, nt.ntor.installed as ntor_installed, nt.ntor.planned as ntor_planned, nt.ntor.approaches as ntor_approaches,
        sg.location is not null as signalized, sg.ped_signal, sg.ped_audio, sg.lt_protected, sg.lt_installed, sg.signal_installed,
        -- reference group for expected harm
        case when a.addr_type = 'I' then 'I' else 'B' end as addr_class,
@@ -287,7 +302,7 @@ select a.location, a.addr_type, a.intkey, s.speed_limit, s.art_class, s.pavement
 from locations_all a
 left join s using (location) left join len using (location) left join loc_volume v using (location)
 left join h using (location) left join c using (location)
-left join lp using (location) left join sg using (location);
+left join lp using (location) left join nt using (location) left join sg using (location);
 
 -- Neighborhoods (City of Seattle Neighborhood Map Atlas): 20 large areas, 94 neighborhoods. Used to say where a
 -- spot is ("West Seattle · Alki") and to label the map.
@@ -403,7 +418,7 @@ select e.*, x.addr_type, x.intkey, x.speed_limit, x.art_class,
   case x.hin_level when 1 then 'High' when 2 then 'Mid' when 3 then 'Low' end as sdot_hin,
   x.hcl_years as sdot_hcl_years, x.hcl_types as sdot_hcl_types,
   x.area, x.neighborhood,
-  x.lpi_status, x.lpi_installed, x.lpi_planned, x.signalized, x.ped_signal, x.ped_audio, x.lt_protected, x.lt_installed, x.signal_installed,
+  x.lpi_status, x.lpi_installed, x.lpi_planned, x.ntor_status, x.ntor_installed, x.ntor_planned, x.ntor_approaches, x.signalized, x.ped_signal, x.ped_audio, x.lt_protected, x.lt_installed, x.signal_installed,
   a.lon, a.lat,
   -- state facilities: WSDOT owns or shares responsibility
   -- Aurora Ave N is SR 99 and Lake City Way NE is SR 522, although SDOT classes them as city arterials.
@@ -601,7 +616,7 @@ create or replace table spot_export as
          area, neighborhood, speed_limit, street_type, state_route, structure, pavement_min,
          volume, volume_streets, volume_year, volume_estimated,
          sdot_hin, sdot_hcl_years, sdot_hcl_types, ksi_after_hcl,
-         lpi_status, lpi_installed, lpi_planned, ped_after_lpi, signalized, ped_signal, ped_audio, lt_protected, lt_installed,
+         lpi_status, lpi_installed, lpi_planned, ntor_status, ntor_installed, ntor_planned, ntor_approaches, ped_after_lpi, signalized, ped_signal, ped_audio, lt_protected, lt_installed,
          confidence, crashes, unknown_sev, fatal, serious, injury, ksi, ksi_years, killed, seriously_injured,
          pb_crashes, ped_crashes, bike_crashes, speeding_crashes, ped_turn_after_lpi, left_turn_crashes, ped_turn_crashes, angle_crashes,
          wet_crashes, dark_crashes, unlit_crashes, road_known, light_known,
