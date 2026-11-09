@@ -108,7 +108,7 @@ body.resizing { user-select: none; cursor: ew-resize; }
 
 /* collapsible sections */
 .dsec-h { user-select: none; }
-.dsec-h::before { content: '▾'; display: inline-block; width: 14px; transition: transform .15s; }
+.dsec-h::before { content: '▾'; content: '▾' / ''; display: inline-block; width: 14px; transition: transform .15s; }
 .dsec.collapsed .dsec-h::before { transform: rotate(-90deg); }
 .dsec.collapsed .dsec-b { display: none; }
 .dsec-h:hover { color: #1d2430; }
@@ -229,17 +229,25 @@ body.paused .top-mark .pulse { animation: none; transform: scale(1.7); opacity: 
   nav button { padding: 5px 9px; font-size: 13px; }
   /* iPhone Safari zooms the whole page into any text box or menu set smaller than 16px, and stays zoomed */
   input, select, textarea { font-size: 16px !important; }
+  /* small text buttons get a taller touch area */
+  .fbtn { min-height: 32px; }
+  .linkbtn:not([style*="inline"]) { min-height: 32px; }
   /* map credits: a small (i) button in the corner (Esri allows its credit behind a button; OpenStreetMap allows a
      collapsed credit on small screens). Shown in full when the page opens, folded at the first touch of the map,
-     and a tap on the button opens it again. */
-  .leaflet-control-attribution { font-size: 11px; line-height: 1.4; padding: 3px 8px !important; max-width: calc(100vw - 70px);
-    border-radius: 8px 0 0 0; cursor: pointer; background: #fff !important; position: relative; z-index: 2; }
-  .leaflet-control-attribution.compact:not(.open) { width: 22px; height: 22px; padding: 0 !important; margin: 0 4px 4px 0 !important;
-    border-radius: 50%; overflow: hidden; color: transparent; font-size: 0; position: relative; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
-  .leaflet-control-attribution.compact:not(.open) > * { display: none; }
-  .leaflet-control-attribution.compact:not(.open)::before { content: "i"; position: absolute; inset: 0; display: grid; place-items: center;
-    font: italic 700 13px/1 Georgia, serif; color: #1d2430; }
+     and the button opens them again. Open, they sit above the button and clear of the map key. */
+  #map .attr-btn { display: grid; }
+  .leaflet-control-attribution { display: none; }
+  .leaflet-control-attribution.open { display: block; font-size: 11px; line-height: 1.4; padding: 4px 8px !important;
+    max-width: calc(100vw - 24px); margin: 0 6px 36px 0 !important; border-radius: 8px; background: #fff !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,.25); }
 }
+/* the (i) button exists on every screen; only phones show it */
+.attr-btn { display: none; place-items: center; clear: both; float: right; position: relative; width: 24px; height: 24px; margin: 0 6px 6px 0;
+  padding: 0; border: 0; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); cursor: pointer;
+  font: italic 700 14px/1 Georgia, serif; color: #1d2430; pointer-events: auto; }
+.attr-btn::before { content: ''; position: absolute; inset: -10px; }   /* a 44px touch area around the 24px circle */
+.attr-btn[aria-expanded="true"] { background: #1d2430; color: #fff; }
+.attr-btn:focus-visible { outline: 3px solid #2f55c7; outline-offset: 2px; }
 @container (max-width: 430px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
 
 /* repeated deaths: always listed, below the ranked spots */
@@ -363,7 +371,7 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 .rank { min-width: 0; display: inline-flex; align-items: center; justify-content: center; height: 24px; padding: 0 7px; border-radius: 12px;
   font-size: 12px; font-weight: 800; background: #e7eaf0; color: #3a4456; flex: none; font-variant-numeric: tabular-nums; }
 #list li.t0 .rank { background: #b3141b; color: #fff; box-shadow: 0 0 0 3px rgba(179,20,27,.15); }
-#list li.t1 .rank { background: #e0561f; color: #fff; }
+#list li.t1 .rank { background: #c2410c; color: #fff; }   /* a shade darker than the marker, for 4.5:1 text */
 #list li.t2 .rank { background: #f0a020; color: #3b2600; }
 .row1 { align-items: center; }
 .chips, .sdotrow { margin-left: 0; }
@@ -381,6 +389,11 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 .stat:nth-child(2) { background: #fff0ef; } .stat:nth-child(2) b { color: #b3141b; }
 .stat:nth-child(3) { background: #eef4fe; } .stat:nth-child(3) b { color: #1f4fa8; }
 .stat:nth-child(4) { background: #ebf8f2; } .stat:nth-child(4) b { color: #147a55; }
+/* "Did the worst places get fixed?": fixes read green, no fix neutral, still among the worst red (not the tiles' default order) */
+.pg-stats .stat:nth-child(1), .pg-stats .stat:nth-child(2) { background: #ebf8f2; }
+.pg-stats .stat:nth-child(1) b, .pg-stats .stat:nth-child(2) b { color: #147a55; }
+.pg-stats .stat:nth-child(3) { background: #f1f3f6; } .pg-stats .stat:nth-child(3) b { color: #3a4352; }
+.pg-stats .stat:nth-child(4) { background: #fff0ef; } .pg-stats .stat:nth-child(4) b { color: #b3141b; }
 .callout { border-radius: 0 10px 10px 0; }
 
 /* map chrome */
@@ -420,23 +433,23 @@ body:not(.traffic-view) .lg-traffic { display: none; }
 .tlist .card { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 11px 12px; font: inherit; color: inherit; cursor: pointer; border-radius: 12px; }
 .tlist .card:focus-visible { outline: 2px solid #2f55c7; outline-offset: 1px; }
 .tlist li.t0 .rank { background: #b3141b; color: #fff; box-shadow: 0 0 0 3px rgba(179,20,27,.15); }
-.tlist li.t1 .rank { background: #e0561f; color: #fff; }
+.tlist li.t1 .rank { background: #c2410c; color: #fff; }
 .tlist li.t2 .rank { background: #f0a020; color: #3b2600; }
 .tlist .hood { display: block; font-size: 12px; font-weight: 400; color: #5b6576; margin-top: 1px; }
 @media (prefers-reduced-motion: reduce) { .tlist li { animation: none; } .tlist li:hover { transform: none; } }
 .th-street { margin: 8px 0 2px; font-size: 13px; } .th-street svg { margin-top: 4px; }
 
 /* ---- Reporting problems: always one click away ---- */
-.report-head { margin-left: auto; align-self: center; background: #1baf7a; color: #fff; text-decoration: none; font-weight: 700; font-size: 13.5px;
+.report-head { margin-left: auto; align-self: center; background: #0f7a54; color: #fff; text-decoration: none; font-weight: 700; font-size: 13.5px;
   padding: 8px 14px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.25); white-space: nowrap; transition: background .15s, transform .15s; }
-.report-head:hover { background: #148f63; transform: translateY(-1px); }
+.report-head:hover { background: #0b6143; transform: translateY(-1px); }
 .report-head:focus-visible, .report-btn:focus-visible { outline: 3px solid #f2b632; outline-offset: 2px; }
 header nav { margin-left: 0; }
 .report { margin: 12px 0 4px; padding: 10px 12px; border-radius: 12px; background: #e9f8f1; border: 1px solid #b7e6d1; font-size: 13px; color: #1f3d33; }
 .report-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
-.report-btn { display: inline-block; background: #1baf7a; color: #fff; text-decoration: none; font-weight: 700; padding: 7px 14px; border-radius: 9px;
+.report-btn { display: inline-block; background: #0f7a54; color: #fff; text-decoration: none; font-weight: 700; padding: 7px 14px; border-radius: 9px;
   box-shadow: 0 1px 4px rgba(20,90,60,.3); transition: background .15s; }
-.report-btn:hover { background: #148f63; }
+.report-btn:hover { background: #0b6143; }
 @media (max-width: 760px) { .report-head { order: 3; width: 100%; text-align: center; } }
 
 /* ---- address pin ---- */
@@ -484,7 +497,7 @@ header nav { margin-left: 0; }
 /* ---- collapsible map key ---- */
 .lg-toggle { display: flex !important; width: 100%; align-items: center; justify-content: space-between; gap: 8px; border: 0; background: none;
   font: 700 12px/1.2 Inter, system-ui, sans-serif; color: #1d2430; padding: 2px 0 4px; cursor: pointer; }
-.lg-toggle::after { content: '▾'; font-size: 11px; transition: transform .15s; }
+.lg-toggle::after { content: '▾'; content: '▾' / ''; font-size: 11px; transition: transform .15s; }
 .map-legend.collapsed .lg-toggle { padding: 2px 0; }
 .map-legend.collapsed .lg-toggle::after { transform: rotate(-90deg); }
 .map-legend .lg-body { display: block; }
@@ -563,7 +576,7 @@ body.proj-on .map-legend .lg-proj { display: flex; }
 #detail .dsec > h3 { margin: 6px 0 6px; font-size: 14.5px; font-weight: 700; text-transform: none; letter-spacing: 0; color: var(--c); }
 .dsec > h3 .dsec-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; }
 .dsec > h3 .dsec-h::before { content: none; }
-.dsec > h3 .dsec-h::after { content: '▾'; font-size: 13px; color: var(--c); opacity: .8; transition: transform .15s; }
+.dsec > h3 .dsec-h::after { content: '▾'; content: '▾' / ''; font-size: 13px; color: var(--c); opacity: .8; transition: transform .15s; }
 .dsec.collapsed > h3 .dsec-h::after { transform: rotate(-90deg); }
 .dsec > h3 .dsec-h:hover { color: var(--c); filter: brightness(.8); }
 .dsec .dsec-b { color: #1d2430; }
@@ -742,7 +755,7 @@ body.sheet-open #expandPanel, body.sheet-open #expandDetail, body.sheet-open #pa
 .rank-hist li b { font-size: 12px; white-space: nowrap; }
 .rank-hist li span[aria-hidden] { font-size: 10px; white-space: nowrap; }
 .rank-hist li.t0 { background: #b3141b; color: #fff; }
-.rank-hist li.t1 { background: #e0561f; color: #fff; }
+.rank-hist li.t1 { background: #c2410c; color: #fff; }
 .rank-hist li.t2 { background: #f0a020; color: #2a1b00; }
 .rank-hist li.low { background: #eef0f4; color: #3a4456; }
 .rank-hist li.none { background: #f6f7f9; color: #4f5a6b; }

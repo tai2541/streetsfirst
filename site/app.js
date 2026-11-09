@@ -322,15 +322,22 @@
   baseLayers['Light gray'].addTo(map);
   // On a phone the credits fold into a small (i) button: open in full when the page loads, folded at the first touch
   // of the map (or after 8 seconds), and a tap on the button opens or folds them (links inside still work as links).
+  // (The button sits next to Leaflet's credits box, not inside it: Leaflet rewrites the box when the base map changes.)
   { const at = map.attributionControl && map.attributionControl.getContainer();
     if (at) {
-      at.title = 'Map credits'; at.setAttribute('role', 'button'); at.setAttribute('aria-label', 'Map credits');
-      at.classList.add('compact', 'open');
-      const fold = () => at.classList.remove('open');
-      setTimeout(fold, 8000);
-      map.getContainer().addEventListener('pointerdown', e => { if (!at.contains(e.target)) fold(); }, { once: true });
-      L.DomEvent.disableClickPropagation(at);
-      at.addEventListener('click', e => { if (!e.target.closest('a')) at.classList.toggle('open'); });
+      at.id = 'mapCredits';
+      const btn = L.DomUtil.create('button', 'attr-btn');
+      btn.type = 'button'; btn.textContent = 'i'; btn.setAttribute('aria-label', 'Map credits'); btn.setAttribute('aria-controls', 'mapCredits');
+      at.after(btn);
+      const show = open => { at.classList.toggle('open', open); btn.setAttribute('aria-expanded', String(open)); };
+      show(true);
+      // the first fold is automatic (first touch of the map, or 8 seconds); after that only the button opens or folds them
+      const timer = setTimeout(() => show(false), 8000);
+      map.getContainer().addEventListener('pointerdown', e => {
+        if (!at.contains(e.target) && e.target !== btn) { clearTimeout(timer); show(false); }
+      }, { once: true });
+      L.DomEvent.disableClickPropagation(btn); L.DomEvent.disableClickPropagation(at);
+      btn.addEventListener('click', () => { clearTimeout(timer); show(!at.classList.contains('open')); });
     } }
   // Neighborhood names: the 20 large areas (Ballard, West Seattle...) when zoomed out, the 94 neighborhoods when zoomed in.
   map.createPane('labels'); map.getPane('labels').style.zIndex = 450; map.getPane('labels').style.pointerEvents = 'none';
@@ -466,7 +473,7 @@
   const TIERS = [
     { color: '#b3141b' },
     { color: '#e0561f', stroke: '#6b1f04', weight: 2.5 },
-    { color: '#f0a020', stroke: '#fff', weight: 1.5 },
+    { color: '#f0a020', stroke: '#8a5300', weight: 1.5 },   // dark edge: light orange alone is faint on the gray map
     { color: '#7a8597', stroke: '#fff', weight: 1 }
   ];
 
@@ -587,7 +594,21 @@
           });
       m.bindTooltip(`${pRank(p)} ${esc(p.name)}`, { direction: 'top', offset: [0, pTier(p) === 0 ? -14 : -4] })
         .on('click', () => pickSpot(p, true, m.getElement && m.getElement()));
-      m._p = p; m.addTo(layer); markers[p.rank_ksi] = m;
+      // Keyboard and screen readers: a numbered marker is a button named with its rank, kind and place, and Enter or
+      // Space opens it. The smaller circles aren't Tab stops (the list reaches the same places, in order).
+      const a11y = () => {
+        const el = m.getElement && m.getElement(); if (!el) return;
+        if (pTier(p) === 0) {
+          el.setAttribute('aria-label', `${pRank(p)}: ${niceName(p.location || p.name)}`);
+          const core = el.querySelector('.core'); if (core) core.setAttribute('aria-hidden', 'true');
+        } else { el.removeAttribute('tabindex'); el.setAttribute('aria-hidden', 'true'); el.setAttribute('focusable', 'false'); }
+      };
+      if (pTier(p) === 0) m.on('keypress', e => {
+        const k = e.originalEvent && e.originalEvent.key;
+        if (k === 'Enter' || k === ' ') { e.originalEvent.preventDefault(); pickSpot(p, true, m.getElement()); }
+      });
+      m.on('add', () => setTimeout(a11y));
+      m._p = p; m.addTo(layer); markers[p.rank_ksi] = m; a11y();
     });
 
     const list = document.getElementById('list');
@@ -865,7 +886,8 @@
     lastTap = { where: t.closest('#panel') ? 'list' : t.closest('#progressSheet') ? 'progress' : t.closest('#detail') ? 'detail' : 'map', t: Date.now() };
   }, true);
   const backBtn = document.getElementById('backDetail');
-  backBtn.onclick = () => closeDetail(true);
+  // back to the list: the search box no longer holds the place that was open
+  backBtn.onclick = () => { closeDetail(true); const s = document.getElementById('search'); if (s) s.value = ''; };
 
   // The details just opened (or changed place). Called before the map moves, so `cover` is already the new height.
   function phoneDetailShown(wasHidden) {
@@ -1360,7 +1382,7 @@
     const rm = weight('request_radius_m');
     L.circle([p.lat, p.lon], { radius: rm, color: '#1d2430', weight: 2, dashArray: '6 5', fillColor: REQ_COLOR, fillOpacity: 0.08, interactive: false }).addTo(focus);
     L.marker([p.lat + rm / 111320, p.lon], { keyboard: false, interactive: false,
-      icon: L.divIcon({ className: 'radius-label', iconSize: null, html: `<span>Requests counted within ${ft(rm)} ft</span>` }) }).addTo(focus);
+      icon: L.divIcon({ className: 'radius-label', iconSize: null, html: `<span>Find It, Fix It repair requests within ${ft(rm)} ft</span>` }) }).addTo(focus);
     const groups = new Map();
     (det ? det.requests : []).filter(r => !reqFilter || r.t === reqFilter).forEach(r => {
       const k = r.lat + ',' + r.lon;
@@ -1738,17 +1760,25 @@
   const say = t => { sStatus.textContent = ''; setTimeout(() => (sStatus.textContent = t), 50); };
   const closeList = () => { sList.hidden = true; sInput.setAttribute('aria-expanded', 'false'); sInput.removeAttribute('aria-activedescendant'); };
   function runSearch() {
-    const q = sInput.value.toLowerCase().replace(/&/g, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+    // "12th and Jackson", "45th & Roosevelt", "MLK at Othello": the joining word isn't part of either street's name, and
+    // a corner typed that way puts intersections first. Common spellings match SDOT's (MLK = M L King, Avenue = Ave).
+    const raw = sInput.value.toLowerCase().trim();
+    const corner = /(^|\s)(and|at)(\s|$)|[&@\/]/.test(raw);
+    const q = normQ(raw).replace(/\b(mlk|martin luther king)\b/g, 'm l king').replace(/\bavenue\b/g, 'ave')
+      .replace(/\bstreet\b/g, 'st').replace(/\bboulevard\b/g, 'blvd').replace(/\bplace\b/g, 'pl')
+      .replace(/(^|\s)(and|at)(?=\s|$)/g, ' ').replace(/\s+/g, ' ').trim();
     if (q.length < 2) { sList.hidden = true; sInput.setAttribute('aria-expanded', 'false'); return; }
     const words = q.split(' ');
     // Index is in rank order. Places whose street names hold every word come before neighborhood-only matches.
     const all = searchIdx.filter(s => words.every(w => s.key.includes(w)));
     const inName = s => words.every(w => s.nkey.includes(' ' + w));
-    sHits = all.filter(inName).concat(all.filter(s => !inName(s))).slice(0, 8);
+    const named = all.filter(inName), first = corner ? named.filter(s => s.type === 'I') : [];
+    sHits = first.concat(named.filter(s => !first.includes(s)), all.filter(s => !inName(s))).slice(0, 8);
     const nPlaces = sHits.length;
     // Text can also be pinned as an address: offered when it has a number in it or matches no scored place.
     const addr = { addr: true, text: sInput.value.trim() };
-    if (/^\d/.test(addr.text)) sHits.unshift(addr); else if (/\d/.test(addr.text) || !nPlaces) sHits.push(addr);
+    // A house number ("4500 Rainier Ave S") puts the address first; "12th and Jackson" is a corner, not an address.
+    if (/^\d+\s/.test(addr.text) && !corner) sHits.unshift(addr); else if (/\d/.test(addr.text) || !nPlaces) sHits.push(addr);
     sActive = -1; sInput.removeAttribute('aria-activedescendant');
     say(nPlaces ? `${nPlaces === 8 ? '8 or more' : nPlaces} matching places` : 'No matching crash location. You can pin it as an address.');
     sList.innerHTML = sHits.map((s, i) => s.addr
@@ -1990,9 +2020,10 @@
     if (!pinView) pinView = viewBefore || { c: map.getCenter(), z: map.getZoom() };
     if (spotOpen()) closeDetail(false);
     const go = () => { m.openPopup(); };
-    // On phones the map is short: put the pin low so its pop-up fits above it.
+    // On phones the map is short: put the pin low in the part of the map the sheet doesn't cover, so its pop-up
+    // fits above it.
     let c = L.latLng(g.lat, g.lon);
-    if (small()) c = map.unproject(map.project(c, 16).subtract([0, map.getSize().y * 0.38]), 16);
+    if (small()) { const h = map.getSize().y, pinY = 0.8 * (h - cover); c = map.unproject(map.project(c, 16).add([0, h / 2 - pinY]), 16); }
     else if (!detailEl.hidden) c = map.unproject(map.project(c, 16).add([detailEl.offsetWidth / 2, 0]), 16);
     if (reduceMotion) { map.setView(c, 16, { animate: false }); go(); }
     else { map.once('moveend', go); map.flyTo(c, 16, { duration: 0.8 }); }
@@ -2014,7 +2045,7 @@
     const m = L.marker([g.lat, g.lon], {
       pane: 'pin', keyboard: true, title: title, alt: (g.preview ? 'Found address (not saved): ' : 'Your pin: ') + (g.name ? `${g.name}, ${g.label}` : g.label),
       icon: L.divIcon({ className: 'addr-pin' + (g.preview ? ' preview' : ''), iconSize: [30, 42], iconAnchor: [15, 40], popupAnchor: [0, -36], html: '<span></span>' })
-    }).bindPopup(html, { maxWidth: 320, maxHeight: small() ? 150 : 420, autoPanPaddingTopLeft: [12, 12], autoPanPaddingBottomRight: [12, 12] }).addTo(pinLayer);
+    }).bindPopup(html, { maxWidth: 320, maxHeight: small() ? Math.max(150, Math.round(0.8 * (map.getSize().y - cover)) - 80) : 420, autoPanPaddingTopLeft: [12, 12], autoPanPaddingBottomRight: [12, 12] }).addTo(pinLayer);
     if (g.preview) previewMarker = m; else pinMarkers.set(g.id, m);
     // Desktop: no pop-up over the map (it hid the crash dots around the pin); the pin's summary and buttons go in
     // the right panel. Clicking the pin again deselects it. Phones keep the pop-up. Decided per call, so resizing works.
@@ -2198,9 +2229,15 @@
         .forEach(([id, l]) => el(id).checked && parts.push(l));
       t = parts.join(' · ');
     }
+    // A changed list is announced to screen readers (a filter can take it from 50 places to none), once it settles.
+    if (t !== el('panelTitle').textContent && panelBanner.ready) {
+      clearTimeout(panelBanner.timer);
+      panelBanner.timer = setTimeout(() => { el('listStatus').textContent = 'List: ' + el('panelTitle').textContent; }, 400);
+    }
     el('panelTitle').textContent = t;
     el('panelSearch').hidden = tab !== 'tab-priorities';
   }
+  setTimeout(() => (panelBanner.ready = true), 1500);   // not on first load
   // Every redraw of a list updates the title, whatever caused it.
   ['list', 'tlist', 'slist'].forEach(id => new MutationObserver(panelBanner).observe(document.getElementById(id), { childList: true }));
   panelBanner();
