@@ -216,7 +216,7 @@ from block_ends e join place_fixes f on f.location = e.ix
 where f.d >= ws() and f.k not in ('New sidewalk', 'Neighborhood safety project')
 group by e.block;
 
-create or replace table need_work as
+create or replace table place_work as
 -- Fix counts are by calendar year (since January of the window's first year). "Work since" a place's crash window began
 -- is by date: a dated fix, or a dated bus lane (SDOT builds them as transit projects that change the street; not in the
 -- fix counts), on or after the window's first day.
@@ -234,9 +234,14 @@ places as (
     r.location in (select location from recent) as fixed_recently,
     r.location in (select location from end_fixes) as ends_fixed,
     coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned' or len(r.cip) > 0, false) as proj_planned,
-    r.state_route, r.council_district2
+    r.state_route, r.council_district2, r.crashes, r.ped_crashes, r.bike_crashes
   from ranked r left join fx using (location)
-),
+)
+select * from places;
+
+-- Need and work by council district and by the City's equity index.
+create or replace table need_work as
+with places as (select * exclude (crashes, ped_crashes, bike_crashes) from place_work),
 long as (
   select 'district' as dim, district as grp, * exclude (district, rse) from places
   union all select 'rse', rse, * exclude (district, rse) from places
@@ -259,6 +264,26 @@ proj_long as (
 proj_g as (select dim, grp, count(*) filter (where stage <> 'done') as proj_planned from proj_long group by dim, grp)
 select b.*, coalesce(p.proj_planned, 0) as proj_planned
 from by_g b full join proj_g p using (dim, grp);
+
+-- Totals along each street (all its intersections and the stretches between them), ranked by crashes that killed or
+-- seriously hurt someone. A crash at an intersection counts for each street that meets there, so a street's total is
+-- complete but totals of different streets can't be added together. Counts only, no costs. Street names are SDOT's.
+-- "No work": a top-100 place on a city street with no dated safety fix or bus lane since the window began and no planned
+-- work (as in the district table); places WSDOT runs are counted apart.
+create or replace table street_totals as
+with sp as (
+  select unnest(case when addr_type = 'B' then [split_part(location, ' BETWEEN ', 1)]
+                     else list_distinct(string_split(location, ' AND ')) end) as street, *
+  from place_work
+)
+select street, count(*) as places, sum(crashes) as crashes, sum(ksi) as ksi, sum(killed) as killed,
+  sum(seriously_injured) as hurt, sum(ped_crashes) as ped, sum(bike_crashes) as bike,
+  count(*) filter (where rank <= 50) as top50, count(*) filter (where rank <= 100) as top100,
+  count(*) filter (where rank <= 100 and state_route is not null) as top100_state,
+  count(*) filter (where rank <= 100 and state_route is null and not fixed_recently and not proj_planned) as top100_nothing,
+  list_sort(list_distinct(list(district) filter (where district <> 'none'))) as districts,
+  arg_min(location, rank) as worst, min(rank) as worst_rank
+from sp where street <> '' group by street;
 
 -- ---------------------------------------------------------------- is it working?
 -- Each dated fix, the crashes it's meant to reduce in equal periods before and after (context.sql: before_after), next
@@ -328,6 +353,10 @@ copy (
       'places': (select list({'loc': location, 'k': k, 'm': m, 'd': d, 'yo': yo, 'days': days, 'b': b, 'a': a, 'pb': pb, 'rank': rank, 'dist': district}
                              order by k, a - b desc, a desc, rank nulls last, location) from working_places)
     },
+    'streets': (select list({'s': street, 'n': places, 'c': crashes, 'ksi': ksi, 'killed': killed, 'hurt': hurt, 'ped': ped, 'bike': bike,
+                              't50': top50, 't100': top100, 't100_state': top100_state, 't100_none': top100_nothing,
+                              'dist': districts, 'worst': worst, 'wr': worst_rank} order by ksi desc, crashes desc, street)
+                 from (select * from street_totals order by ksi desc, crashes desc, street limit 30)),
     'since': year(ws()),
     'since_d': strftime(ws(), '%B %Y'),
     'window': {'d0': ws(), 'd1': we()}

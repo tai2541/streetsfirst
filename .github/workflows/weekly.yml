@@ -101,6 +101,40 @@ jobs:
       - id: deployment
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e   # v4
 
+  # Dated weekly snapshot: the published list of every place's rank (seattle/data/ranks.csv), kept as a GitHub release
+  # named for its data date, so a rank quoted on a given day can be checked later. GitHub records when each release was
+  # made. A list that's already saved for that date is skipped; a different list for the same date (a code change that
+  # moved ranks) gets its own release, so nothing saved is ever replaced.
+  snapshot:
+    needs: deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - run: |
+          set -e
+          ok=
+          for i in 1 2 3 4 5; do
+            if curl -fsSL "$SITE_URL/seattle/data/ranks.csv?run=${{ github.run_id }}" -o ranks.csv; then ok=1; break; fi
+            sleep 30
+          done
+          [ -n "$ok" ] || { echo "Could not download the published ranks.csv"; exit 1; }
+          d=$(sed -n 2p ranks.csv | cut -d, -f1)
+          echo "$d" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' || { echo "Unexpected data date: $d"; exit 1; }
+          [ "$(wc -l < ranks.csv)" -gt 1000 ] || { echo "ranks.csv is too short"; exit 1; }
+          tag="ranks-$d"; f="streets-first-seattle-ranks-$d.csv"; cp ranks.csv "$f"
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release download "$tag" -R "$GITHUB_REPOSITORY" -p '*.csv' -O old.csv
+            if cmp -s old.csv "$f"; then echo "This list is already saved as $tag."; exit 0; fi
+            tag="$tag-run${{ github.run_number }}"
+          fi
+          gh release create "$tag" "$f" -R "$GITHUB_REPOSITORY" --target "${{ github.sha }}" --latest=false \
+            --title "Seattle ranks, data as of $d" \
+            --notes "Every place's rank on Streets First (Seattle) with data as of $d, as published on $SITE_URL/seattle/. Ranks change each week as new crash reports arrive; this file keeps this week's list unchanged. Crash counts are police-reported, from SDOT's open data; each row has the place's link."
+          echo "Saved $tag"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   # Keeps the weekly schedule from being switched off for inactivity (no commits needed).
   keepalive:
     if: github.event_name == 'schedule'
@@ -115,7 +149,7 @@ jobs:
   # Any failed step (fetch check, build, self-test, deploy): open an issue, or add to the open one, with a link to the run.
   # The site keeps last week's version until a run succeeds.
   alert:
-    needs: [build, deploy]
+    needs: [build, deploy, snapshot]
     if: failure()
     runs-on: ubuntu-latest
     permissions:

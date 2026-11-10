@@ -750,7 +750,16 @@ body.sheet-open #expandPanel, body.sheet-open #expandDetail, body.sheet-open #pa
      and request tables stay on screen (the link in the header leads back to them) */
   #detail, #detail * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .print-head { display: block !important; margin: 0 0 10px; padding-bottom: 6px; border-bottom: 1px solid #999; font-size: 11px; color: #333; }
+  .print-head > div + div { margin-top: 3px; }
+  .print-ask { margin-top: 6px !important; padding: 6px 8px; border: 1px solid #999; border-radius: 4px; font-size: 12.5px; color: #111; }
   .res-list, .res-more, .pin-res, .report, .copyloc, .linkbtn, .dsec-crashes, .dsec-reqs, .dsec-math { display: none !important; }
+  /* a short handout (about two pages): the summary, what SDOT has done, the kinds of crashes, crashes by year and rank over
+     the years; the street, traffic, sidewalk and repair-request details and the timing charts stay on the linked page */
+  .graphs .gcol:nth-child(1), .graphs .gcol:nth-child(3), .dsec-street, .dsec-traffic, .dsec-walk, .dsec-reqtypes { display: none !important; }
+  .graphs { display: grid !important; grid-template-columns: 1fr 1fr; gap: 0 16px; break-inside: avoid; }
+  .dcols { display: grid !important; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  .dcol { display: contents !important; }
+  .dsec h3 { break-after: avoid; }
 }
 .print-head { display: none; }
 

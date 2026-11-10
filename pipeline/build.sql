@@ -768,6 +768,17 @@ copy (
   from ranked left join stretch_ends e using (location)
 ) to 'site/data/search.json' (format json, array false);
 
+-- This week's full ranked list, for the dated weekly snapshot (run.ps1 adds the date and each place's link, and the
+-- weekly job keeps a copy of every week as a GitHub release, so a rank quoted on a given day can be checked later).
+-- Places keep SDOT's own names; counts only, no costs.
+copy (
+  select rank, case addr_type when 'I' then 'Intersection' when 'B' then 'Stretch' else 'Alley' end as type,
+         location, council_district, council_district2, area, crashes, ksi, killed, seriously_injured,
+         ped_crashes, bike_crashes, state_route, round(score_ksi, 1) as score,
+         ws() as crashes_from, (we() - interval 1 day)::date as crashes_to
+  from ranked order by rank
+) to 'data/ranks_raw.csv' (header true);
+
 
 -- Drill-down for every place: each crash (including recent, not-yet-scored ones) and each nearby repair request, plus
 -- the place's fields for places outside the ranked lists. Kept out of the main data file and split by map area; the site

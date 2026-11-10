@@ -65,8 +65,11 @@ fatal-weighted ranking was retired from the site. All weights are in the
 ## Status
 Live at https://streetsfirst.org/seattle/, rebuilt weekly and on every push to `main` by
 `.github/workflows/weekly.yml` (fetch, build, check, deploy). It ranks Seattle intersections and stretches by
-crash harm plus nearby repair requests, shows what SDOT has done and plans at each place, tracks need against
-published work by district, and shows the SDOT capital budget by program. Search finds streets, corners, schools
+crash harm (repair requests nearby are listed but don't change the score), shows what SDOT has done and plans at
+each place, tracks need against published work by district and along whole streets, and shows the SDOT capital
+budget by program. Each place prints as a short handout with one suggested question for SDOT (or WSDOT), picked by
+rules from its data. Each week's full ranked list is published as `seattle/data/ranks.csv` and kept as a dated GitHub
+release (`ranks-YYYY-MM-DD`), so a rank quoted on a given day can be checked later. Search finds streets, corners, schools
 and Seattle street addresses (King County address points, with a geocoder as a fallback).
 
 - Data inventory: [docs/data-sources.md](docs/data-sources.md)

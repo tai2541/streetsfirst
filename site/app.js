@@ -34,6 +34,8 @@
   // whole years between two ISO dates (the scoring window and its test split are whole years)
   function yrsBetween(a, b) { return Math.round((new Date(b) - new Date(a)) / (365.25 * 864e5)); }
   const monthYear = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  // The data date, for quoting a rank ("#8 as of Nov 9, 2026"): ranks change weekly, and each week's list is saved.
+  const asOfShort = () => (D.fetchedAt ? new Date(D.fetchedAt.slice(0, 10) + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
   // A fix date SDOT gives only as a year is written Dec 30 or 31 in its data: show just the year (the pipeline does the same).
   const fixDate = (d, yo) => (yo || /-12-3[01]/.test(d) ? d.slice(0, 4) : monthYear(d));   // yo: the layer gives only the year
   // the scored crash window as "Jul 2021–Jun 2026" (window_to is its last day)
@@ -177,13 +179,39 @@
     </div>`;
   }
   document.addEventListener('click', e => { if (e.target.closest && e.target.closest('.print-btn')) window.print(); });
-  // Printed or saved pages say what they are, when the data is from, the source, and the link back.
+  // One question a printed sheet suggests asking, picked by rules from the place's own data (the first that fits). Asked
+  // of whoever runs the street: WSDOT for freeways, ramps and state bridges, SDOT everywhere else.
+  function askFor(p) {
+    const who = p.state_route ? 'WSDOT' : 'SDOT', y = d => (d ? d.slice(0, 4) : '');
+    const since = p.lpi_installed && p.lpi_installed > meta.window_from ? monthYear(p.lpi_installed) : monthYear(meta.window_from);
+    if (p.lpi_status === 'Not Feasible')
+      return `${who}'s data lists a head-start walk signal here as "not feasible". Why isn't it feasible here, and what would ${who} do instead?`;
+    if (p.lpi_status === 'Existing' && p.ped_turn_after_lpi >= 2)
+      return p.ntor_status === 'Existing'
+        ? `This place has a head-start walk signal${p.lpi_installed ? ` (${y(p.lpi_installed)})` : ''} and no turn on red, yet ${plural(p.ped_turn_after_lpi, 'crash', 'crashes')} since ${since} involved someone walking and a turning driver. Is ${who} considering turn restrictions here?`
+        : `Since ${since}, ${plural(p.ped_turn_after_lpi, 'crash', 'crashes')} here involved someone walking and a turning driver, despite the head-start walk signal${p.lpi_installed ? ` (${y(p.lpi_installed)})` : ''}. Has ${who} looked at no turn on red or a turn restriction here?`;
+    if (p.lpi_status === 'Planned' || p.ntor_status === 'Planned')
+      return `${who}'s data lists ${[p.lpi_status === 'Planned' ? 'a head-start walk signal' : '', p.ntor_status === 'Planned' ? 'no turn on red' : ''].filter(Boolean).join(' and ')} as planned here. When is it expected?`;
+    if (p.addr_type === 'I' && p.signalized && !p.lt_protected && p.left_turn_crashes >= 5)
+      return `${plural(p.left_turn_crashes, 'crash', 'crashes')} here involved a left-turning driver, and ${who}'s data shows no protected left-turn signal. Has ${who} evaluated one here?`;
+    if (p.addr_type === 'I' && p.signalized && !p.lpi_status && p.ped_crashes >= 3)
+      return `${plural(p.ped_crashes, 'crash', 'crashes')} here involved someone walking, and ${who}'s data shows no head-start walk signal. Has ${who} evaluated one here?`;
+    if (p.proj_planned) return `${who}'s published plans include work here. What will it change for the crashes recorded here, and when?`;
+    if (p.addr_type === 'B' && p.ksi >= 2)
+      return `From ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}, ${plural(p.ksi, 'crash', 'crashes')} on this block killed or seriously hurt someone.${workSummary(p).cls === 'done' ? '' : ` ${who}'s data shows no safety change along the block itself since ${monthYear(meta.window_from)}.`} Is this block part of a corridor safety project, and what would it change here?`;
+    return `Is this place on ${who}'s list for a safety review, and what would make it safer?`;
+  }
+  // Printed or saved pages say what they are, when the data is from, the source, who made it, and the link back. A
+  // place's sheet adds its rank on that date and one suggested question (on paper only).
   window.addEventListener('beforeprint', () => {
     const d = document.getElementById('detail'); if (!d) return;
     let h = d.querySelector('.print-head'); if (!h) { h = document.createElement('div'); h.className = 'print-head'; d.prepend(h); }
     const asOf = D.fetchedAt ? new Date(D.fetchedAt.replace(' ', 'T')) : null;
-    h.textContent = `Streets First · Seattle — ${asOf && !isNaN(asOf) ? 'data as of ' + asOf.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + ' — ' : ''}` +
-      `from SDOT's police-reported crash data and SDOT's published records — ${location.href}`;
+    const p = current && current.location && current.addr_type ? current : null;
+    h.innerHTML = `<div>Streets First · Seattle — ${asOf && !isNaN(asOf) ? 'data as of ' + asOf.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + ' — ' : ''}` +
+      `from SDOT's police-reported crash data and SDOT's published records — ${esc(location.href)}</div>` +
+      `<div>Made by Dara Try, a Seattle resident · contact@streetsfirst.org · independent; the City and SDOT haven't reviewed or endorsed it${p && p.rank_ksi ? ` · ranked ${rankTxt(p.rank_ksi)} citywide as of ${asOfShort()} (ranks change weekly; each week's list is saved)` : ''}</div>` +
+      (p ? `<div class="print-ask"><b>A question to ask ${p.state_route ? 'WSDOT' : 'SDOT'}:</b> ${esc(askFor(p))}</div>` : '');
   });
 
   // One status region for screen readers, outside every panel (panels can be hidden or inert when a message is sent).
@@ -246,10 +274,13 @@
     applyMode(); closeDetail(false); render(); renderAbout();
   };
 
-  document.getElementById('provenance').textContent =
+  // Under the list on every screen: what's scored, when, and how to reach the person who makes the site.
+  document.getElementById('provenance').innerHTML =
     `Scored: ${fmt(meta.collisions_scored)} SDOT collision reports from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)} ` +
-    `at ${fmt(N)} places, plus Find It Fix It repair requests. Data fetched ${(d => d && !isNaN(d)
-      ? d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'unknown')(D.fetchedAt && new Date(D.fetchedAt.replace(' ', 'T')))}.`;
+    `at ${fmt(N)} places. Data fetched ${(d => d && !isNaN(d)
+      ? d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'unknown')(D.fetchedAt && new Date(D.fetchedAt.replace(' ', 'T')))}.` +
+    `<br>Made by Dara Try. Questions, suggestions, or a mistake on this site? Email <a href="mailto:contact@streetsfirst.org">contact@streetsfirst.org</a>
+    (to report a street problem to the City, use the links on each place's page).`;
 
   const scoreText = p => (mode === 'risk' ? `${p.score.toFixed(1)} <small>harm points per million vehicles</small>` : `<small>score</small> ${fmt(Math.round(p.score))}`);
   const topShare = rank => { const s = (100 * rank) / kindCount(rank); return s < 1 ? `top ${Math.max(0.1, Math.ceil(s * 10) / 10)}%` : s <= 50 ? `top ${Math.ceil(s)}%` : 'lower half'; };
@@ -1610,7 +1641,7 @@
         ${100 - Math.round(100 * w)}% what's typical for ${groupName(p.ref_group)} (the more crashes a place has, the more its own record
         counts), which puts it ${own > typ ? 'below' : 'above'} its own record alone`);
     if (p.request_boost >= 0.05) parts.push(`repair reports nearby raise it ${Math.round(100 * p.request_boost)}%`);
-    return `<p class="note why-rank"><b>Why ${rankTxt(p.rank_ksi)} citywide:</b> ${parts.join('; ')}. <a href="#" class="why-more">How it's calculated</a></p>`;
+    return `<p class="note why-rank"><b>Why ${rankTxt(p.rank_ksi)} citywide${asOfShort() ? ` (as of ${asOfShort()})` : ''}:</b> ${parts.join('; ')}. <a href="#" class="why-more">How it's calculated</a></p>`;
   }
   function mathBox(p) {
     const k = weight('ksi_prior_crashes');
@@ -1629,7 +1660,8 @@
       ? `<p><b>Risk ${p.score_risk.toFixed(1)} per million vehicles</b> = expected harm ${fmt(Math.round(p.expected_harm))} ÷
           (${fmt(Math.max(p.volume, weight('risk_vol_floor')))} vehicles a weekday × 365 × 5 years ÷ 1 million).</p>`
       : `<p class="note">Not ranked for risk: ${p.volume ? `fewer than ${weight('risk_min_crashes')} crashes` : 'no SDOT traffic count'}.</p>`;
-    const ranks = `<p class="note">Ranks: ${rankTxt(p.rank_ksi)} most likely to hurt people · ${p.rank_risk ? '#' + p.rank_risk : 'unranked'} for how busy it is.</p>`;
+    const ranks = `<p class="note">Ranks${asOfShort() ? ` as of ${asOfShort()}` : ''}: ${rankTxt(p.rank_ksi)} most likely to hurt people · ${p.rank_risk ? '#' + p.rank_risk : 'unranked'} for how busy it is.
+        Ranks change weekly; <a href="https://github.com/tai2541/streetsfirst/releases" target="_blank" rel="noopener">each week's list is saved</a>.</p>`;
     return (mode === 'risk' ? riskLine + ksiLine : ksiLine + riskLine) + ranks;
   }
   const groupName = g => {
@@ -3269,7 +3301,9 @@
       <p>Streets First is an independent project. It isn't made by or for the City of Seattle or SDOT, which haven't reviewed or endorsed it, and it uses only the
         City's public data, downloaded and rebuilt automatically every Monday. All the code and every calculation are public on
         <a href="https://github.com/tai2541/streetsfirst" target="_blank" rel="noopener">GitHub</a> for anyone to read and check (other use needs permission).</p>
-      <p><b>See a mistake?</b> <a href="https://github.com/tai2541/streetsfirst/issues/new" target="_blank" rel="noopener">Report it on GitHub</a>
+      <p><b>Who made it:</b> Dara Try, a Seattle resident. Questions or suggestions: <a href="mailto:contact@streetsfirst.org">contact@streetsfirst.org</a></p>
+      <p><b>See a mistake?</b> Email <a href="mailto:contact@streetsfirst.org">contact@streetsfirst.org</a>, or
+        <a href="https://github.com/tai2541/streetsfirst/issues/new" target="_blank" rel="noopener">report it on GitHub</a>
         (a free account is needed). Corrections that come from the City's own data are fixed in the next rebuild.</p>
       <p class="note">Totals here can differ from SDOT's Vision Zero reports: SDOT's official figures count people, from crash data
         WSDOT has checked, which is final about a year later. This site counts police reports in SDOT's open collision data
@@ -3633,6 +3667,28 @@
       </section>`;
     }
 
+    // ---- 3b. whole streets: every intersection and stretch along a street, added up (from the build's street_totals)
+    function streetsPart() {
+      const S = P.streets || []; if (!S.length) return '';
+      const row = s => {
+        const city = s.t100 - (s.t100_state || 0);
+        return `<li><span class="pg-l1"><b>${esc(niceName(s.s))}</b>${(s.dist || []).length ? ` <small class="muted">District${s.dist.length > 1 ? 's' : ''} ${s.dist.map(esc).join(', ')}</small>` : ''}</span>
+          <span class="pg-l2"><b>${plural(s.ksi, 'crash', 'crashes')} that killed or seriously hurt someone</b>${s.killed ? ` (${plural(s.killed, 'person', 'people')} killed)` : ''}
+            · ${plural(s.ped + s.bike, 'crash', 'crashes')} with someone walking or biking · ${fmt(s.c)} crashes in all, at ${plural(s.n, 'place', 'places')}</span>
+          <span class="pg-l2">${s.t100 ? `${s.t100} in the citywide top 100${s.t50 ? ` (${s.t50} in the top 50)` : ''}${s.t100_state ? `, ${s.t100_state} run by WSDOT` : ''}${city ? `; of the ${city} on city streets, ${s.t100_none} with no work since ${esc(P.since_d)} or planned` : ''}` : 'None in the citywide top 100'}
+            · highest: ${rankTxt(s.wr)} ${placeBtn(s.worst)}</span></li>`;
+      };
+      return `<section class="pg-sec" id="pg-streets">
+        <h3>Whole streets</h3>
+        <p class="lead">Every intersection and stretch along a street, added up, for the ${S.length} streets with the most crashes that killed or seriously hurt someone,
+          ${monthYear(P.window.d0)}–${throughMonth(P.window.d1)}.</p>
+        <ul class="pg-list">${more('streets', S, 10, row)}</ul>
+        <p class="note">A crash at an intersection counts for each street that meets there, so each street's total is complete, but totals of
+          different streets can't be added together. Counts are crashes (not people), as police reported them. Street names are SDOT's, and SDOT
+          sometimes gives one street more than one name along its length; each name is counted on its own. "No work since ${esc(P.since_d)} or planned" is the same test as in the district table above.</p>
+      </section>`;
+    }
+
     // ---- 4. is it working? each kind of fix, the crashes it targets before and after, next to the city's change
     function workingPart() {
       const W = P.working; if (!W || !(W.kinds || []).length) return '';
@@ -3702,8 +3758,8 @@
       el.innerHTML = `<p class="note">${asOf && !isNaN(asOf) ? `Data as of <b>${asOf.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</b>. ` : ''}Worked
         out from SDOT's crash reports since 2013 and SDOT's published records of what it built, recalculated every week. Pick a place to see it on the map.</p>`
         + `<nav class="pg-jump" aria-label="Sections"><span>Jump to:</span> <button type="button" class="linkbtn" data-jump="pg-need">Districts</button>
-            <button type="button" class="linkbtn" data-jump="pg-month">Since last month</button> <button type="button" class="linkbtn" data-jump="pg-working">Is it working?</button></nav>`
-        + thenPart() + monthPart() + needPart() + workingPart();
+            <button type="button" class="linkbtn" data-jump="pg-month">Since last month</button> ${(P.streets || []).length ? '<button type="button" class="linkbtn" data-jump="pg-streets">Whole streets</button> ' : ''}<button type="button" class="linkbtn" data-jump="pg-working">Is it working?</button></nav>`
+        + thenPart() + monthPart() + needPart() + streetsPart() + workingPart();
       el.querySelectorAll('[data-jump]').forEach(b => (b.onclick = () => { const t = el.querySelector('#' + b.dataset.jump);
         scrollSheetTo(t); const h = t && t.querySelector('h3'); if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }); } }));
       const y = el.querySelector('#pgYear');
@@ -4011,8 +4067,8 @@
       check(await wait(() => document.querySelectorAll('#crashTable tr').length > 1), '#1 did not show its crash list');
       check(!!document.querySelector('#detailBody .dsec-street'), '#1 has no street section');
       check(await wait(() => document.querySelectorAll('.rank-hist li').length >= 5), '#1 has no rank-over-the-years chart');
-      // "Is it getting fixed?": four sections (worst places of a past year, since last month, the need table, is it working?)
-      check(document.querySelectorAll('#progress .pg-sec').length === 4, 'progress view did not draw');
+      // "Is it getting fixed?": five sections (worst places of a past year, since last month, the need table, whole streets, is it working?)
+      check(document.querySelectorAll('#progress .pg-sec').length === 5, 'progress view did not draw');
       check(document.querySelectorAll('#pg-working .pg-working li').length >= 1, 'is it working? section has no fix kinds');
       check(document.querySelectorAll('#progress .pg-places tr').length >= 11, 'progress: past worst-50 table is short');
       check(document.querySelectorAll('#progress .pg-need tr, #progress .pg-card').length >= 8, 'progress: district table is short');
