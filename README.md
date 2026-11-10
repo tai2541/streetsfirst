@@ -102,3 +102,9 @@ pipeline/check.ps1   checks a build before publishing; site/index.html#selftest 
 site/                static web page (Leaflet map; Leaflet and the font are vendored, no outside scripts)
 docs/                data sources, deployment plan
 ```
+
+## License
+
+All rights reserved. The code is public so anyone can read it and check how the numbers are calculated. Any other use
+(running, copying, changing or deploying it, for any organization) needs written permission: see [LICENSE](LICENSE).
+The data belongs to its publishers (the City of Seattle, King County and others) and stays under their terms.
