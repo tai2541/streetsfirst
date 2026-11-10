@@ -3265,7 +3265,7 @@
       <p class="note">For scale: ${Math.round(100 * meta.busy_share_on_hin)}% of the ${fmt(meta.busy_locations)} spots with 10+ crashes are on the High Injury Network.</p>`;
     document.getElementById('about').innerHTML = `
       <h3>About this site</h3>
-      <p>Streets First is an independent project. It isn't made by or for the City of Seattle or SDOT, and it uses only the
+      <p>Streets First is an independent project. It isn't made by or for the City of Seattle or SDOT, which haven't reviewed or endorsed it, and it uses only the
         City's public data, downloaded and rebuilt automatically every Monday. All the code and every calculation are public on
         <a href="https://github.com/tai2541/streetsfirst" target="_blank" rel="noopener">GitHub</a> for anyone to read and check (other use needs permission).</p>
       <p><b>See a mistake?</b> <a href="https://github.com/tai2541/streetsfirst/issues/new" target="_blank" rel="noopener">Report it on GitHub</a>
