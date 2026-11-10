@@ -134,7 +134,7 @@ All read by `pipeline/fetch.ps1`, joined in `pipeline/traffic.sql`. Context only
 |---|---|---|---|
 | Arterial traffic volumes, 2015–newest | ArcGIS `YYYY_Arterial_Traffic_Volumes` (one service per year; layer id and field names vary) | Busiest streets; traffic history per spot and street | Yearly layers re-publish old counts for streets not recounted (2022: ~125 of 1,930 new). History uses each count's own date (`START_DATE` / `COUNTSTART`); undated records dropped; repeated identical values hidden. Most streets have only ~2 real counts in 10 years, so there is no "fastest-growing" ranking. |
 | King County Metro GTFS timetable | https://metro.kingcounty.gov/GTFS/google_transit.zip | Where buses lose time at rush hour | The Wednesday in the next 90 days with the most trips after holiday exceptions. Stretches between timed stops (median ~1.2 mi; a few blocks downtown). Hourly average run time; baseline = mean of the 2 quickest hours (usually late night); ranking adds up every trip's time above that baseline, per mile. Includes boarding time. Inside Seattle; stretches under 0.25 mi not ranked (minute-rounded times). Buses only (streetcars and the water taxi left out). Also gives buses a weekday at each place: trips on that Wednesday whose route shape passes within the place's radius, each trip once, with current route names. (This replaced SDOT's `Seattle_Bus_Volumes` layer, which still listed routes retired in 2021 and counted a bus turning a corner on both streets.) |
-| Speed humps, speed cushions | ArcGIS `Speed_Humps_(Active)`, `Speed_Cushions_(Active)` | "What SDOT has done here" | Linked by street segment key. Install dates exist but aren't used yet (not fetched). |
+| Speed humps, speed cushions | ArcGIS `Speed_Humps_(Active)`, `Speed_Cushions_(Active)` | "What SDOT has done here" | Linked by street segment key. The layers have an install-date field, but it is empty in every record, so these are shown undated. |
 | Radar speed signs | ArcGIS `Radar_Speed_Signs_CDL` | Same | No dates. PLANNED shown as planned; TEMPOUTSVC dropped. |
 | Protected bike lanes | ArcGIS `ProtectedBikeLanes` | Same, plus fix line on the timeline | `DATE_COMPLETED`; status CONST = under construction. |
 | Transit (bus) lanes | ArcGIS `Transit_Lanes` layer 1 | Same | `InstallationDate` (175 of 1,174 dated); removed lanes skipped. |
@@ -205,6 +205,8 @@ builds; every week re-derives it all.
   30; otherwise as "N fewer/more". This shows what happened, not whether a fix caused it.
 - **Need vs published work:** by council district and by the City's Race and Social Equity Index, fatal and serious
   crashes in the scored window, today's top 50, how many of those have no fix or published SDOT project nearby, and
-  dated fixes since the start of the scored years (head-start walk signals counted separately).
+  dated fixes since the start of the scored years (head-start walk signals counted separately). A block counts as having
+  work when a dated fix went in at one of the intersections at its ends (within 60 ft of the end of its street line;
+  SDOT records corridor signal work there); its page lists those, and each fix is counted once, at its own intersection.
 - **Links:** `#p=<key>` opens a place (the key is a hash of its name, so it survives re-ranking; old `#loc=N` links still
   work). `#progress` opens the view, `#progress=2018` a year, `#progress=d2` a council district's list.

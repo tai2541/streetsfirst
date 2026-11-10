@@ -19,6 +19,12 @@ select location, r, case when r = 40 and inner_g is not null and not ST_IsEmpty(
 from (select s.location, s.r, s.geom, p.geom as pt,
              case when s.r = 40 then ST_Difference(s.geom, ST_Buffer(ST_Boundary(s.geom), 80)) end as inner_g
       from loc_shape s join loc_pts p using (location));
+-- The intersections at each end of a block (within 60 ft of the end of its street line): work SDOT does at a corridor's
+-- signals is recorded at the intersections, so a block's page also lists what was done at its two ends.
+create or replace table block_ends as
+select s.location as block, p.location as ix
+from loc_shape s join loc_pts p on p.r <> 40 and ST_DWithin(p.geom, ST_Boundary(s.geom), 60)
+where s.r = 40;
 
 -- ---------------------------------------------------------------- fixes SDOT has built
 -- Status from SDOT: in service = Built, PLANNED = Planned; signs temporarily out of service are left out.

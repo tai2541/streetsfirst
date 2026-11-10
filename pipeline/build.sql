@@ -736,12 +736,12 @@ create or replace table spot_export as
          pb_crashes, ped_crashes, bike_crashes, speeding_crashes, ped_turn_after_lpi, left_turn_crashes, ped_turn_crashes, ped_right_crashes, typed_crashes, angle_crashes,
          wet_crashes, dark_crashes, unlit_crashes, road_known, light_known,
          first_crash, last_crash, requests, request_types,
-         fixes, vol_history, bus_trips, bus_routes, bus_stretch_id,
+         fixes, end_fixes, vol_history, bus_trips, bus_routes, bus_stretch_id,
          sw_missing_tier, sw_poor_ft, sw_poor_assessed, proj_ids, proj_planned, cip, signal_installed,
          crosswalks, crosswalks_midblock, crosswalk_school, crosswalk_controls, curb_ramps, curb_ramps_poor, bike_facilities,
          school, school_ft, rse_quintile, rse_year, council_district, council_district2, council_member, council_url, before_after,
          rank_years, rank_month_ago, rank_year_ago
-  from ranked left join place_history using (location);
+  from ranked left join place_history using (location) left join end_fixes using (location);
 
 copy (
   select * from spot_export where location in (select location from export_set()) order by rank

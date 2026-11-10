@@ -370,6 +370,13 @@
     const cip = p.cip || [];
     const parts = [];
     if (recent.length) parts.push(`Since ${y0}: ${list(recent)}`);
+    // a block: dated work at the intersections at its two ends (SDOT records corridor signal work there)
+    const ends = (p.end_fixes || []).filter(f => f.y >= y0);
+    if (ends.length) {
+      const at = [...new Set(ends.map(f => f.at))].map(a => `at ${nicePart(a)}: ` + uniq(ends.filter(f => f.at === a)
+        .sort((a, b) => b.y - a.y || a.k.localeCompare(b.k)).map(f => ({ k: f.k.toLowerCase(), y: f.y }))).map(f => `${f.k} (${f.y})`).join(', '));
+      parts.push(`At its ends since ${y0}: ${at.join('; ')}`);
+    }
     if (planned.length) parts.push(`Planned here or nearby: ${planned.join(', ')}`);
     if (cip.length) parts.push(`Money budgeted ${cip[0].y0 === cip[0].y1 ? 'in ' + cip[0].y0 : cip[0].y0 + '–' + cip[0].y1} for a project named for this street, “${cip[0].t}” (it may not reach this spot)`);
     if (!recent.length && older.length) parts.push(`Older work only: ${list(older)}`);
@@ -382,7 +389,7 @@
       ...(p.fixes || []).filter(f => f.s === 'Built' && !f.d).map(f => f.k.toLowerCase())])]
       .filter(k => !done.some(f => f.k === k) && !(k === 'bus lane' && bus.length));
     if (undated.length) parts.push(`In place with no install date in SDOT's data: ${undated.join(', ')}`);
-    const cls = recent.length ? 'done' : planned.length || cip.length ? 'planned' : 'none';
+    const cls = recent.length || ends.length ? 'done' : planned.length || cip.length ? 'planned' : 'none';
     // say so when nothing is planned, since "what's planned here?" is the first question people bring
     if (parts.length && !planned.length && !cip.length) parts.push("nothing planned on SDOT's published project maps");
     const text = parts.length ? parts.join(' · ') : 'No work recorded here in the SDOT layers this site reads';
@@ -3647,15 +3654,16 @@
                                         : `worse than the city${vs.length > 1 ? ' both ways' : ''}, by more than chance`)
           : 'mixed: better than the city one way, not the other';
         return `<li><span class="pg-l1"><b>${esc(w.k)}</b> · ${plural(w.n_places || w.n, 'place')}${w.n_dates && w.n_dates < 20 ? `, ${plural(w.n_dates, 'install date')}` : ''}</span>
-          <span class="pg-l2">${(what[w.m] || 'targeted crashes').replace(/^./, c => c.toUpperCase())}: ${fmt(w.b)} before, ${fmt(w.a)} after (${chg(here)}). Citywide over the same days: ${chg(city)}.
+          <span class="pg-l2">${clustered && result ? `<b>Result:</b> ${result}.<br>` : ''}${(what[w.m] || 'targeted crashes').replace(/^./, c => c.toUpperCase())}: ${fmt(w.b)} before, ${fmt(w.a)} after${clustered ? '' : ` (${chg(here)}). Citywide over the same days: ${chg(city)}`}.
           ${early ? `<br><span class="pg-yard">Against an earlier period of the same length${w.e_n < w.n ? ` (the ${fmt(w.e_n)} with crash data back that far)` : ''}:
-            ${fmt(w.eb)} then, ${fmt(w.ea)} after (${chg(pc(w.eb, w.ea))}); citywide ${chg(pc(w.ecb, w.eca))}.</span>` : ''}
-          ${result ? `<br><b>Result:</b> ${result}.` : ''}
+            ${fmt(w.eb)} then, ${fmt(w.ea)} after${clustered ? '' : ` (${chg(pc(w.eb, w.ea))}); citywide ${chg(pc(w.ecb, w.eca))}`}.</span>` : ''}
+          ${result && !clustered ? `<br><b>Result:</b> ${result}.` : ''}
           ${w.k === 'Bus lane' ? ` <i>Bus lanes are built for buses, not counted as a safety fix; shown because they change the street.</i>` : ''}
           ${w.k === 'Protected bike lane' ? ` <i>A bike lane can bring more people biking, so more bike crashes can come with more riders; nothing here counts riders.</i>` : ''}
           ${w.n_all > w.n ? `<br><span class="muted">Not counted: ${fmt(w.n_all - w.n)} more where another dated fix went in at the same place over these years.</span>` : ''}</span></li>`;
       };
-      const byK = {}; (W.places || []).forEach(x => (byK[x.k] = byK[x.k] || []).push(x));
+      const thin = new Set(W.kinds.filter(w => w.n_dates && w.n_dates < 30).map(w => w.k));
+      const byK = {}; (W.places || []).filter(x => !thin.has(x.k)).forEach(x => (byK[x.k] = byK[x.k] || []).push(x));
       const placeRow = x => `<li><span class="pg-l1">${x.rank ? `<span class="pg-rk">${rankTxt(x.rank)}</span> ` : ''}${placeBtn(x.loc)}</span>
         <span class="pg-l2">${esc(x.k.toLowerCase())} ${fixDate(x.d, x.yo)}: ${what[x.m] || 'targeted crashes'} ${fmt(x.b)} before, ${fmt(x.a)} after
         (${Math.round(x.days / 30.4)} months each)${x.pb != null ? `; ${fmt(x.pb)} in the ${Math.round(x.days / 30.4)} months before that` : ''}</span></li>`;

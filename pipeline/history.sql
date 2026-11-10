@@ -205,10 +205,22 @@ from j;
 -- "Planned" is the same test as the place's own page: a planned SDOT project nearby, a planned head-start walk signal or
 -- no turn on red, or a budget project named for the street. Places on state highways (WSDOT shares responsibility) are
 -- counted on their own, not as "none recorded".
+-- Dated fixes since the window began at a block's end intersections (its page lists them; the district table counts a
+-- block with work at its ends as having work, but counts each fix once, at its own intersection).
+create or replace table end_fixes as
+select e.block as location,
+  list(distinct {'at': coalesce(list_filter(string_split(e.ix, ' AND '), lambda s: s <> split_part(e.block, ' BETWEEN ', 1))[1], e.ix),
+                 'k': f.k, 'y': f.y}) as end_fixes
+from block_ends e join place_fixes f on f.location = e.ix
+where f.y >= year(ws()) and f.k not in ('New sidewalk', 'Neighborhood safety project')
+group by e.block;
+
 create or replace table need_work as
 with fx as (
   select location, count(*) filter (where k = 'Head-start walk signal') as lpi, count(*) filter (where k <> 'Head-start walk signal') as other
   from place_fixes where y >= year(ws()) group by location
+  union all
+  select location, 0, 0 from end_fixes where location not in (select location from place_fixes where y >= year(ws()))
 ),
 places as (
   select r.location, coalesce(r.council_district::varchar, 'none') as district, coalesce(r.rse_quintile, 'none') as rse,
