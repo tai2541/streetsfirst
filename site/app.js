@@ -359,7 +359,7 @@
       return { short: `Head-start walk signal since ${y || 'an unknown year'}; pedestrians still hit here: ${p.ped_after_lpi} crashes since ${from}, ${p.ped_turn_after_lpi || 0} with a turning vehicle`,
         long: `SDOT added a head-start walk signal here in ${y || 'an unknown year'}. From ${from} to ${monthYear(meta.window_to)},
           ${p.ped_after_lpi} crashes involving pedestrians were reported (${p.ped_turn_after_lpi || 0} with a turning vehicle, the kind
-          this signal targets). ${(p.before_after || []).some(b => b.m === 'ped')
+          this signal targets). ${(p.before_after || []).some(b => b.m === 'turnped' || b.m === 'ped')
             ? 'For the years before and after the signal, see "Before and after" below.'
             : 'Crash data from far enough before the signal isn\'t available here, so this doesn\'t show whether it helped, only that pedestrians are still being hit here.'}` };
     }
