@@ -39,7 +39,9 @@ jobs:
       run:
         shell: powershell
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5
+        with:
+          persist-credentials: false
 
       - name: Get DuckDB (pinned)
         run: |
@@ -79,7 +81,7 @@ jobs:
         timeout-minutes: 10
         run: powershell -ExecutionPolicy Bypass -File pipeline/check.ps1 -Dir dist/seattle
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa   # v3
         with:
           path: dist
 
@@ -94,7 +96,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e   # v4
 
   # Keeps the weekly schedule from being switched off for inactivity (no commits needed).
   keepalive:

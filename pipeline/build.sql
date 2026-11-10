@@ -701,11 +701,26 @@ copy (
 ) to 'site/data/priorities.json' (format json, array true);
 
 
--- Search index: every scored location, compact: [name, lat, lon, rank, crashes, ksi, ped/bike crashes, type, hood, area, cell]
+-- A stretch's point is the middle of its crashes, which on a long block can be far from its ends. For stretches with an
+-- end over 30 m from that point: the two ends of the street line, in metres east and north of it ("ax,ay,bx,by"), so an
+-- address search can measure to the street itself.
+create or replace table stretch_ends as
+with pts as (
+  select p.location, p.geom as m, unnest([ST_StartPoint(s.geom), ST_EndPoint(s.geom)]) as pt
+  from loc_pts p join ranked r using (location) join streets s on s.loc_name = p.location where r.addr_type = 'B'),
+d as (select location, pt, m, ST_Distance(m, pt) as dm from pts),
+p1 as (select location, arg_max(pt, dm) as a, max(dm) as dmax, any_value(m) as m from d group by location),
+p2 as (select d.location, arg_max(d.pt, ST_Distance(d.pt, p1.a)) as b from d join p1 using (location) group by d.location)
+select location, concat_ws(',', round((ST_X(a) - ST_X(m)) * 0.3048)::int, round((ST_Y(a) - ST_Y(m)) * 0.3048)::int,
+                                round((ST_X(b) - ST_X(m)) * 0.3048)::int, round((ST_Y(b) - ST_Y(m)) * 0.3048)::int) as ends
+from p1 join p2 using (location) where dmax * 0.3048 > 30;
+
+-- Search index: every scored location, compact: [name, lat, lon, rank, crashes, ksi, ped/bike crashes, type, hood, area, cell, ends]
 copy (
   select list([location, round(lat, 5)::varchar, round(lon, 5)::varchar, rank::varchar, crashes::varchar,
-               ksi::varchar, pb_crashes::varchar, addr_type, coalesce(neighborhood, ''), coalesce(area, ''), cell_of(lat, lon)] order by rank) as idx
-  from ranked
+               ksi::varchar, pb_crashes::varchar, addr_type, coalesce(neighborhood, ''), coalesce(area, ''), cell_of(lat, lon),
+               coalesce(e.ends, '')] order by rank) as idx
+  from ranked left join stretch_ends e using (location)
 ) to 'site/data/search.json' (format json, array false);
 
 
@@ -739,9 +754,16 @@ group by m.location;
 
 copy (
   with q as (
-    select q.cell, list(to_json([to_json(r.date), to_json(r.type), to_json(r.status), to_json(r.address),
-                                 to_json(round(r.lat, 6)), to_json(round(r.lon, 6))]) order by q.qi) as q
-    from more_req_ids q join requests r on r.id = q.id group by q.cell
+    -- Accessibility (ADA) and Safe Routes to School requests can point to a resident (a disabled person, a family), so
+    -- the page shows those as the hundred block ("9200 block of 31ST AVE SW") at about 11 m; scoring keeps exact points.
+    select q.cell, list(to_json([to_json(r.date), to_json(r.type), to_json(r.status),
+                                 to_json(case when r.sensitive and regexp_matches(r.address, '^\d+[A-Z]?(-\d+)?\s+\S')
+                                   then ((regexp_extract(r.address, '^(\d+)', 1)::bigint // 100) * 100)::varchar || ' block of '
+                                        || regexp_replace(r.address, '^\d+[A-Z]?(-\d+)?\s+', '')
+                                   else r.address end),
+                                 to_json(round(r.lat, case when r.sensitive then 4 else 6 end)),
+                                 to_json(round(r.lon, case when r.sensitive then 4 else 6 end))]) order by q.qi) as q
+    from more_req_ids q join (select *, type ilike 'ADA%' or type ilike '%Safe Routes%' as sensitive from requests) r on r.id = q.id group by q.cell
   ),
   rows as (
     select m.cell,

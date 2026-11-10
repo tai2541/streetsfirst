@@ -189,11 +189,14 @@ where f.d >= (select max(date) from collisions) - interval 365 day and f.d <= cu
   and f.k not in ('New sidewalk', 'Neighborhood safety project');
 
 -- ---------------------------------------------------------------- (3) need and published work, by district and equity index
+-- SDOT's projects, plus planned no turn on red signs (published in their own layer; each place's page counts them as planned)
 create or replace table proj_area as
+with j as (select id::varchar as id, kind, stage, year, geom from proj
+           union all select null, 'ntor', 'planned', try_cast(planned_year as int), geom from ntor where status = 'Planned' and geom is not null)
 select j.id, j.kind, j.stage, j.year,
   (select min(c.district) from council c where ST_Within(ST_Centroid(j.geom), c.geom)) as district,
   (select min(r.quintile) from rse r where ST_Within(ST_Centroid(j.geom), r.geom)) as rse_quintile
-from proj j;
+from j;
 
 -- Places with no council district or equity-index tract are on the city limits (border streets, some bridges): grouped
 -- as 'none' so the columns add up to the city totals.
@@ -207,7 +210,7 @@ with fx as (
 ),
 places as (
   select r.location, coalesce(r.council_district::varchar, 'none') as district, coalesce(r.rse_quintile, 'none') as rse,
-    r.ksi, r.rank, r.addr_type, r.lat, r.lon, r.rank <= 50 as top50, coalesce(fx.lpi, 0) as lpi, coalesce(fx.other, 0) as other,
+    r.ksi, r.killed, r.seriously_injured, r.rank, r.addr_type, r.lat, r.lon, r.rank <= 50 as top50, coalesce(fx.lpi, 0) as lpi, coalesce(fx.other, 0) as other,
     fx.location is not null as fixed_recently,
     coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned' or len(r.cip) > 0, false) as proj_planned,
     r.state_route
@@ -218,7 +221,7 @@ long as (
   union all select 'rse', rse, * exclude (district, rse) from places
 ),
 by_g as (
-  select dim, grp, sum(ksi) as ksi, sum(lpi) as fixes_lpi, sum(other) as fixes_other,
+  select dim, grp, sum(ksi) as ksi, sum(killed) as killed, sum(seriously_injured) as hurt, sum(lpi) as fixes_lpi, sum(other) as fixes_other,
     count(*) filter (where top50) as top50,
     count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null) as top50_nothing,
     count(*) filter (where top50 and state_route is not null) as top50_state,
@@ -241,22 +244,27 @@ from by_g b full join proj_g p using (dim, grp);
 -- didn't drop at all is worth a closer look.
 create or replace table working_fix as
 select x.location, x.district, r.rank, x.f.k as k, x.f.m as m, x.f.d as d, x.f.days as days,
-       x.f.b as b, x.f.a as a, x.f.cb as cb, x.f.ca as ca, x.f.yo as yo, x.f.pb as pb, x.f.pcb as pcb
+       x.f.b as b, x.f.a as a, x.f.cb as cb, x.f.ca as ca, x.f.yo as yo, x.f.pb as pb, x.f.pcb as pcb, x.f.other as other
 from (select location, council_district as district, unnest(before_after) as f from locations) x
 left join ranked r using (location);
 
 create or replace table working_kind as
--- p_*: the same places one period earlier, before the fix (the "before" is that period's "after"): p_had of them had
--- any of the targeted crashes then, p_fewer had fewer in the next period with nothing built yet.
-select k, m, count(*) as n, sum(b) as b, sum(a) as a, sum(cb) as cb, sum(ca) as ca,
-       count(pb) as p_n, sum(pb) as pb, sum(b) filter (where pb is not null) as pa,
-       sum(pcb) as pcb, sum(cb) filter (where pcb is not null) as pca,
-       count(*) filter (where pb > 0) as p_had, count(*) filter (where pb > 0 and b < pb) as p_fewer
+-- Only fixes with no other dated fix at the place over these years (n_all counts them all). e_*: the earlier stretch
+-- against the after period, on the fixes with data back that far. p_had / p_fewer: of those, the ones with any targeted
+-- crash in the earlier stretch, and how many had fewer in the next equal stretch (the "before"), with no fix yet.
+select k, m, count(*) filter (where not other) as n, count(*) as n_all,
+       count(distinct location) filter (where not other) as n_places, count(distinct d) filter (where not other) as n_dates,
+       sum(b) filter (where not other) as b, sum(a) filter (where not other) as a,
+       sum(cb) filter (where not other) as cb, sum(ca) filter (where not other) as ca,
+       count(*) filter (where not other and pb is not null) as e_n,
+       sum(pb) filter (where not other) as eb, sum(a) filter (where not other and pb is not null) as ea,
+       sum(pcb) filter (where not other) as ecb, sum(ca) filter (where not other and pcb is not null) as eca,
+       count(*) filter (where not other and pb > 0) as p_had, count(*) filter (where not other and pb > 0 and b < pb) as p_fewer
 from working_fix group by k, m;
 
 -- places where the targeted crashes didn't go down: at least 2 after, and no fewer than before
 create or replace table working_places as
-select * from working_fix where a >= 2 and a >= b
+select * from working_fix where a >= 2 and a >= b and k <> 'Bus lane' and not other and days >= 730
 qualify row_number() over (partition by k order by a - b desc, a desc, rank nulls last, location) <= 40;
 
 -- ---------------------------------------------------------------- export: site/data/progress.json
@@ -286,14 +294,15 @@ copy (
       'recent_ksi_total': (select {'f': sum(fatal), 's': sum(serious), 'from': we(), 'to': max(last_date)} from recent_ksi),
       'recent_fixes': (select list({'loc': location, 'k': k, 'd': d, 'rank': rank} order by d desc, rank) from recent_fixes)
     },
-    'need': (select list({'dim': dim, 'g': grp, 'ksi': ksi, 'top50': top50, 'top50_nothing': top50_nothing, 'top50_state': top50_state,
+    'need': (select list({'dim': dim, 'g': grp, 'ksi': ksi, 'killed': killed, 'hurt': hurt, 'top50': top50, 'top50_nothing': top50_nothing, 'top50_state': top50_state,
                           'lpi': fixes_lpi, 'other': fixes_other, 'proj_planned': proj_planned, 'list': top50_list}
                          order by dim, grp) from need_work),
     'working': {
-      'kinds': (select list({'k': k, 'm': m, 'n': n, 'b': b, 'a': a, 'cb': cb, 'ca': ca,
-                             'p_n': p_n, 'pb': pb, 'pa': pa, 'pcb': pcb, 'pca': pca, 'p_had': p_had, 'p_fewer': p_fewer}
-                            order by n desc, k) from working_kind),
-      'places': (select list({'loc': location, 'k': k, 'm': m, 'd': d, 'yo': yo, 'days': days, 'b': b, 'a': a, 'rank': rank, 'dist': district}
+      'kinds': (select list({'k': k, 'm': m, 'n': n, 'n_all': n_all, 'n_places': n_places, 'n_dates': n_dates,
+                             'b': b, 'a': a, 'cb': cb, 'ca': ca, 'e_n': e_n, 'eb': eb, 'ea': ea, 'ecb': ecb, 'eca': eca,
+                             'p_had': p_had, 'p_fewer': p_fewer}
+                            order by n desc, k) from working_kind where n > 0),
+      'places': (select list({'loc': location, 'k': k, 'm': m, 'd': d, 'yo': yo, 'days': days, 'b': b, 'a': a, 'pb': pb, 'rank': rank, 'dist': district}
                              order by k, a - b desc, a desc, rank nulls last, location) from working_places)
     },
     'since': year(ws()),

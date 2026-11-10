@@ -28,6 +28,16 @@ select 'Protected bike lane' as kind,
        gj_geom(f.geometry) as geom
 from (select unnest(features) f from read_json('data/raw/bikelanes_*.json', maximum_object_size = 50000000)) where f.geometry is not null
 union all
+-- SDOT's protected bike lane layer above stops being updated; the bike facilities layer dates newer ones. Only lanes
+-- dated after the older layer's newest date (so nothing is counted twice) and not in the future.
+select 'Protected bike lane', d, 'Built', geom from (
+  select to_timestamp(f.properties.INSTALL_DATE::double / 1000)::date as d, gj_geom(f.geometry) as geom
+  from (select unnest(features) f from read_json('data/raw/bikefac_*.json', maximum_object_size = 50000000))
+  where f.geometry is not null and f.properties.CATEGORY = 'BKF-PBL' and f.properties.INSTALL_DATE is not null)
+where d > (select max(to_timestamp(f.properties.DATE_COMPLETED::double / 1000)::date)
+           from (select unnest(features) f from read_json('data/raw/bikelanes_*.json', maximum_object_size = 50000000)))
+  and d <= current_date
+union all
 select 'Bus lane', to_timestamp(f.properties.InstallationDate::double / 1000)::date,
        case f.properties.Status when 'Planned' then 'Planned' else 'Built' end, gj_geom(f.geometry)
 from (select unnest(features) f from read_json('data/raw/buslanes_*.json', maximum_object_size = 50000000))

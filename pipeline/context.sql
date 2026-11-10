@@ -130,26 +130,33 @@ select location, date, peds, cyclists, coll_type from collisions;
 -- Dated things SDOT built at each place, and the kind of crash each one is meant to reduce.
 create or replace table dated_fixes as
 select location, 'Head-start walk signal' as kind, lpi_installed as d, 'ped' as m from locations where lpi_status = 'Existing' and lpi_installed is not null
-union all select location, 'No turn on red', ntor_installed, 'ped' from locations where ntor_status = 'Existing' and ntor_installed is not null
+union all select location, 'No turn on red', ntor_installed, 'turnped' from locations where ntor_status = 'Existing' and ntor_installed is not null
 union all select location, 'Protected left-turn signal', lt_installed, 'left' from locations where lt_protected and lt_installed is not null
 union all select location, f.k, f.d, case when f.k = 'Protected bike lane' then 'bike' else 'all' end
   from (select location, unnest(fixes) f from locations) where f.d is not null and f.s = 'Built'
 union all select location, 'Traffic circle', circle_d, 'all' from loc_street_ctx where circle_d is not null;
 
 create or replace macro crash_kind(m, peds, cyclists, coll_type) as
+  -- No turn on red stops turns on a red light (right turns, and left turns onto a one-way street), so it's judged on
+  -- people walking hit by a turning driver, not on every crash involving someone walking
   case m when 'ped' then peds > 0 when 'bike' then cyclists > 0
+         when 'turnped' then coll_type in ('Vehicle turning left hits pedestrian', 'Vehicle turning right hits pedestrian')
          when 'left' then coll_type = 'From opposite direction - one left turn - one straight' else true end;
 
 -- Equal periods, up to 3 years each side; the month it went in is skipped. Needs at least a year on both sides
 -- (crash data here starts 2011; the after period ends when the scored years end).
 -- Some SDOT layers give only a year, written as Dec 30 or 31 (most protected bike lanes): for those the whole year is
 -- skipped (before ends Jan 1 of that year, after starts Jan 1 of the next), since the real day could be any in it.
+-- The walk-signal layers (head-start walk signal, no turn on red) write a year-only date as Jan 1.
 create or replace table before_after as
-with f0 as (
-  select *, month(d) = 12 and day(d) >= 30 as yo,
-         case when month(d) = 12 and day(d) >= 30 then make_date(year(d), 1, 1) else d end as b_end,
-         case when month(d) = 12 and day(d) >= 30 then make_date(year(d) + 1, 1, 1) else d + 30 end as a_start
+with f00 as (
+  select *, (month(d) = 12 and day(d) >= 30)
+            or (kind in ('Head-start walk signal', 'No turn on red') and month(d) = 1 and day(d) = 1) as yo
   from dated_fixes where d >= date '2012-01-01'),
+f0 as (
+  select *, case when yo then make_date(year(d), 1, 1) else d end as b_end,
+            case when yo then make_date(year(d) + 1, 1, 1) else d + 30 end as a_start
+  from f00),
 f as (select *, least(1095, b_end - date '2011-01-01', we() - a_start)::int as days from f0),
 f2 as (select * from f where days >= 365)
 select f2.location, list({'k': kind, 'd': d, 'm': m, 'days': days, 'yo': yo,
@@ -159,13 +166,18 @@ select f2.location, list({'k': kind, 'd': d, 'm': m, 'days': days, 'yo': yo,
                                           and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)),
     'cb': (select count(*) from crash_all c where c.date >= f2.b_end - f2.days and c.date < f2.b_end and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)),
     'ca': (select count(*) from crash_all c where c.date >= f2.a_start and c.date < f2.a_start + f2.days and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)),
-    -- The same comparison one step earlier, before anything was built: the period before the "before", against the "before".
-    -- How much a place moves with no fix at all is the yardstick for the change after one. Only when that earlier
-    -- period starts in 2013 or later (SDOT's data before 2013 records far fewer crashes).
-    'pb': case when f2.b_end - 2 * f2.days - 30 >= date '2013-01-01' then (select count(*) from crash_all c where c.location = f2.location
+    -- An earlier stretch of the same length, before the "before" (the month between is skipped, as after a fix). The
+    -- "before" can be high because it got the place picked; the earlier stretch had no part in that, so earlier against
+    -- after is the fairer test. Needs crash data back that far (2011; these counts don't use severity, whose coding is
+    -- thin before 2013).
+    'pb': case when f2.b_end - 2 * f2.days - 30 >= date '2011-01-01' then (select count(*) from crash_all c where c.location = f2.location
             and c.date >= f2.b_end - 2 * f2.days - 30 and c.date < f2.b_end - f2.days - 30 and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)) end,
-    'pcb': case when f2.b_end - 2 * f2.days - 30 >= date '2013-01-01' then (select count(*) from crash_all c
-            where c.date >= f2.b_end - 2 * f2.days - 30 and c.date < f2.b_end - f2.days - 30 and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)) end
+    'pcb': case when f2.b_end - 2 * f2.days - 30 >= date '2011-01-01' then (select count(*) from crash_all c
+            where c.date >= f2.b_end - 2 * f2.days - 30 and c.date < f2.b_end - f2.days - 30 and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)) end,
+    -- another dated fix at the same place from the earlier stretch to the end of the after period: its effect would be
+    -- mixed in (a head-start walk signal next to a no turn on red, say), so the citywide summary leaves these out
+    'other': exists (select 1 from dated_fixes o where o.location = f2.location and not (o.kind = f2.kind and o.d = f2.d)
+                     and o.d >= f2.b_end - 2 * f2.days - 30 and o.d < f2.a_start + f2.days)
   } order by d, kind, m) as before_after
 from f2 group by f2.location;
 

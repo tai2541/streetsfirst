@@ -826,6 +826,15 @@ body.sheet-open #expandPanel, body.sheet-open #expandDetail, body.sheet-open #pa
 .pg-bar-f.w { background: #2f55c7; }
 .pg-card-foot { margin: 8px 0 0; font-size: 13px; color: #3f4a5c; }
 .pg-card .pg-open { margin: 10px 0 0; }
+.list-csv { margin: 6px 0 0; }
+.pin-mine { margin: 6px 0; }
+.pg-jump { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin: 0 0 8px; font-size: 14px; }
+.pg-jump .linkbtn { margin: 0; }
+.pin-mine ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; }
+.pin-mine .linkbtn { text-align: left; min-height: 0; margin: 0; display: block; }
+.pin-mine .muted { display: block; font-size: 12.5px; }
+.pg-list .prog-open { text-align: left; margin-bottom: 0; }
+a.fn { display: inline-block; padding: 4px 6px; margin: -4px -4px -4px -2px; }
 .pg-open h4 { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
 .pg-open h4 .pg-link { font-weight: 400; }
 .pg-dim { display: flex; gap: 6px; margin: 6px 0 8px; flex-wrap: wrap; }

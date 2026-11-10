@@ -35,7 +35,7 @@
   function yrsBetween(a, b) { return Math.round((new Date(b) - new Date(a)) / (365.25 * 864e5)); }
   const monthYear = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
   // A fix date SDOT gives only as a year is written Dec 30 or 31 in its data: show just the year (the pipeline does the same).
-  const fixDate = d => (/-12-3[01]/.test(d) ? d.slice(0, 4) : monthYear(d));
+  const fixDate = (d, yo) => (yo || /-12-3[01]/.test(d) ? d.slice(0, 4) : monthYear(d));   // yo: the layer gives only the year
   // the scored crash window as "Jul 2021–Jun 2026" (window_to is its last day)
   const windowTxt = () => monthYear(meta.window_from) + '–' + monthYear(meta.window_to);
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -139,7 +139,7 @@
       <div><b>Bigger fixes</b> (redesigns, signals, sidewalks) are paid for through the City budget, which the City Council
         votes on. The council member for this district: <b>${esc(c.member || '—')}</b> (District ${c.d})${c.url
           ? (/^https:\/\//.test(c.url) ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">Their page ↗</a>` : '') : ''}. Seattle also has two citywide
-        council members (Positions 8 and 9).</div>
+        council members (Positions 8 and 9). <a href="#progress=d${c.d}">Is it getting fixed in District ${c.d}?</a></div>
       ${rse && rse.q ? `<div class="note">How the City ranks this neighborhood for investment (its Race and Social Equity Index, by census tract): <b>${esc(({ 'Highest Equity Priority': 'highest equity priority',
           'Second Highest': 'second-highest equity priority', 'Middle': 'middle', 'Second Lowest': 'second-lowest equity priority',
           'Lowest': 'lowest equity priority' })[rse.q] || rse.q)}</b> (of five levels${rse.y ? `, ${rse.y} index` : ''}).
@@ -608,7 +608,7 @@
     { const cs = document.getElementById('citySummary'); if (cs) cs.hidden = !!dist; }
     distCard(dist);
     const keep = p => (!dist || p.council_district === dist) && (!type || p.addr_type === type || (type === 'B' && p.addr_type === 'A'))
-        && (!onlyFatal || p.killed > 0) && (!ongoing || p.ksi_years >= 3) && (!noPlan || !(p.proj_ids && p.proj_ids.length));
+        && (!onlyFatal || p.killed > 0) && (!ongoing || p.ksi_years >= 3) && (!noPlan || !((p.proj_ids && p.proj_ids.length) || p.lpi_status === 'Planned' || p.ntor_status === 'Planned'));
     // With a district or one kind picked, places are ranked again within that list (#1, #2, ...), with the citywide rank
     // beside each. The data file carries each kind's top 200 citywide and each district's top 50 of each kind.
     D.priorities.forEach(p => { p.dr = null; });
@@ -676,9 +676,11 @@
     const list = document.getElementById('list');
     const card = (p, isExtra, i) => {
       const chips = reasons(p).slice(0, 3);
-      const rk = p.rank != null ? `#${fmt(shownN(p))}` : '—';
+      const outside = isExtra && p.dr == null && D.priorities.some(q => q.dr != null);   // an extra outside a district or kind list
+      const rk = p.rank != null && !outside ? `#${fmt(shownN(p))}` : '—';
       const kind = p.addr_type === 'I' ? 'Intersection' : 'Stretch';
-      const city = p.dr ? `#${fmt(p.rank)} citywide` : '';
+      // in a district or kind list, an added place outside it (a repeated-deaths extra) has only its citywide rank: say so
+      const city = p.dr || (outside && p.rank != null) ? `#${fmt(p.rank)} citywide` : '';
       // movement since last month (recommended ranking, citywide list only); shown under the points, spoken in full
       const mv = mode === 'ksi' && p.rank != null && !p.dr ? (p.rank_month_ago ? p.rank_month_ago - p.rank : null) : 0;
       const move = mv == null ? '<span class="mv new"><span aria-hidden="true">new</span><span class="sr-only">, new in the list this month</span></span>'
@@ -1307,13 +1309,13 @@
   function beforeAfter(p) {
     const L = p.before_after || [];
     if (!L.length) return '';
-    const what = { ped: 'crashes involving people walking', bike: 'crashes involving people biking', left: 'left-turn crashes', all: 'crashes' };
+    const what = { ped: 'crashes involving people walking', turnped: 'people walking hit by turning drivers', bike: 'crashes involving people biking', left: 'left-turn crashes', all: 'crashes' };
     const span = days => { const mo = Math.round(days / 30.44); return mo >= 12 && mo % 12 === 0 ? plural(mo / 12, 'year', 'years') : plural(mo, 'month', 'months'); };
     const city = (b, a) => { if (!b) return ''; const ch = Math.round(100 * (a / b - 1));
       return ch === 0 ? 'stayed about the same' : `went ${ch < 0 ? 'down' : 'up'} ${Math.abs(ch)}%`; };
     return `<h4 class="proj-h">Before and after</h4>
-      <ul class="ba-list">${L.map(x => `<li><b>${esc(x.k)}</b> (${fixDate(x.d)}): ${what[x.m]} here, ${span(x.days)} before:
-        <b>${x.b}</b>; ${span(x.days)} after: <b>${x.a}</b>.
+      <ul class="ba-list">${L.map(x => `<li><b>${esc(x.k)}</b> (${fixDate(x.d, x.yo)}): ${what[x.m]} here, ${span(x.days)} before:
+        <b>${x.b}</b>; ${span(x.days)} after: <b>${x.a}</b>.${x.pb != null ? ` (And ${x.pb} in the ${span(x.days)} before that.)` : ''}${x.other ? ' Another dated fix went in here around the same years, so their effects are mixed.' : ''}
         <span class="muted">Citywide, the same kind of crash ${city(x.cb, x.ca)} over the same periods.</span></li>`).join('')}</ul>
       <div class="note">Counts this small can swing a lot from one period to the next, and fixes often go in right after a bad
         stretch, so some drop afterwards is expected either way. This shows what happened, not whether the fix caused it.
@@ -1338,7 +1340,7 @@
     </table>
     ${p.crosswalks != null ? `<div class="note">Crosswalks, curb ramps and bike facilities from SDOT's street asset data; nearby schools (within 1,000 ft) from the City's public school list.</div>` : ''}
     ${p.state_route || p.structure ? `<div class="note">${p.state_route ? `${esc(p.state_route)} is a state highway: WSDOT shares responsibility with the city.` : ''}
-      ${p.structure ? 'This is a bridge, ramp or tunnel, which may be owned by WSDOT.' : ''}</div>` : ''}`;
+      ${p.structure ? 'This is a bridge, ramp or tunnel, owned by SDOT or WSDOT.' : ''}</div>` : ''}`;
   }
 
   // What SDOT has already done or flagged here.
@@ -1348,7 +1350,7 @@
     // SDOT keeps separate lists (signalized and unsignalized corners, mid-block, pedestrian, bicycle): say which.
     const hclType = { Signalized: 'signalized intersections', 'Non-Signalized': 'intersections without a signal', 'Mid-Block': 'mid-block', Pedestrian: 'pedestrian', Bicycle: 'bicycle' };
     if (p.sdot_hcl_years && p.sdot_hcl_years.length) items.push(`On SDOT's <b>High Collision Locations</b> list${(p.sdot_hcl_types || []).length
-      ? ` (${p.sdot_hcl_types.map(t => hclType[t] || t).join(', ')})` : ''} in ${p.sdot_hcl_years.join(', ')}.`);
+      ? ` (${p.sdot_hcl_types.map(t => hclType[t] || esc(t)).join(', ')})` : ''} in ${esc(p.sdot_hcl_years.join(', '))}.`);
     if (p.lpi_status === 'Existing') items.push(`<b>Head-start walk signal</b> (Leading Pedestrian Interval: the walk light comes on a few seconds before cars get a green) since ${p.lpi_installed ? monthYear(p.lpi_installed) : 'an unknown date'}.`);
     else if (p.lpi_status === 'Planned') items.push(`Head-start walk signal <b>planned</b>${plannedFor(p.lpi_planned)}.`);
     else if (p.lpi_status === 'Not Feasible') items.push(`Head-start walk signal judged <b>not feasible</b> by SDOT.`);
@@ -1359,7 +1361,7 @@
     if (p.lt_protected) items.push(`Protected left-turn signal${p.lt_installed ? ' since ' + p.lt_installed.slice(0, 4) : ''}.`);
     if (p.signalized && p.ped_audio) items.push('Accessible (audible) pedestrian signals.');
     (p.fixes || []).forEach(f => {
-      if (f.s !== 'Built') items.push(`${esc(f.k)} <b>${f.s.toLowerCase()}</b>.`);
+      if (f.s !== 'Built') items.push(`${esc(f.k)} <b>${esc(f.s.toLowerCase())}</b>.`);
       else items.push(`<b>${esc(f.k)}</b>${f.n > 1 ? ` (${f.n})` : ''}${f.d ? ' since ' + fixDate(f.d) : ''}.`);
     });
     if (p.addr_type === 'I' && !p.signalized) items.push('No traffic signal in SDOT\'s signal data.');
@@ -1891,8 +1893,8 @@
   function weight(k) { const w = meta.weights.find(x => x.k === k); return w ? w.v : '?'; }
 
   // ---------- search: every scored location ----------
-  let searchIdx = [];
-  const toSearchRow = r => ({ name: r[0], lat: +r[1], lon: +r[2], rank: +r[3], crashes: +r[4], ksi: +r[5], pb: +r[6], type: r[7], hood: r[8] || '', area: r[9] || '', cell: r[10] || '' });
+  let searchIdx = [], stKnown = null;   // stKnown: every street name in the list, built on first use
+  const toSearchRow = r => ({ name: r[0], lat: +r[1], lon: +r[2], rank: +r[3], crashes: +r[4], ksi: +r[5], pb: +r[6], type: r[7], hood: r[8] || '', area: r[9] || '', cell: r[10] || '', ends: r[11] ? r[11].split(',').map(Number) : null });
   // A short, stable key for a place's name (two 32-bit FNV-1a hashes), for links that survive rank changes.
   function keyOf(name) {
     let a = 0x811c9dc5, b = 0x01000193 ^ 0x5bd1e995;
@@ -1910,7 +1912,7 @@
   const ensureKeys = () => keyBatch(Infinity);
   function idleKeys() { if (keysAt >= searchIdx.length) return; keyBatch(800);
     (window.requestIdleCallback || (f => setTimeout(f, 30)))(idleKeys); }
-  const setSearch = rows => { searchIdx = (rows || []).map(toSearchRow); keyMap = null; keysAt = 0; idleKeys(); };
+  const setSearch = rows => { searchIdx = (rows || []).map(toSearchRow); keyMap = null; stKnown = null; keysAt = 0; idleKeys(); };
   const sInput = document.getElementById('search'), sList = document.getElementById('searchResults');
   let sHits = [], sActive = -1;
   const sStatus = document.getElementById('searchStatus');
@@ -1990,7 +1992,7 @@
     'Middle School': ' Middle School', 'High School': ' High School', 'Option High School': ' High School', 'K-8': ' K-8' }[t] || ' School'); };
   let schoolIdx = null;
   const schools = () => schoolIdx || (schoolIdx = (CTX.schools || []).filter(s => s[0]).map(([n, la, lo, t]) => {
-    const label = schoolLabel(n === n.toUpperCase() ? schoolName(n) : n, t);   // a few names come in capitals only
+    const label = schoolLabel(n === n.toUpperCase() ? schoolName(n) : n, t) + (/\s+-\s+interim$/i.test(n) ? ' (interim site)' : '');   // a few names come in capitals only
     // "eaglestaff", "bf day": also matched with spaces and punctuation left out
     return { school: true, label, lat: +la, lon: +lo, key: ' ' + normQ(label + ' school') + ' ', compact: label.toLowerCase().replace(/[^a-z0-9]/g, '') };
   }));
@@ -2038,7 +2040,7 @@
       : s.school
       ? `<li role="option" id="sr-${i}" data-i="${i}" class="school-opt"><span>🏫 ${esc(s.label)}</span><small>Public school · crashes within a quarter mile</small></li>`
       : s.addr
-      ? `<li role="option" id="sr-${i}" data-i="${i}" class="addr-opt"><span>📍 Find this address on the map: <b>${esc(s.text)}</b><small class="pin-privacy">Looked up with Esri’s address search. You can then add it to your pins, which are saved only on this device.</small></span></li>`
+      ? `<li role="option" id="sr-${i}" data-i="${i}" class="addr-opt"><span>📍 Find this address on the map: <b>${esc(s.text)}</b><small class="pin-privacy">Looked up with Esri’s address search (or OpenStreetMap’s, if Esri can’t find it). You can then add it to your pins, which are saved only on this device.</small></span></li>`
       : `<li role="option" id="sr-${i}" data-i="${i}">
         <span>${esc(niceName(s.name))}${s.area ? `<small class="hood">${esc(s.area)}</small>` : ''}</span><small>${rankTxt(s.rank)} · ${plural(s.crashes, 'crash', 'crashes')}</small></li>`).join('') +
       (!nPlaces && !nSchools && !nSugg ? `<li class="none">No crash location with that name.${sHits.some(x => x.addr) ? ' Use the address option above to see crashes nearby.' : ' Only places with a reported crash are scored.'}</li>` : '');
@@ -2112,7 +2114,7 @@
       north: 'n', south: 's', east: 'e', west: 'w', northeast: 'ne', northwest: 'nw', southeast: 'se', southwest: 'sw' })[w] || w)
     .filter(w => !/^(seattle|wa|washington|usa|united|states|\d{5})$/.test(w));
   const streetChanged = (typed, found) => {
-    const t = streetWords(typed.replace(/^\s*\d+(?:(ne|nw|se|sw|[nsew])|[a-z])?\s+/i, (m, dir) => (dir ? dir + ' ' : ''))), f = new Set(streetWords(found));
+    const t = streetWords(typed.replace(/\s+(#|apt\b|unit\b|ste\b|suite\b)[^,]*/i, '').replace(/^\s*\d+(?:(ne|nw|se|sw|[nsew])|[a-z])?\s+/i, (m, dir) => (dir ? dir + ' ' : ''))), f = new Set(streetWords(found));
     return /^\s*\d/.test(typed) && t.length > 0 && t.some(w => !f.has(w));
   };
   function searchMsg(html) { sList.innerHTML = `<li class="none">${html}</li>`; sList.hidden = false; sInput.setAttribute('aria-expanded', 'true'); say(sList.textContent); }
@@ -2135,7 +2137,7 @@
   async function reverseGeocode(lat, lon) {
     try {
       const r = await fetch('https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/reverseGeocode' +
-        `?location=${lon},${lat}&f=json&featureTypes=PointAddress,StreetAddress,StreetInt`).then(x => x.json());
+        `?location=${lon.toFixed(5)},${lat.toFixed(5)}&f=json&featureTypes=PointAddress,StreetAddress,StreetInt`).then(x => x.json());
       const a = r.address; if (a && (a.Match_addr || a.Address)) return a.Match_addr || a.Address;
     } catch { /* offline or blocked */ }
     return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
@@ -2152,7 +2154,10 @@
   // The street comes from the address ("4500 Rainier Ave S, Seattle" -> Rainier Ave S); spellings are made to match
   // SDOT's ("M L KING JR WAY S", "WY"). Only for a street that has any place in the list, so a spelling that doesn't
   // match never reads as "no crashes on your street". Spots without a house number (map picks, schools) get none.
-  const stKey = s => streetWords(s.replace(/martin luther king/i, 'm l king')).map(w => (w === 'wy' ? 'way' : w)).sort().join(' ');
+  // SDOT's split roadways (M L KING JR ER WAY S, BEACON WR AVE S) and its mid-name direction letters (S GENESEE S ST,
+  // QUEEN ANNE W AVE N) are dropped, so they match the street as addressed.
+  const stKey = s => streetWords(s.replace(/martin luther king/i, 'm l king')).map(w => (w === 'wy' ? 'way' : w))
+    .filter((w, i, a) => !/^(er|wr|nr|sr|cr)$/.test(w) && !(i > 0 && i < a.length - 1 && /^[nsew]$/.test(w))).sort().join(' ');
   function addrStreet(label) {
     if (!label) return null;
     let parts = label.split(',').map(s => s.trim());
@@ -2163,32 +2168,42 @@
     return name ? { name, key: stKey(name) } : null;
   }
   const placeSts = x => x.sts || (x.sts = (x.name.includes(' BETWEEN ') ? [x.name.split(' BETWEEN ')[0]] : x.name.split(' AND ')).map(stKey));
-  let stKnown = null;
+  // metres from an address to a place: to the street line for a long stretch (its ends are in x.ends), else to its point
+  function placeDist(x, g, k) {
+    const px = (g.lon - x.lon) * k, py = (g.lat - x.lat) * 111320;
+    if (!x.ends) return Math.hypot(px, py);
+    const [ax, ay, bx, by] = x.ends, dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
+    const t = L ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L)) : 0;
+    return Math.hypot(px - ax - t * dx, py - ay - t * dy);
+  }
   function onMyStreet(g) {
-    if (g.school) return null;
+    if (g.school || g.picked) return null;   // a map pick's "nearest address" can be on another street
     const st = addrStreet(g.label); if (!st) return null;
-    if (!stKnown) { stKnown = new Set(); searchIdx.forEach(x => placeSts(x).forEach(k => stKnown.add(k))); }
-    if (!stKnown.has(st.key)) return null;
+    if (!stKnown && searchIdx.length) { stKnown = new Set(); searchIdx.forEach(x => placeSts(x).forEach(k => stKnown.add(k))); }
+    if (!stKnown || !stKnown.has(st.key)) return null;
     const k = Math.cos(g.lat * Math.PI / 180) * 111320;
-    let block = null, corner = null;
+    let block = null, corner = null, top = null;
     for (const x of searchIdx) {
-      if (Math.abs(x.lat - g.lat) > 0.003 || Math.abs(x.lon - g.lon) > 0.004) continue;
-      const m = Math.hypot((x.lon - g.lon) * k, (x.lat - g.lat) * 111320);
+      if (Math.abs(x.lat - g.lat) > 0.006 || Math.abs(x.lon - g.lon) > 0.008) continue;
+      const m = placeDist(x, g, k);
       if (m > 244 || !placeSts(x).includes(st.key)) continue;
+      if (!top || x.rank < top.x.rank) top = { x, m };
       if (x.type === 'I') { if (!corner || m < corner.m) corner = { x, m }; }
       else if (!block || m < block.m) block = { x, m };
     }
-    return { name: st.name, list: [block, corner].filter(Boolean) };
+    const list = [block, corner].filter(Boolean);
+    if (top && !list.some(n => n.x === top.x)) list.push({ ...top, worst: true });
+    return { name: st.name, list };
   }
   const small = () => matchMedia('(max-width: 760px)').matches;
   const distText = m => (m < 160 ? `${Math.round(m * 3.28084 / 10) * 10} ft` : `${(m / 1609.34).toFixed(1)} mi`);
   // Several pins, each { id, lat, lon, label (the address), name? (a nickname like "Home") }. Kept only in this
-  // browser (localStorage); nothing about them is sent anywhere after the address lookup.
+  // browser (localStorage); the site sends nothing about them, though the map images for the area shown come from Esri.
   const PIN_KEY = 'ipm.pins', MAX_PINS = 20;
   const pinMarkers = new Map();
   let pendingRename = null;
   let pins = (() => {
-    try { const a = JSON.parse(localStorage.getItem(PIN_KEY)); if (Array.isArray(a)) return a.filter(g => g && inSeattle(g.lat, g.lon)); } catch { /* none */ }
+    try { const a = JSON.parse(localStorage.getItem(PIN_KEY)); if (Array.isArray(a)) return a.filter(g => g && inSeattle(g.lat, g.lon)).map(g => ({ ...g, id: +g.id || Date.now() + Math.random() })); } catch { /* none */ }
     try { const g = JSON.parse(localStorage.getItem('ipm.pin')); if (g && inSeattle(g.lat, g.lon)) return [{ ...g, id: 1 }]; } catch { /* none */ }
     return [];
   })();
@@ -2253,7 +2268,7 @@
               <span class="hc-sub">${plural(n.x.crashes, 'crash', 'crashes')}${n.x.ksi ? ` · ${n.x.ksi} killed or seriously hurt someone` : ''}</span></span>
             <span class="hc-val">${distText(n.m)}</span></button></li>`;
     body.innerHTML = `<div class="home-wrap">
-      <div class="pin-head place-head">${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}</div>
+      <div class="pin-head place-head">${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}${g.picked ? `<div class="pin-addr">Spot picked on the map${g.name ? '' : ' · nearest address'}</div>` : ''}</div>
       ${g.note ? `<p class="pin-warn">${esc(g.note)}</p>` : ''}
       <div class="place-acts">${pinActions(g)}</div>
       <p class="home-lead">Within a quarter mile${g.name ? '' : ` of ${esc(g.label)}`} (about a 5-minute walk),
@@ -2262,12 +2277,12 @@
       <div class="stat-grid home-stats">${stat(fmt(nb.crashes), 'crashes')}${stat(fmt(nb.ksi), 'of them killed or seriously hurt someone')}${stat(fmt(nb.pb), 'involved people walking or biking')}</div>
       ${mine ? `<section class="hsec hsec-mine"><h3>On ${esc(mine.name)}</h3>
         ${mine.list.length ? `<ol class="home-top">${mine.list.map((n, i) => card(n, `data-mine="${i}"`)).join('')}</ol>
-          <p class="note">The closest stretch and corner of this street with reported crashes, within 800 feet.</p>`
+          <p class="note">The closest stretch and corner of this street with reported crashes within 800 feet${mine.list.some(n => n.worst) ? ', and the highest-ranked one' : ''}.</p>`
           : `<p class="note">No crashes reported on ${esc(mine.name)} within 800 feet of this address in these years.</p>`}</section>` : ''}
       <section class="hsec hsec-top"><h3>Places with crashes nearby</h3>
         ${list.length ? `<ol class="home-top">${list.map((n, i) => card(n, `data-near="${i}"`)).join('')}</ol>
           <div class="note">Ranked out of ${fmt(N)} places with crashes. ${nb.all.length > 10 ? `${nb.all.length - 10} more places nearby aren't listed here;
-            ` : ''}places outside the ranked list are on the map as small grey dots.</div>`
+            ` : ''}Places outside the ranked list are on the map as small grey dots.</div>`
           : '<p class="note">No crashes reported within a quarter mile in these years.</p>'}</section>
       ${reportBox(g.label)}
       ${civicBox(councilAt(g.lat, g.lon))}
@@ -2310,7 +2325,7 @@
     const ll = e.latlng;
     if (!inSeattle(ll.lat, ll.lng)) { L.popup({ closeButton: false }).setLatLng(ll).setContent('This map covers Seattle only.').openOn(map); return; }
     const pop = L.popup({ className: 'ctx-pop', closeButton: false, offset: [0, -4] }).setLatLng(ll)
-      .setContent('<button type="button" class="ctx-add">📍 Add pin here</button>').openOn(map);
+      .setContent('<button type="button" class="ctx-add">📍 Add pin here</button><small class="pin-privacy">Esri’s address search finds the nearest address.</small>').openOn(map);
     const b = pop.getElement().querySelector('.ctx-add');
     b.focus();
     b.onclick = async () => {
@@ -2356,11 +2371,12 @@
       ${g.note ? `<p class="pin-warn">${esc(g.note)}</p>` : ''}
       <div class="pin-near">${nb.crashes
         ? `<p>Within a quarter mile (about a 5-minute walk), ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}: <b>${plural(nb.crashes, 'crash', 'crashes')}</b>${nb.ksi ? `; <b>${nb.ksi} of them killed or seriously hurt someone</b>` : '; none killed or seriously hurt anyone'}${nb.pb ? `; ${nb.pb} involved someone walking or biking` : ''}.</p>
-          ${mine ? `<p class="pin-mine"><b>On ${esc(mine.name)}:</b> ${mine.list.length ? mine.list.map(n => `<button type="button" class="linkbtn" data-open="${n.x.rank}">${rankTxt(n.x.rank)} · ${esc(niceName(n.x.name))}</button>
-            <span class="muted">${plural(n.x.crashes, 'crash', 'crashes')}, ${distText(n.m)}</span>`).join('; ') : 'no crashes reported within 800 feet.'}</p>` : ''}
+          ${mine ? `<div class="pin-mine"><b>On ${esc(mine.name)}</b>${mine.list.length ? `<ul>${mine.list.map(n => `<li><button type="button" class="linkbtn" data-open="${n.x.rank}">${rankTxt(n.x.rank)} · ${esc(niceName(n.x.name))}</button>
+            <span class="muted">${n.worst ? 'highest-ranked on this street nearby · ' : ''}${plural(n.x.crashes, 'crash', 'crashes')}${n.x.ksi ? `, ${n.x.ksi} serious` : ''} · ${distText(n.m)}</span></li>`).join('')}</ul>` : ': no crashes reported within 800 feet.'}</div>` : ''}
+          ${(c => c ? `<p class="pin-civic">Council member: <b>${esc(c.member || '—')}</b> (District ${c.d}) · <a href="#progress=d${c.d}">Is it getting fixed in District ${c.d}?</a></p>` : '')(councilAt(g.lat, g.lon))}
           ${(sch => sch && !g.school ? `<p>Nearest public school: <b>${esc(schoolName(sch.name))}</b> (about ${distText(sch.m)}).</p>` : '')(schoolNear(g.lat, g.lon))}
-          ${nb.ksi ? 'Places nearby with the most serious crashes' : 'Highest-ranked places nearby'} (ranked out of ${fmt(N)}):<ul>${nb.worst.map(n => `<li><button type="button" class="linkbtn" data-open="${n.x.rank}">${rankTxt(n.x.rank)} · ${esc(niceName(n.x.name))}</button>
-            <span class="muted">${distText(n.m)}</span></li>`).join('')}</ul>`
+          Highest-ranked places nearby (out of ${fmt(N)}):<ul>${nb.worst.map(n => `<li><button type="button" class="linkbtn" data-open="${n.x.rank}">${rankTxt(n.x.rank)} · ${esc(niceName(n.x.name))}</button>
+            <span class="muted">${plural(n.x.crashes, 'crash', 'crashes')}${n.x.ksi ? `, ${n.x.ksi} serious` : ''} · ${distText(n.m)}</span></li>`).join('')}</ul>`
         : 'No reported crashes within a quarter mile in the last five years.'}</div>
       <details class="pin-res" data-loc="${esc(g.label)}"><summary>Report a problem here</summary>${resourceList()}</details>
       ${pinActions(g)}</div>`;
@@ -2411,7 +2427,7 @@
         if (p) select(p, true, null); else if (lite) selectLite(lite);
       }));
       el.querySelector('.pin-copy').onclick = ev => {
-        const b = ev.target; const done = () => { b.textContent = 'Address copied'; setTimeout(() => (b.textContent = 'Copy address'), 1800); };
+        const b = ev.target; const done = () => { b.textContent = g.school ? 'Name copied' : 'Address copied'; setTimeout(() => (b.textContent = g.school ? 'Copy name' : 'Copy address'), 1800); };
         if (navigator.clipboard) navigator.clipboard.writeText(g.label).then(done, () => prompt('Copy this address:', g.label)); else prompt('Copy this address:', g.label);
       };
       el.querySelectorAll('.pin-res .res-link').forEach(l => (l.onclick = () => navigator.clipboard &&
@@ -2697,7 +2713,7 @@
       ${reportBox(stretchName(s))}
       <h3>Safety spots along this stretch</h3>${safetyList(safetyAlong(s.pts))}
       <h3>About this measure</h3>
-      <div class="note">From ${stopShort(s.from)} to ${stopShort(s.to)}. Metro sets scheduled times from how long buses really take
+      <div class="note">From ${esc(stopShort(s.from))} to ${esc(stopShort(s.to))}. Metro sets scheduled times from how long buses really take
         at each hour, so busy-hour times include traffic and extra boarding time. The slowdown could be anywhere along the
         stretch. Weekday timetable in effect on ${T.weekday ? longDate(T.weekday) : 'a weekday'}.</div>`
     },
@@ -3149,6 +3165,10 @@
       <p class="note">Totals here can differ from SDOT's Vision Zero reports: this site counts police reports in SDOT's collision data
         for the five years shown, leaves out freeway crashes, and places each crash at the intersection or block SDOT assigns it to.
         The most recent months may still be filling in as reports arrive.</p>
+      <p class="note"><b>Privacy.</b> No accounts, cookies or analytics. The map images come from Esri, which sees the area you're viewing.
+        A typed address is looked up with Esri's address search (OpenStreetMap's if Esri can't find it); picking an address from the
+        suggestions list doesn't send it anywhere. Pins are kept only in this browser, so anyone using it can see them. The site is hosted
+        on GitHub Pages. Accessibility and Safe Routes to School repair requests are shown by hundred block, not house number.</p>
       <h3>What this ranks</h3>
       <p>Every Seattle intersection and every stretch of street between intersections with a police-reported crash from ${monthYear(meta.window_from)} to
         ${monthYear(meta.window_to)} (${fmt(meta.collisions_scored)} SDOT collision reports), ranked by how likely people are to keep
@@ -3333,7 +3353,7 @@
         : '<span aria-label="none">—</span>';
       const sentence = () => {
         const f = G.fixed, n = G.none;
-        const part = g => `${g.a.length === 1 ? 'the 1 place' : `the ${g.a.length} places`} ${g === f ? `fixed before ${y0(C.d0)}` : `with no fix before ${cmpEnd + 1}`}
+        const part = g => `${g.a.length === 1 ? 'the 1 place' : `the ${g.a.length} places`} ${g === f ? `fixed before ${y0(C.d0)}` : `with no fix before ${cmpEnd + 1}${(s => s ? ` (${s} of them on state highways, where WSDOT shares responsibility)` : '')(g.a.filter(x => x.state).length)}`}
           had ${fmt(sum(g.a, 'ksi'))} crashes where someone was killed or seriously hurt in ${then} and ${fmt(sum(g.a, 'ksi_cmp'))} in ${cmpSpan}`;
         // The fixes counted are mostly intersection treatments, so the groups also differ in kind of place: said from the data.
         const st = g => g.a.filter(x => x.t !== 'I').length, stAll = st(f) + st(G.during) + st(n);
@@ -3450,8 +3470,8 @@
         : x.fixed ? 'Work since ' + P.since : x.planned ? 'Planned or budgeted' : 'No dated work since ' + P.since + ' or planned project in the layers this site reads')
         + (x.state ? `. ${x.state}: state highway, WSDOT shares responsibility` : '')
         + (x.k === 0 ? '. No one killed or seriously hurt here in these years: ranked on its other crashes' : '')); };
-      const openList = () => `<div class="pg-open" id="pgOpen"><h4>${esc(gName(sel.g))}: top-50 places ${dim === 'district' ? linkBtn('progress=d' + sel.g) : ''}</h4>
-          ${(sel.list || []).length ? `<ul class="pg-list">${sel.list.map(x => `<li><span class="pg-l1"><span class="pg-rk">${rankTxt(x.r)}</span> ${placeBtn(x.loc)}</span>
+      const openList = () => `<div class="pg-open" id="pgOpen"><h4>${esc(gName(sel.g))}: places in the citywide top 50 ${dim === 'district' ? linkBtn('progress=d' + sel.g) : ''}</h4>
+          ${(sel.list || []).length ? `<ul class="pg-list">${sel.list.map(x => `<li><span class="pg-l1"><span class="pg-rk">${rankTxt(x.r)}<small> citywide</small></span> ${placeBtn(x.loc)}</span>
             <span class="pg-l2">${x.k ? `<b>${plural(x.k, 'crash', 'crashes')} that killed or seriously hurt someone.</b> ` : ''}${status(x)}</span></li>`).join('')}</ul>` : '<p class="note">None of today\'s top 50 are here.</p>'}</div>`;
       // On a phone the wide table needs sideways scrolling, so each group is a card instead: a bar for each share (all on
       // one scale, so a district's share of serious crashes can be set against its share of fixes), then its top-50 counts.
@@ -3468,8 +3488,8 @@
             ${bar('Crashes that killed or seriously hurt someone', r.ksi, T.ksi, 'k')}
             ${bar('Head-start walk signals', r.lpi, T.lpi, 'w')}
             ${bar('Other fixes', r.other, T.other, 'w')}
-            ${bar('Planned sidewalks, walk signals and safety projects', r.proj_planned, T.proj, 'w')}
-            <p class="pg-card-foot">Citywide top 50: <b>${r.top50}</b>${r.top50 ? ` · on state highways: ${r.top50_state || 0} · none recorded<a href="#pgNoneNote" class="fn" aria-label="About none recorded">*</a>: ${r.top50_nothing}` : ''}</p>
+            ${bar('Planned sidewalks, walk signals, no turn on red and safety projects', r.proj_planned, T.proj, 'w')}
+            <p class="pg-card-foot">Citywide top 50: <b>${r.top50}</b>${r.top50 ? ` · on state highways: ${r.top50_state || 0} · no work since ${esc(P.since)} or planned<a href="#pgNoneNote" class="fn" aria-label="About this count">*</a>: ${r.top50_nothing}` : ''}</p>
             ${r.g === open ? openList() : ''}</li>`).join('')}</ul>`;
       };
       const narrow = isNarrow();
@@ -3484,19 +3504,19 @@
         ${narrow ? cards() : tableWrap(dim === 'district' ? 'By council district' : 'By equity index', `<table class="pg-table pg-need">
           <caption class="sr-only">Share of crashes where someone was killed or seriously hurt, fixes and planned projects, ${dim === 'district' ? 'by council district' : 'by equity index'}</caption>
           <tr><th scope="col"><span class="sr-only">${dim === 'district' ? 'District' : 'Equity level'}</span></th><th scope="col">Crashes that killed or seriously hurt someone</th>
-            <th scope="col">Head-start walk signals</th><th scope="col">Other fixes</th><th scope="col">Planned sidewalks, walk signals and neighborhood safety projects</th>
-            <th scope="col">Places in the citywide top 50</th><th scope="col">…on state highways</th><th scope="col">…none recorded<a href="#pgNoneNote" class="fn" aria-label="About none recorded">*</a></th></tr>
+            <th scope="col">Head-start walk signals</th><th scope="col">Other fixes</th><th scope="col">Planned sidewalks, walk signals, no turn on red and neighborhood safety projects</th>
+            <th scope="col">Places in the citywide top 50</th><th scope="col">…on state highways</th><th scope="col">…no work since ${esc(P.since)} or planned<a href="#pgNoneNote" class="fn" aria-label="About this count">*</a></th></tr>
           ${rows.map(r => `<tr class="${r.g === open ? 'on' : ''}"><th scope="row"><button type="button" class="linkbtn pg-grp" data-grp="${esc(r.g)}" aria-expanded="${r.g === open}">${esc(gName(r.g))}</button>${dim === 'district' && member(r.g) ? `<br><small class="muted">${member(r.g)}</small>` : ''}</th>
             <td>${pc(r.ksi, T.ksi)}</td><td>${pc(r.lpi, T.lpi)}</td><td>${pc(r.other, T.other)}</td><td>${pc(r.proj_planned, T.proj)}</td>
             <td>${r.top50}</td><td>${r.top50_state || 0}</td><td>${r.top50_nothing}</td></tr>`).join('')}
         </table>`)}
         ${sel && !narrow ? openList() : ''}
-        <p class="note" id="pgNoneNote">* None recorded: a city street with no counted safety fix since ${P.since} (older work and bus lanes aren't counted, though each place's page shows them), no planned SDOT project, head-start walk signal or no turn on red nearby, and no budget project named for the street, in the layers this site reads (the same test as each place's own page). Places on state highways, where WSDOT shares responsibility, are counted in their own column. The fix types counted (${FIX_KINDS}) are mostly intersection work, so stretches of street rarely have one.</p>
+        <p class="note" id="pgNoneNote">* No work since ${P.since} or planned: a city street with no counted safety fix since ${P.since} (older work and bus lanes aren't counted, though each place's page shows them), no planned SDOT project, head-start walk signal or no turn on red nearby, and no budget project named for the street, in the layers this site reads (the same test as each place's own page). Places on state highways, where WSDOT shares responsibility, are counted in their own column. The fix types counted (${FIX_KINDS}) are mostly intersection work, so stretches of street rarely have one.</p>
         <p class="note">Crashes: ${monthYear(P.window.d0)}–${throughMonth(P.window.d1)}. Fixes: dated fixes since January ${P.since} at places with
           crashes, counted once per place they reach (one long bike lane can reach many places); head-start walk signals are shown on their own because SDOT has added hundreds of them${(() => {
             const d = P.need.filter(r => r.dim === 'district'), t = d.reduce((s, r) => s + (r.lpi || 0), 0), top = d.slice().sort((a, b) => b.lpi - a.lpi)[0];
             return t && top ? `, ${Math.round(100 * top.lpi / t)}% of them in District ${esc(top.g)}` : ''; })()}.
-          Planned: SDOT's published project maps (new sidewalks, neighborhood safety projects, planned head-start walk signals). Large corridor
+          Planned: SDOT's published project maps (new sidewalks, neighborhood safety projects, planned head-start walk signals) and planned no turn on red signs. Large corridor
           and capital projects aren't in these maps, so this column is not a measure of money or investment by district.
           The City's budget data doesn't say where money is spent, so this counts fixes and projects, not dollars, and a large project
           counts the same as a small one.</p>
@@ -3506,37 +3526,45 @@
     // ---- 4. is it working? each kind of fix, the crashes it targets before and after, next to the city's change
     function workingPart() {
       const W = P.working; if (!W || !(W.kinds || []).length) return '';
-      const what = { ped: 'crashes involving someone walking', bike: 'crashes involving someone on a bike', left: 'left-turn crashes', all: 'crashes of any kind' };
+      const what = { ped: 'crashes involving someone walking', turnped: 'people walking hit by turning drivers', bike: 'crashes involving someone on a bike', left: 'left-turn crashes', all: 'crashes of any kind' };
       const pc = (b, a) => b ? Math.round(100 * (a / b - 1)) : null;
       const chg = c => c == null ? '' : c === 0 ? 'no change' : `${c < 0 ? 'down' : 'up'} ${Math.abs(c)}%`;
       const kindRow = w => {
-        const here = pc(w.b, w.a), city = pc(w.cb, w.ca);
-        return `<li><span class="pg-l1"><b>${esc(w.k)}</b> · ${fmt(w.n)} ${w.n === 1 ? 'place' : 'places'}</span>
+        const here = pc(w.b, w.a), city = pc(w.cb, w.ca), early = w.e_n >= 10 && w.eb > 0;
+        // Could chance alone give a gap this size against the city? (rate ratio, Poisson counts; the city's are large)
+        const chance = (b, a, cb, ca) => !(a > 0 && b > 0 && cb > 0 && ca > 0) || Math.abs(Math.log((a / b) / (ca / cb))) < 1.96 * Math.sqrt(1 / a + 1 / b);
+        const ch = early ? chance(w.eb, w.ea, w.ecb, w.eca) : chance(w.b, w.a, w.cb, w.ca);
+        return `<li><span class="pg-l1"><b>${esc(w.k)}</b> · ${plural(w.n_places || w.n, 'place')}${w.n_dates && w.n_dates < 20 ? `, ${plural(w.n_dates, 'install date')}` : ''}</span>
           <span class="pg-l2">${(what[w.m] || 'targeted crashes').replace(/^./, c => c.toUpperCase())}: ${fmt(w.b)} before, ${fmt(w.a)} after (${chg(here)}). Citywide over the same days: ${chg(city)}.
-          ${w.p_n >= 10 && w.pb ? `<br><span class="pg-yard">The same places in the years before, with nothing built yet${w.p_n < w.n ? ` (the ${fmt(w.p_n)} with crash data going back far enough)` : ''}:
-            ${chg(pc(w.pb, w.pa))}; citywide ${chg(pc(w.pcb, w.pca))}.</span>` : ''}${w.n < 30 ? ` <i>Few places, so this can easily be chance.</i>` : ''}</span></li>`;
+          ${early ? `<br><span class="pg-yard">Against an earlier stretch of the same length${w.e_n < w.n ? ` (the ${fmt(w.e_n)} with crash data back that far)` : ''}:
+            ${fmt(w.eb)} then, ${fmt(w.ea)} after (${chg(pc(w.eb, w.ea))}); citywide ${chg(pc(w.ecb, w.eca))}.</span>` : ''}
+          ${ch ? ` <i>A gap this size against the city could come from chance alone.</i>` : ''}
+          ${w.k === 'Bus lane' ? ` <i>Bus lanes are built for buses, not counted as a safety fix; shown because they change the street.</i>` : ''}
+          ${w.k === 'Protected bike lane' ? ` <i>A bike lane can bring more people biking, so more bike crashes can come with more riders; nothing here counts riders.</i>` : ''}
+          ${w.n_all > w.n ? `<br><span class="muted">Left out: ${fmt(w.n_all - w.n)} where another dated fix went in at the same place over these years.</span>` : ''}</span></li>`;
       };
       const byK = {}; (W.places || []).forEach(x => (byK[x.k] = byK[x.k] || []).push(x));
       const placeRow = x => `<li><span class="pg-l1">${x.rank ? `<span class="pg-rk">${rankTxt(x.rank)}</span> ` : ''}${placeBtn(x.loc)}</span>
-        <span class="pg-l2">${esc(x.k.toLowerCase())} ${fixDate(x.d)}: ${what[x.m] || 'targeted crashes'} ${fmt(x.b)} before, ${fmt(x.a)} after
-        (${Math.round(x.days / 30.4)} months each)</span></li>`;
+        <span class="pg-l2">${esc(x.k.toLowerCase())} ${fixDate(x.d, x.yo)}: ${what[x.m] || 'targeted crashes'} ${fmt(x.b)} before, ${fmt(x.a)} after
+        (${Math.round(x.days / 30.4)} months each)${x.pb != null ? `; ${fmt(x.pb)} in the ${Math.round(x.days / 30.4)} months before that` : ''}</span></li>`;
       return `<section class="pg-sec" id="pg-working">
         <h3>Is it working?</h3>
         <p class="lead">For each fix SDOT's records date, the crashes that fix is meant to reduce, counted for the same length of time
           before and after (one to three years each, skipping the first month after it went in, or the whole year when SDOT gives only the year, as for most bike lanes). Next to it, how the same kind of
-          crash changed across the whole city over the same days, and how the same places changed in the years before, with nothing
-          built yet. A fix looks like it helped when its places did better than both.</p>
-        <ul class="pg-list pg-working">${W.kinds.map(kindRow).join('')}</ul>
+          crash changed across the whole city over the same days. The "before" years can be high just because that got the place
+          picked, so each fix is also set against an earlier stretch of the same length, before that. A fix looks like it helped when
+          its places did better than the city both ways, by more than chance. Places where another dated fix went in over these years
+          are left out, since the two can't be told apart.</p>
+        <ul class="pg-list pg-working">${W.kinds.filter(w => w.n && (w.b || w.a)).map(kindRow).join('')}</ul>
         <p class="note">${(() => { const h = W.kinds.reduce((s, w) => s + (w.p_had || 0), 0), f = W.kinds.reduce((s, w) => s + (w.p_fewer || 0), 0);
-            return h ? `Crash counts at one place go up and down a lot on their own: of the ${fmt(h)} places that had any of these crashes
-            in the years before their fix, ${fmt(f)} (${Math.round(100 * f / h)}%) had fewer in the next equal stretch, before anything was built.
-            So whether one place went down after a fix says little; the totals, next to the city and the years before, say more. ` : ''; })()}Fixes
+            return h ? `Crash counts at one place go up and down a lot on their own: of the ${fmt(h)} fixes whose place had any of these
+            crashes in the earlier stretch, ${fmt(f)} (${Math.round(100 * f / h)}%) had fewer in the next equal stretch, before the fix went in.
+            So whether one place went down after a fix says little; the totals, next to the city, say more. ` : ''; })()}Fixes
           tend to go where crashes have been high, and places like that often see fewer crashes afterwards anyway,
-          so a drop here doesn't prove a fix worked, and a few crashes either way can be chance. A bike lane can bring more people
-          biking, so more bike crashes can come with more riders; nothing here counts riders. Bus lanes are built for buses; they're
-          shown because they change the street. All crashes in police reports count here, not only the worst ones.</p>
+          so a drop here doesn't prove a fix worked, and a few crashes either way can be chance. All crashes in police reports count here, not only the worst ones.</p>
         ${Object.keys(byK).length ? `<h4>Worth a closer look: places where the targeted crashes didn't go down</h4>
-          <p class="note">At least 2 after the fix, and no fewer than before. Listed for each kind of fix, biggest increase first.</p>
+          <p class="note">At least 2 after the fix, and no fewer than before, with two years or more on each side and no other dated fix there over these years (bus lanes aren't listed). Listed for each kind of fix, biggest increase first. Crashes on short
+            blocks can be recorded on the block next door, so check neighbouring blocks too.</p>
           ${Object.entries(byK).map(([k, arr]) => `<div class="pg-group"><h4>${esc(k)}</h4>
             <ul class="pg-list">${more('w-' + k, arr, 5, placeRow)}</ul></div>`).join('')}` : ''}
       </section>`;
@@ -3546,7 +3574,11 @@
       const asOf = D.fetchedAt ? new Date(D.fetchedAt.replace(' ', 'T')) : null;
       el.innerHTML = `<p class="note">${asOf && !isNaN(asOf) ? `Data as of <b>${asOf.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</b>. ` : ''}Worked
         out from SDOT's crash reports since 2013 and SDOT's published records of what it built, recalculated every week. Pick a place to see it on the map.</p>`
+        + `<nav class="pg-jump" aria-label="Sections"><span>Jump to:</span> <button type="button" class="linkbtn" data-jump="pg-need">Districts</button>
+            <button type="button" class="linkbtn" data-jump="pg-month">Since last month</button> <button type="button" class="linkbtn" data-jump="pg-working">Is it working?</button></nav>`
         + thenPart() + monthPart() + needPart() + workingPart();
+      el.querySelectorAll('[data-jump]').forEach(b => (b.onclick = () => { const t = el.querySelector('#' + b.dataset.jump), body = t && t.closest('.bs-body');
+        if (body) body.scrollTop = t.offsetTop - 8; const h = t && t.querySelector('h3'); if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }); } }));
       const y = el.querySelector('#pgYear');
       if (y) y.onchange = () => { pick = +y.value; showAll.places = false; draw('#pgYear'); announceThen(); };
       const n = el.querySelector('#pgNone');
@@ -3580,7 +3612,12 @@
       say(`${pick}: ${Y.places.filter(fixedBy).length} of 50 got a fix before ${y0(C.d0)}. Showing ${L.length} places.`);
     }
     draw();
-    matchMedia('(max-width: 760px)').addEventListener('change', () => draw());
+    matchMedia('(max-width: 760px)').addEventListener('change', () => {
+      const a = document.activeElement, ds = (a && el.contains(a) && a.dataset) || {};
+      draw(ds.grp ? `.pg-grp[data-grp="${CSS.escape(ds.grp)}"]` : ds.dim ? `[data-dim="${ds.dim}"]` : null);
+      const on = el.querySelector(isNarrow() ? '.pg-card.on' : '.pg-need tr.on'), body = on && on.closest('.bs-body');
+      if (body) body.scrollTop = on.offsetTop - 8;
+    });
     // Opening the tab with a district picked on the list shows that district's row open (once per pick, so closing it sticks).
     progressSync = () => {
       const d = String(+document.getElementById('distFilter').value || '');
@@ -3596,7 +3633,9 @@
       openFromList = String(+document.getElementById('distFilter').value || '') || null;   // so progressSync leaves the link's choice alone
       draw();
       showTab(document.getElementById('tabbtn-progress'));
-      const target = m[2] ? el.querySelector('#pg-need') : m[1] ? el.querySelector('#pg-then') : null;
+      const card = m[2] && isNarrow() ? el.querySelector('.pg-card.on') : null;
+      const target = card || (m[2] ? el.querySelector('#pg-need') : m[1] ? el.querySelector('#pg-then') : null);
+      if (card) setTimeout(() => { const h = card.querySelector('.pg-card-h'); if (h) h.focus({ preventScroll: true }); }, 450);
       // Scroll the sheet only (scrollIntoView would also scroll the page and push the header off screen).
       if (target) setTimeout(() => { const body = target.closest('.bs-body'); if (body) body.scrollTop = target.offsetTop - 8; }, 400);
       return true;
@@ -3657,15 +3696,33 @@
     const c = (CTX.council || []).find(x => String(x.d) === r.g);
     el.innerHTML = `<div class="cs-head">District ${esc(r.g)}${c && c.member ? ' · Councilmember ' + esc(c.member) : ''} · ${windowTxt()}</div>
       <div class="cs-nums">
-        <div><b>${fmt(r.ksi)}</b><span>crashes that killed or seriously hurt someone (${pct(r.ksi, tot('ksi'))}% of the city's)</span></div>
-        <div><b>${fmt(r.top50)}</b><span>of the citywide top 50 places</span></div>
-        <div><b>${fmt(r.top50_nothing)}</b><span>of those with no counted safety fix since ${esc(P.since)} or planned work*</span></div>
+        <div><b>${fmt(r.ksi)}</b><span>crashes that killed or seriously hurt someone (${pct(r.ksi, tot('ksi'))}% of the city's)${r.killed != null ? `: ${plural(r.killed, 'person', 'people')} killed, ${fmt(r.hurt)} seriously injured` : ''}</span></div>
+        <div><b>${fmt(r.top50)}</b><span>of the citywide top 50 places${r.top50_state ? `: ${r.top50_state} on state highways (WSDOT shares responsibility), ${r.top50 - r.top50_state} on city streets` : ''}</span></div>
+        <div><b>${fmt(r.top50_nothing)}</b><span>of the ${r.top50_state ? `${r.top50 - r.top50_state} on city streets` : 'citywide top 50 here'} with no counted safety fix since ${esc(P.since)} or planned work*</span></div>
       </div>
-      <div class="cs-foot">Of the fixes SDOT dated since January ${esc(P.since)}, ${pct(r.lpi, tot('lpi'))}% of head-start walk signals and
-        ${pct(r.other, tot('other'))}% of other fixes are in this district.${r.top50_state ? ` ${r.top50_state} of its top-50 places ${r.top50_state === 1 ? 'is' : 'are'} on a state highway, where WSDOT shares responsibility.` : ''} *On city streets, in the SDOT layers this site reads.
-        <a href="#progress=d${esc(r.g)}">Compare districts</a></div>`;
+      <div class="cs-foot">Of the fixes SDOT dated since January ${esc(P.since)} at places with crashes, ${pct(r.lpi, tot('lpi'))}% of head-start walk signals and
+        ${pct(r.other, tot('other'))}% of other fixes are in this district. *In the SDOT layers this site reads; planned work includes a budget line named for the street.
+        ${D.fetchedAt ? `Data as of ${esc(D.fetchedAt.slice(0, 10))}.` : ''} <a href="#progress=d${esc(r.g)}">Compare districts</a></div>`;
     el.hidden = false;
   }
+  document.getElementById('listCsv').onclick = () => {
+    const { rows, extra } = currentRows(), all = [...rows, ...extra];
+    const dist = +document.getElementById('distFilter').value || 0, sel = id => document.getElementById(id);
+    const what = [dist ? `District ${dist}` : 'All Seattle', sel('addrFilter').selectedOptions[0] && sel('addrFilter').value ? sel('addrFilter').selectedOptions[0].text : '',
+      sel('onlyFatal').checked ? 'only where someone died' : '', sel('onlyOngoing').checked ? 'only repeat serious crashes' : '',
+      sel('noPlan').checked ? 'only with no published SDOT project' : ''].filter(Boolean).join(', ');
+    const q = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const lines = [[`Streets First (Seattle), from SDOT's police-reported crash data and SDOT's published records; data as of ${(D.fetchedAt || '').slice(0, 10)}`],
+      [`Crashes ${windowTxt()}. List: ${what}.`],
+      ['Rank in this list', 'Citywide rank', 'Type', 'Place', 'Council district', 'Neighborhood', 'All crashes', 'Crashes that killed or seriously hurt someone',
+       'People killed', 'People seriously injured', 'State highway (WSDOT shares responsibility)', 'SDOT work recorded or planned', 'Link'],
+      ...all.map(p => [p.dr ?? (rows.includes(p) ? p.rank : ''), p.rank ?? '', p.addr_type === 'I' ? 'Intersection' : 'Stretch', p.name, p.council_district || '',
+        p.area || '', p.crashes, p.ksi, p.killed, p.seriously_injured, p.state_route || '', workSummary(p).text,
+        location.origin + location.pathname + '#p=' + keyOf(p.location)])];
+    const url = URL.createObjectURL(new Blob([lines.map(r => r.map(q).join(',')).join('\n')], { type: 'text/csv' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: `streets-first-seattle${dist ? '-district-' + dist : ''}.csv` });
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   // A shared link's district (?d=2), when it's one of the choices.
   { const d = new URLSearchParams(location.search).get('d'), sel = document.getElementById('distFilter');
     if (d && [...sel.options].some(o => o.value === d)) sel.value = d;
@@ -3824,7 +3881,8 @@
       const msg = L.stale ? 'The site was just updated.' : 'This part of the site couldn’t load.';
       sInput.placeholder = L.stale ? 'The site was just updated: reload the page.' : 'Search couldn’t load. Reload the page to try again.';
       ['progress', 'budget'].forEach(id => { const e = document.getElementById(id);
-        if (e) e.innerHTML = `<p class="note">${msg} <button type="button" class="linkbtn" onclick="location.reload()">Reload the page</button></p>`; });
+        if (e) e.innerHTML = `<p class="note">${msg} <button type="button" class="linkbtn reload-btn">Reload the page</button></p>`;
+          const b = e && e.querySelector('.reload-btn'); if (b) b.onclick = () => location.reload(); });
       if (document.activeElement === sInput && sInput.value.trim()) runSearch();
       return;
     }
