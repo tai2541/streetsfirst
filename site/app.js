@@ -305,7 +305,7 @@
       // No turn on red only covers right turns on red, so with it in place only drivers turning left are counted.
       const pedTurn = p.ntor_status === 'Existing' ? (p.ped_turn_crashes || 0) - (p.ped_right_crashes || 0) : p.ped_turn_crashes;
       if (p.signalized && p.lpi_status !== 'Existing' && pedTurn >= 2)
-        out.push(`${pedTurn} people walking hit by drivers turning${p.ntor_status === 'Existing' ? ' left' : ''}; ${p.lpi_status === 'Planned'
+        out.push(`${pedTurn} people walking hit by drivers turning${p.ntor_status === 'Existing' ? ' left (no turn on red covers right turns)' : ''}; ${p.lpi_status === 'Planned'
           ? `head-start walk signal planned${plannedFor(p.lpi_planned)}` : p.lpi_status === 'Not Feasible'
           ? 'SDOT assessed a head-start walk signal as not feasible here' : 'no head-start walk signal'} (SDOT data)`);
       if (p.signalized && p.angle_crashes >= 10 && p.angle_crashes / (p.typed_crashes || n) >= 0.4)
@@ -321,7 +321,8 @@
 
   // Already treated or listed by SDOT, and still hurting people.
   function stillDangerous(p) {
-    if (p.lpi_status === 'Existing' && p.ped_after_lpi >= 2) {
+    const laterNtor = p.ntor_status === 'Existing' && p.ntor_installed && p.lpi_installed && p.ntor_installed > p.lpi_installed;
+    if (p.lpi_status === 'Existing' && p.ped_after_lpi >= 2 && !laterNtor) {
       const y = p.lpi_installed ? p.lpi_installed.slice(0, 4) : '';
       const from = p.lpi_installed && p.lpi_installed > meta.window_from ? monthYear(p.lpi_installed) : monthYear(meta.window_from);
       return { short: `Head-start walk signal since ${y || 'an unknown year'}; pedestrians still hit here: ${p.ped_after_lpi} crashes since ${from}, ${p.ped_turn_after_lpi || 0} with a turning vehicle`,
@@ -380,7 +381,7 @@
     }
     if (planned.length) parts.push(`Planned here or nearby: ${planned.join(', ')}`);
     if (cip.length) parts.push(`Money budgeted ${cip[0].y0 === cip[0].y1 ? 'in ' + cip[0].y0 : cip[0].y0 + '–' + cip[0].y1} for a project named for this street, “${cip[0].t}” (it may not reach this spot)`);
-    if (!recent.length && older.length) parts.push(`Older work only: ${list(older)}`);
+    if (older.length) parts.push(`${recent.length ? 'Earlier' : 'Older work only'}: ${list(older)}`);
     const busNew = bus.filter(f => f.d >= d0);
     if (busNew.length) parts.push(`Bus lane (${busNew[0].y}), a transit project that changes the street`);
     else if (!recent.length && bus.length) parts.push(`Older bus lane (${bus[0].y})`);
@@ -3823,7 +3824,7 @@
       <div class="cs-nums">
         <div><b>${fmt(r.ksi)}</b><span>crashes that killed or seriously hurt someone (${pct(r.ksi, tot('ksi'))}% of the city's)${r.killed != null ? `: ${plural(r.killed, 'person', 'people')} killed, ${fmt(r.hurt)} seriously injured` : ''}</span></div>
         <div><b>${fmt(r.top50)}</b><span>of the citywide top 50 places${r.top50_state ? `: ${r.top50_state} run by WSDOT, ${r.top50 - r.top50_state} on city streets` : ''}</span></div>
-        <div><b>${fmt(r.top50_nothing)}</b><span>of the ${r.top50_state ? `${r.top50 - r.top50_state} on city streets` : 'citywide top 50 here'} with no counted safety fix since ${esc(P.since_d)} or planned work*${r.top50_ends ? ` (${r.top50_ends} with work only at the corners at their ends)` : ''}</span></div>
+        ${r.top50 ? `<div><b>${fmt(r.top50_nothing)}</b><span>of the ${r.top50_state ? `${r.top50 - r.top50_state} on city streets` : 'citywide top 50 here'} with no counted safety fix since ${esc(P.since_d)} or planned work*${r.top50_ends ? ` (${r.top50_ends} with work only at the corners at their ends)` : ''}</span></div>` : ''}
       </div>
       <div class="cs-foot">Of the fixes SDOT dated since January ${esc(P.since)} at places with crashes, ${pct(r.lpi, tot('lpi'))}% of head-start walk signals and
         ${pct(r.other, tot('other'))}% of other fixes are in this district. *In the SDOT layers this site reads; planned work includes a budget line named for the street.
