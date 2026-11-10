@@ -183,6 +183,7 @@ Context only, never scored. Built in `pipeline/context.sql`; fetched in `pipelin
 | Public schools | `Public_School/FeatureServer/0` (school types only; admin and closed sites dropped) | Nearest school within 1,000 ft, for spots and pins | Building point, not the school grounds. |
 | Street addresses | King County `Address/KingCo_AddressPoints/MapServer/0`, `CTYNAME = 'SEATTLE'`, primary addresses only | Address suggestions in search (house number + street); picking one pins it | Only number, street parts and ZIP are fetched (no parcel or owner fields). Built in `pipeline/addresses.sql`. If the county's server is down and no earlier copy exists, suggestions pause for a week; "Find this address" still works through the geocoder. |
 | Race and Social Equity Index | `Race_and_Social_Equity_Composite_Index_Current/FeatureServer/0` | The census tract's composite level (of five), shown for context | The City's own index for prioritizing investment. Not part of the score. |
+| WSDOT state routes, access control, state bridges | data.wsdot.wa.gov `Shared/LRSData/FeatureServer/0,1,2` (route lines and ramps), `Shared/RoadwayCharacteristicData/FeatureServer/1` (access control), `Shared/BridgeData/FeatureServer/0` (state bridges) | Which places are on a state highway, and who runs them | A place is on a route when most of its own street (a block, or a street piece at a corner) is within 50 ft of the route line. WSDOT runs it when it is a bridge, ramp, tunnel or highway piece that is mostly limited access or a state bridge; a state highway on a plain city street is run by the City (RCW 47.24) and counted as a city street. Streets passing under bridges or over the tunnel are left out. |
 | Council districts and members | `Council_District_Member_Info/FeatureServer/0` | "Bigger fixes": the district's council member and their page, for spots and pins | Members change after elections; the layer is the City's. The two citywide positions are mentioned, not listed. |
 
 ## "Is it getting fixed?" view (2026-11)
@@ -205,9 +206,13 @@ builds; every week re-derives it all.
   30; otherwise as "N fewer/more". This shows what happened, not whether a fix caused it.
 - **Need vs published work:** by council district and by the City's Race and Social Equity Index, fatal and serious
   crashes in the scored window, today's top 50, how many of those have no fix or published SDOT project nearby, and
-  dated fixes since the start of the scored years (head-start walk signals counted separately). A block counts as having
-  work when a dated fix went in at one of the intersections at its ends (within 60 ft of the end of its street line;
-  SDOT records corridor signal work there); its page lists those, and each fix is counted once, at its own intersection.
-  A dated bus lane since then also counts as work (a transit project that changes the street), but not as a fix.
+  dated fixes since January of the scored years' first year (head-start walk signals counted separately). "Work since" a
+  place's crash window began is by date (from its first day): a dated fix there, or a dated bus lane (a transit project that
+  changes the street; not counted as a fix). Places WSDOT runs are counted apart; state highways on city streets count as
+  city streets. For a block, dated fixes at the intersections at its ends (within 60 ft of the end of its street line) are
+  listed on its page and counted separately, not as the block's own work: a fix at a corner doesn't reach crashes along the
+  block, which SDOT records at the block.
+- **Is it working?:** head-start walk signals and no turn on red are judged on people walking hit by turning drivers,
+  the crash they target. The list of places where those crashes didn't go down needs at least 2 before and 2 after.
 - **Links:** `#p=<key>` opens a place (the key is a hash of its name, so it survives re-ranking; old `#loc=N` links still
   work). `#progress` opens the view, `#progress=2018` a year, `#progress=d2` a council district's list.

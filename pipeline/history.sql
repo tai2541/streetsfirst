@@ -4,8 +4,8 @@
 -- and by the City's equity index. Nothing here changes the current ranking.
 --
 -- Past rankings use the same expected-harm method on the 5 years of crashes before each date. Repair requests aren't
--- available that far back, so past ranks are by crashes alone. Monthly snapshots (for "what changed") add each place's
--- current request boost, so last month's list is directly comparable with today's.
+-- available that far back, so past ranks are by crashes alone, like today's (requests don't change scores). The monthly
+-- snapshots (for "what changed") keep the request term, now zero, so last month's list is comparable with today's.
 -- Yearly snapshots start in 2018 (crashes 2013-2017): before 2013 SDOT's data records far fewer injury crashes.
 
 -- Every crash since 2011, with today's place names.
@@ -74,7 +74,7 @@ select h.id, h.location, h.crashes, h.ksi,
     + h.unknown_sev * coalesce(g.opk, 0) as expected_harm
 from h join g using (id, ref_group);
 
--- Ranks. Yearly: crashes alone. Monthly: with each place's current request boost (m0 is then exactly today's ranking).
+-- Ranks. Yearly: crashes alone. Monthly: with each place's current request boost, now always zero (m0 is today's ranking).
 -- One list, intersections and stretches together: the same rule as today's.
 create or replace table hist_rank as
 with s as (
@@ -203,33 +203,36 @@ from j;
 -- Places with no council district or equity-index tract are on the city limits (border streets, some bridges): grouped
 -- as 'none' so the columns add up to the city totals.
 -- "Planned" is the same test as the place's own page: a planned SDOT project nearby, a planned head-start walk signal or
--- no turn on red, or a budget project named for the street. Places on state highways (WSDOT shares responsibility) are
+-- no turn on red, or a budget project named for the street. Places WSDOT runs (freeways, ramps, state bridges) are
 -- counted on their own, not as "none recorded".
--- Dated fixes since the window began at a block's end intersections (its page lists them; the district table counts a
--- block with work at its ends as having work, but counts each fix once, at its own intersection).
+-- Dated fixes since the crash window began at a block's end intersections. The block's page lists them and the district
+-- table says how many blocks have only those, but they don't count as the block's own work: a fix at a corner doesn't
+-- reach crashes in the middle of the block (crashes near a corner are recorded at the corner).
 create or replace table end_fixes as
 select e.block as location,
   list(distinct {'at': coalesce(list_filter(string_split(e.ix, ' AND '), lambda s: s <> split_part(e.block, ' BETWEEN ', 1))[1], e.ix),
-                 'k': f.k, 'y': f.y}) as end_fixes
+                 'k': f.k, 'y': f.y, 'd': f.d}) as end_fixes
 from block_ends e join place_fixes f on f.location = e.ix
-where f.y >= year(ws()) and f.k not in ('New sidewalk', 'Neighborhood safety project')
+where f.d >= ws() and f.k not in ('New sidewalk', 'Neighborhood safety project')
 group by e.block;
 
 create or replace table need_work as
--- A dated bus lane since then also counts as work (SDOT builds them as transit projects that change the street), but not
--- in the fix counts.
+-- Fix counts are by calendar year (since January of the window's first year). "Work since" a place's crash window began
+-- is by date: a dated fix, or a dated bus lane (SDOT builds them as transit projects that change the street; not in the
+-- fix counts), on or after the window's first day.
 with fx as (
-  select location, sum(lpi) as lpi, sum(other) as other from (
-    select location, count(*) filter (where k = 'Head-start walk signal') as lpi, count(*) filter (where k <> 'Head-start walk signal') as other
-    from place_fixes where y >= year(ws()) group by location
-    union all select location, 0, 0 from end_fixes
-    union all select location, 0, 0 from loc_fix_hits where kind = 'Bus lane' and status = 'Built' and year(d) >= year(ws())
-  ) group by location
+  select location, count(*) filter (where k = 'Head-start walk signal') as lpi, count(*) filter (where k <> 'Head-start walk signal') as other
+  from place_fixes where y >= year(ws()) group by location
+),
+recent as (
+  select location from place_fixes where d >= ws()
+  union select location from loc_fix_hits where kind = 'Bus lane' and status = 'Built' and d >= ws()
 ),
 places as (
   select r.location, coalesce(r.council_district::varchar, 'none') as district, coalesce(r.rse_quintile, 'none') as rse,
     r.ksi, r.killed, r.seriously_injured, r.rank, r.addr_type, r.lat, r.lon, r.rank <= 50 as top50, coalesce(fx.lpi, 0) as lpi, coalesce(fx.other, 0) as other,
-    fx.location is not null as fixed_recently,
+    r.location in (select location from recent) as fixed_recently,
+    r.location in (select location from end_fixes) as ends_fixed,
     coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned' or len(r.cip) > 0, false) as proj_planned,
     r.state_route, r.council_district2
   from ranked r left join fx using (location)
@@ -242,8 +245,9 @@ by_g as (
   select dim, grp, sum(ksi) as ksi, sum(killed) as killed, sum(seriously_injured) as hurt, sum(lpi) as fixes_lpi, sum(other) as fixes_other,
     count(*) filter (where top50) as top50,
     count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null) as top50_nothing,
+    count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null and ends_fixed) as top50_ends,
     count(*) filter (where top50 and state_route is not null) as top50_state,
-    list({'loc': location, 'r': rank, 't': addr_type, 'fixed': fixed_recently, 'planned': proj_planned, 'state': state_route, 'k': ksi,
+    list({'loc': location, 'r': rank, 't': addr_type, 'fixed': fixed_recently, 'ends': ends_fixed, 'planned': proj_planned, 'state': state_route, 'k': ksi,
           'line': case when dim = 'district' then council_district2 end}
          order by rank) filter (where top50) as top50_list
   from long group by dim, grp
@@ -283,7 +287,7 @@ from working_fix group by k, m;
 
 -- places where the targeted crashes didn't go down: at least 2 after, and no fewer than before
 create or replace table working_places as
-select * from working_fix where a >= 2 and a >= b and k <> 'Bus lane' and not other and days >= 730
+select * from working_fix where a >= 2 and a >= b and b >= 2 and k <> 'Bus lane' and not other and days >= 730
 qualify row_number() over (partition by k order by a - b desc, a desc, rank nulls last, location) <= 40;
 
 -- ---------------------------------------------------------------- export: site/data/progress.json
@@ -325,6 +329,7 @@ copy (
                              order by k, a - b desc, a desc, rank nulls last, location) from working_places)
     },
     'since': year(ws()),
+    'since_d': strftime(ws(), '%B %Y'),
     'window': {'d0': ws(), 'd1': we()}
   } as progress
 ) to 'site/data/progress.json' (format json, array false);

@@ -4,12 +4,7 @@
 -- and exports the city-wide traffic layers for the Traffic view (site/data/traffic.json).
 -- None of this changes the safety ranking.
 
--- Each place's shape: an intersection's point, or a block's own street line (falls back to its point).
-create or replace table loc_shape as
-select p.location, p.r, coalesce(b.geom, p.geom) as geom
-from loc_pts p
-left join (select loc_name, ST_Union_Agg(geom) as geom from streets group by loc_name) b
-  on p.r = 40 and b.loc_name = p.location;
+-- (loc_shape, each place's point or street line, is made in state_routes.sql)
 -- The same, with a block's ends cut off (80 ft from each end): crosswalks and projects found along a block belong to the
 -- block itself, not to the intersections at its ends or the side streets meeting there. A block too short to have
 -- anything left is judged from its midpoint.

@@ -446,6 +446,9 @@ select h.*, g.ref_n, g.ref_ksi_share, g.ref_ksi_harm_per_crash, g.ref_other_harm
     + h.unknown_sev * coalesce(g.ref_other_harm_per_known, 0) as expected_harm
 from h join g using (ref_group);
 
+-- ---------------------------------------------------------------- state highways and who runs them (WSDOT's layers)
+.read pipeline/state_routes.sql
+
 -- ---------------------------------------------------------------- locations in the scoring window
 create or replace table locations as
 select e.*, x.addr_type, x.intkey, x.speed_limit, x.art_class,
@@ -457,22 +460,16 @@ select e.*, x.addr_type, x.intkey, x.speed_limit, x.art_class,
   x.area, x.neighborhood,
   x.lpi_status, x.lpi_installed, x.lpi_planned, x.ntor_status, x.ntor_installed, x.ntor_planned, x.ntor_approaches, x.signalized, x.ped_signal, x.ped_audio, x.lt_protected, x.lt_installed, x.signal_installed,
   a.lon, a.lat,
-  -- state facilities: WSDOT owns or shares responsibility
-  -- (a stretch is judged by its own street, not the cross streets that bound it)
-  -- Aurora Ave N is SR 99 and Lake City Way NE is SR 522, although SDOT classes them as city arterials.
-  case when regexp_matches(regexp_replace(e.location, ' BETWEEN .*', ''), '\bAURORA (AVE N|BR)\b|\bSR ?99\b|ALASKAN WY VI|BATTERY ST TUNNEL') then 'SR 99'
-       when regexp_matches(regexp_replace(e.location, ' BETWEEN .*', ''), '\bLAKE CITY WAY NE\b|\bSR ?522\b') then 'SR 522'
-       when regexp_matches(regexp_replace(e.location, ' BETWEEN .*', ''), '\bSR ?509\b|\b1ST AVE? S BR\b') then 'SR 509'
-       when regexp_matches(regexp_replace(e.location, ' BETWEEN .*', ''), '\bN(E)? 145TH ST\b') and a.lon > -122.3445 then 'SR 523'
-       when regexp_matches(regexp_replace(e.location, ' BETWEEN .*', ''), '\bMONTLAKE BLVD (E|NE)\b|\bSR ?513\b') then 'SR 513'
-       when regexp_matches(regexp_replace(e.location, ' BETWEEN .*', ''), '\bSR ?520\b') then 'SR 520'
-       when regexp_matches(regexp_replace(e.location, ' BETWEEN .*', ''), '\bI ?5\b|\bI ?90\b') then 'Interstate'
-       when x.art_class in (4, 5) then 'State route' end as state_route,
+  -- state highways (pipeline/state_routes.sql): state_route only where WSDOT runs it (freeways, ramps, state bridges, the
+  -- tunnel); state_hwy where it's a city street on a state highway, which the City runs (counted as a city street)
+  case when ps.runs = 'wsdot' then ps.route end as state_route,
+  case when ps.runs = 'city' then ps.route end as state_hwy, ps.bridge as state_bridge,
   on_structure(e.location) as structure,
   case when e.crashes < 5 then 'low' when e.crashes < 15 then 'medium' else 'high' end as confidence
 from eb_in(ws(), we()) e
 join loc_context x using (location)
-join locations_all a using (location);
+join locations_all a using (location)
+left join place_state ps using (location);
 
 -- Still dangerous after SDOT acted or listed it: KSI crashes after the first High Collision listing,
 -- and pedestrian crashes after a Leading Pedestrian Interval was installed.
@@ -729,7 +726,7 @@ create or replace table spot_export as
          ref_group, ref_n, round(ref_ksi_share, 4) ref_ksi_share, round(ref_ksi_harm_per_crash, 2) ref_ksi_harm_per_crash,
          round(request_boost, 3) request_boost, round(request_points, 1) request_points, scored_requests,
          round(pts_old, 1) pts_old,
-         area, neighborhood, speed_limit, street_type, state_route, structure, pavement_min,
+         area, neighborhood, speed_limit, street_type, state_route, state_hwy, state_bridge, structure, pavement_min,
          volume, volume_streets, volume_year, volume_estimated,
          sdot_hin, sdot_hcl_years, sdot_hcl_types, ksi_after_hcl,
          lpi_status, lpi_installed, lpi_planned, ntor_status, ntor_installed, ntor_planned, ntor_approaches, ped_after_lpi, signalized, ped_signal, ped_audio, lt_protected, lt_installed,

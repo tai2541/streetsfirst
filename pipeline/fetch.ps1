@@ -204,6 +204,15 @@ $leg = "https://webapi.legistar.com/v1/seattle/OfficeRecords?`$filter=OfficeReco
 try { Get-WithRetry $leg (Join-Path $tmp 'legistar_council.json') 60 }
 catch { Write-Host "  council member list unavailable ($($_.Exception.Message)); names from the district map are shown unchecked"; '[]' | Set-Content (Join-Path $tmp 'legistar_council.json') }
 
+# ---- 4b1. WSDOT: where state highways run, which sections are limited access (WSDOT runs those; on other state highway
+# sections in a city of over 25,000 the city runs the street, RCW 47.24), and state bridges. Statewide layers, small.
+$wsd = 'https://data.wsdot.wa.gov/arcgis/rest/services/Shared'
+Get-ArcGISLayer "$wsd/LRSData/FeatureServer/0" 'RouteID,StateRouteNumber' 'wsdot_rt_inc'
+Get-ArcGISLayer "$wsd/LRSData/FeatureServer/1" 'RouteID,StateRouteNumber' 'wsdot_rt_dec'
+Get-ArcGISLayer "$wsd/LRSData/FeatureServer/2" 'RouteID,StateRouteNumber' 'wsdot_ramps'
+Get-ArcGISLayer "$wsd/RoadwayCharacteristicData/FeatureServer/1" 'RouteIdentifier,AccessControlTypeDescription' 'wsdot_access'
+Get-ArcGISLayer "$wsd/BridgeData/FeatureServer/0" 'StructureName,Owner' 'wsdot_bridges'
+
 # ---- 4b2. Sidewalks: SDOT's own priorities for missing sidewalks (Seattle Transportation Plan, Tier 1 = highest)
 # and sidewalks SDOT rated poor or very poor. Owner and parcel fields are not fetched (no singling out homes).
 Get-ArcGISLayer "$gis/Seattle_Transportation_Plan_Pedestrian_Element/FeatureServer/18" `
@@ -246,7 +255,7 @@ $minimum = @{ collisions = 20000; requests = 50000; budget_sdot_shown = 300; str
               volhist_years = 8; humps = 50; cushions = 30; radar = 30; bikelanes = 200; buslanes = 500; gtfs_stops = 3000
               sw_missing = 8000; sw_poor = 1500; proj_sidewalk = 20; proj_nispp = 5
               crashhist = 50000; crosswalks = 4000; curbramps = 25000; bikefac = 1500; circles = 500; schools = 70; rse = 150; council = 7
-              addresses = 150000 }
+              addresses = 150000; wsdot_rt_inc = 400; wsdot_rt_dec = 400; wsdot_ramps = 1500; wsdot_access = 1500; wsdot_bridges = 2500 }
 foreach ($t in $types) { $minimum['req: ' + $t] = 1 }   # every request type still exists (and the 25% rule applies to each)
 $volatile = @('proj_sidewalk', 'proj_nispp', 'req: Snow and Ice')   # small project lists, and storms: big swings are normal
 $prev = @{}
