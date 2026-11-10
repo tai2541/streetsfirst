@@ -646,7 +646,6 @@
   function currentRows() {
     const n = +document.getElementById('topN').value;
     const type = document.getElementById('addrFilter').value;
-    const onlyFatal = document.getElementById('onlyFatal').checked;
     const ongoing = document.getElementById('onlyOngoing').checked;
     const noPlan = document.getElementById('noPlan').checked;
     const dist = +document.getElementById('distFilter').value || 0;
@@ -655,7 +654,7 @@
     distCard(dist);
     const inDist = p => !dist || p.council_district === dist || p.council_district2 === dist;   // on the line: in both
     const keep = p => inDist(p) && (!type || p.addr_type === type || (type === 'B' && p.addr_type === 'A'))
-        && (!onlyFatal || p.killed > 0) && (!ongoing || p.ksi_years >= 3) && (!noPlan || !((p.proj_ids && p.proj_ids.length) || p.lpi_status === 'Planned' || p.ntor_status === 'Planned'));
+        && (!ongoing || p.ksi_years >= 3) && (!noPlan || !((p.proj_ids && p.proj_ids.length) || p.lpi_status === 'Planned' || p.ntor_status === 'Planned'));
     // With a district or one kind picked, places are ranked again within that list (#1, #2, ...), with the citywide rank
     // beside each. The data file carries each kind's top 200 citywide and each district's top 50 of each kind.
     D.priorities.forEach(p => { p.dr = null; });
@@ -1587,7 +1586,7 @@
     const why = p.killed >= 2 && rk > 50
       ? `<p class="callout">${p.fatal >= 2 ? `${p.killed} people died here, in ${p.fatal} crashes.` : `One crash here killed ${p.killed} people.`} It ranks ${rankTxt(rk)} because the ranking estimates where people are most
           likely to be hurt next, and this spot has few other crashes (${p.crashes} in total), which gives the ranking little history to tell whether the
-          danger here will continue, so it leans on what's typical for similar streets.${p.fatal >= 2 ? ' That may understate it: repeated deaths can mean traffic moves at deadly speeds.' : ''} It's always added to the lists (and the "Someone died" filter)
+          danger here will continue, so it leans on what's typical for similar streets.${p.fatal >= 2 ? ' That may understate it: repeated deaths can mean traffic moves at deadly speeds.' : ''} It's always added to the lists
           so it isn't overlooked.</p>` : '';
     const w = workSummary(p);
     return `<p class="verdict">${esc(parts.join(' '))}</p><p class="verdict2">${line2}</p>
@@ -1956,7 +1955,7 @@
     history.replaceState(history.state, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
   };
   document.getElementById('distFilter').addEventListener('change', distToUrl);
-  ['topN', 'addrFilter', 'distFilter', 'onlyFatal', 'onlyOngoing', 'noPlan'].forEach(id => (document.getElementById(id).onchange = () => {
+  ['topN', 'addrFilter', 'distFilter', 'onlyOngoing', 'noPlan'].forEach(id => (document.getElementById(id).onchange = () => {
     render(); refreshHome();
     if (spotOpen() && current && current.location) select(current, false, null, true);   // its number in the list may have changed
   }));
@@ -2650,7 +2649,7 @@
       const parts = [n ? (n < top ? n + (n === 1 ? ' place' : ' places') : 'Top ' + n) : 'No places match', el('mode').selectedOptions[0].text];
       if (el('distFilter').value) parts.push(el('distFilter').selectedOptions[0].text);
       if (el('addrFilter').value) parts.push(el('addrFilter').selectedOptions[0].text);
-      [['onlyFatal', 'Someone died'], ['onlyOngoing', 'Repeat serious crashes'], ['noPlan', 'No published SDOT project']]
+      [['onlyOngoing', 'Repeat serious crashes'], ['noPlan', 'No published SDOT project']]
         .forEach(([id, l]) => el(id).checked && parts.push(l));
       t = parts.join(' · ');
     }
@@ -3834,7 +3833,7 @@
     const { rows, extra } = currentRows(), all = [...rows, ...extra];
     const dist = +document.getElementById('distFilter').value || 0, sel = id => document.getElementById(id);
     const what = [dist ? `District ${dist}` : 'All Seattle', sel('addrFilter').selectedOptions[0] && sel('addrFilter').value ? sel('addrFilter').selectedOptions[0].text : '',
-      sel('onlyFatal').checked ? 'only where someone died' : '', sel('onlyOngoing').checked ? 'only repeat serious crashes' : '',
+      sel('onlyOngoing').checked ? 'only repeat serious crashes' : '',
       sel('noPlan').checked ? 'only with no published SDOT project' : ''].filter(Boolean).join(', ');
     const q = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
     const lines = [[`Streets First (Seattle), from SDOT's police-reported crash data and SDOT's published records; data as of ${(D.fetchedAt || '').slice(0, 10)}`],
