@@ -208,5 +208,6 @@ builds; every week re-derives it all.
   dated fixes since the start of the scored years (head-start walk signals counted separately). A block counts as having
   work when a dated fix went in at one of the intersections at its ends (within 60 ft of the end of its street line;
   SDOT records corridor signal work there); its page lists those, and each fix is counted once, at its own intersection.
+  A dated bus lane since then also counts as work (a transit project that changes the street), but not as a fix.
 - **Links:** `#p=<key>` opens a place (the key is a hash of its name, so it survives re-ranking; old `#loc=N` links still
   work). `#progress` opens the view, `#progress=2018` a year, `#progress=d2` a council district's list.

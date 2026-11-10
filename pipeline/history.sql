@@ -216,11 +216,15 @@ where f.y >= year(ws()) and f.k not in ('New sidewalk', 'Neighborhood safety pro
 group by e.block;
 
 create or replace table need_work as
+-- A dated bus lane since then also counts as work (SDOT builds them as transit projects that change the street), but not
+-- in the fix counts.
 with fx as (
-  select location, count(*) filter (where k = 'Head-start walk signal') as lpi, count(*) filter (where k <> 'Head-start walk signal') as other
-  from place_fixes where y >= year(ws()) group by location
-  union all
-  select location, 0, 0 from end_fixes where location not in (select location from place_fixes where y >= year(ws()))
+  select location, sum(lpi) as lpi, sum(other) as other from (
+    select location, count(*) filter (where k = 'Head-start walk signal') as lpi, count(*) filter (where k <> 'Head-start walk signal') as other
+    from place_fixes where y >= year(ws()) group by location
+    union all select location, 0, 0 from end_fixes
+    union all select location, 0, 0 from loc_fix_hits where kind = 'Bus lane' and status = 'Built' and year(d) >= year(ws())
+  ) group by location
 ),
 places as (
   select r.location, coalesce(r.council_district::varchar, 'none') as district, coalesce(r.rse_quintile, 'none') as rse,

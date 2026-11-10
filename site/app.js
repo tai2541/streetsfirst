@@ -349,7 +349,7 @@
   }
 
   // What has been done here, in one line, from the layers this site reads (SDOT's data has gaps, so "nothing" is
-  // always worded as "nothing recorded in these layers"). Budget projects and bus lanes are shown, never counted as fixes.
+  // always worded as "nothing recorded in these layers"). Budget projects are shown, never counted as fixes; a bus lane since then counts as work, but not as a safety fix.
   const projKind = j => (j.kind === 'lpi' ? 'head-start walk signal' : j.kind === 'sidewalk' ? 'new sidewalk' : (j.scope || 'safety project').toLowerCase().split(',')[0]);
   function workSummary(p) {
     const y0 = +meta.window_to.slice(0, 4) - 5;
@@ -380,7 +380,9 @@
     if (planned.length) parts.push(`Planned here or nearby: ${planned.join(', ')}`);
     if (cip.length) parts.push(`Money budgeted ${cip[0].y0 === cip[0].y1 ? 'in ' + cip[0].y0 : cip[0].y0 + '–' + cip[0].y1} for a project named for this street, “${cip[0].t}” (it may not reach this spot)`);
     if (!recent.length && older.length) parts.push(`Older work only: ${list(older)}`);
-    if (!recent.length && bus.length) parts.push(`Bus lane ${bus[0].y} (shown, but not counted as a dated safety fix)`);
+    const busNew = bus.filter(f => f.y >= y0);
+    if (busNew.length) parts.push(`Bus lane (${busNew[0].y}), a transit project that changes the street`);
+    else if (!recent.length && bus.length) parts.push(`Older bus lane (${bus[0].y})`);
     // in place, but SDOT's data gives no date: never "no work recorded"
     const undated = [...new Set([
       ...(p.lpi_status === 'Existing' && !p.lpi_installed ? ['head-start walk signal'] : []),
@@ -389,7 +391,7 @@
       ...(p.fixes || []).filter(f => f.s === 'Built' && !f.d).map(f => f.k.toLowerCase())])]
       .filter(k => !done.some(f => f.k === k) && !(k === 'bus lane' && bus.length));
     if (undated.length) parts.push(`In place with no install date in SDOT's data: ${undated.join(', ')}`);
-    const cls = recent.length || ends.length ? 'done' : planned.length || cip.length ? 'planned' : 'none';
+    const cls = recent.length || ends.length || busNew.length ? 'done' : planned.length || cip.length ? 'planned' : 'none';
     // say so when nothing is planned, since "what's planned here?" is the first question people bring
     if (parts.length && !planned.length && !cip.length) parts.push("nothing planned on SDOT's published project maps");
     const text = parts.length ? parts.join(' · ') : 'No work recorded here in the SDOT layers this site reads';
@@ -1617,9 +1619,10 @@
         and ${100 - Math.round(100 * p.eb_weight)}% the typical rate for ${esc(groupName(p.ref_group))} applied to its ${p.crashes} crashes
         (${(p.crashes * p.ref_ksi_harm_per_crash).toFixed(0)})${p.unknown_sev ? ` + ${p.unknown_sev} crash${p.unknown_sev === 1 ? '' : 'es'} with unknown severity × the typical other-crash harm ${(+p.ref_other_harm_per_known || 0).toFixed(1)}` : ''}.</p>
       <p class="note">Own-record weight = crashes ÷ (crashes + ${k}). Raw crash harm before blending: ${fmt(Math.round(p.harm))}.</p>
-      <p><b>Score ${fmt(Math.round(p.score_ksi))}</b> = expected harm × repair boost ${(1 + p.request_boost).toFixed(2)}
+      ${weight('request_boost_max') > 0 ? `<p><b>Score ${fmt(Math.round(p.score_ksi))}</b> = expected harm × repair boost ${(1 + p.request_boost).toFixed(2)}
         <span class="muted">(${plural(p.scored_requests, 'safety-related request')} since ${monthYear(meta.requests_scored_from)})</span>.
-        ${p.request_boost >= 0.005 ? `Without the boost it would rank ${rankTxt(p.rank_noboost)}.` : ''}</p>`;
+        ${p.request_boost >= 0.005 ? `Without the boost it would rank ${rankTxt(p.rank_noboost)}.` : ''}</p>`
+        : `<p><b>Score ${fmt(Math.round(p.score_ksi))}</b> = expected harm. Repair requests nearby are listed on this page but don't change the score.</p>`}`;
     const riskLine = p.score_risk != null
       ? `<p><b>Risk ${p.score_risk.toFixed(1)} per million vehicles</b> = expected harm ${fmt(Math.round(p.expected_harm))} ÷
           (${fmt(Math.max(p.volume, weight('risk_vol_floor')))} vehicles a weekday × 365 × 5 years ÷ 1 million).</p>`
@@ -3159,7 +3162,7 @@
           <li><b>Crash harm ${fmt(Math.round(ex.harm))}.</b> ${ex.crashes} crashes; each scores by how badly people were hurt.</li>
           <li><b>Expected harm ${fmt(Math.round(ex.expected_harm))}.</b> The fatal/serious part is blended with what's typical for
             ${esc(groupName(ex.ref_group))}, so a handful of crashes doesn't swing the estimate too far.</li>
-          <li><b>Score ${fmt(Math.round(ex.score_ksi))}.</b> × ${(1 + ex.request_boost).toFixed(2)} for nearby safety-related repair requests.</li>
+          ${bmax > 0 ? `<li><b>Score ${fmt(Math.round(ex.score_ksi))}.</b> × ${(1 + ex.request_boost).toFixed(2)} for nearby safety-related repair requests.</li>` : ''}
         </ol>
       </div>` : '';
     const ksi = `
@@ -3181,11 +3184,14 @@
           own record × crashes ÷ (crashes + ${A}) + typical rate × ${A} ÷ (crashes + ${A}). A spot with 5 crashes leans ${Math.round(100 * A / (5 + A))}% on the typical
           rate; one with 60 leans ${Math.round(100 * 60 / (60 + A))}% on its own record. Every crash, even a fender-bender,
           is evidence of how much conflict happens there. (This is similar to methods traffic engineers use, applied only to the share of crashes that kill or seriously hurt.)</li>
-        <li><b>Repair boost.</b> Safety-related requests (${scored.map(r => esc(r.type)).join(', ')}) within
+        ${bmax > 0 ? `<li><b>Repair boost.</b> Safety-related requests (${scored.map(r => esc(r.type)).join(', ')}) within
           ${ft(weight('request_radius_m'))} ft since ${monthYear(meta.requests_scored_from)} raise the score by up to
           +${Math.round(100 * bmax)}% (half that at ${bhalf} request points). Duplicate reports of the same thing in the same
           month count once. ${unscored.map(r => esc(r.type)).join(', ')} requests are shown but not scored: they aren't
-          clearly tied to crashes, or weren't collected for the whole period.</li>
+          clearly tied to crashes, or weren't collected for the whole period.</li>`
+        : `<li><b>Repair requests don't change the score.</b> Requests to the City within ${ft(weight('request_radius_m'))} ft are listed on each
+          place's page, but how often people report a problem depends on who lives and travels there as much as on how dangerous
+          the street is, so the ranking uses crashes only.</li>`}
       </ol>`;
     const risk = `
       <h3>Most dangerous for how busy it is</h3>
@@ -3614,7 +3620,7 @@
             <td>${r.top50}</td><td>${r.top50_state || 0}</td><td>${r.top50_nothing}</td></tr>`).join('')}
         </table>`)}
         ${sel && !narrow ? openList() : ''}
-        <p class="note" id="pgNoneNote">* No work since ${P.since} or planned: a city street with no counted safety fix since ${P.since} (older work and bus lanes aren't counted, though each place's page shows them), no planned SDOT project, head-start walk signal or no turn on red nearby, and no budget project named for the street, in the layers this site reads (the same test as each place's own page). Places on state highways, where WSDOT shares responsibility, are counted in their own column. The fix types counted (${FIX_KINDS}) are mostly intersection work, so stretches of street rarely have one.</p>
+        <p class="note" id="pgNoneNote">* No work since ${P.since} or planned: a city street with no counted safety fix since ${P.since} (older work isn't counted, though each place's page shows it; a dated bus lane since ${P.since}, or a fix at either end of a block, counts as work), no planned SDOT project, head-start walk signal or no turn on red nearby, and no budget project named for the street, in the layers this site reads (the same test as each place's own page). Places on state highways, where WSDOT shares responsibility, are counted in their own column. The fix types counted (${FIX_KINDS}) are mostly intersection work, so stretches of street rarely have one.</p>
         <p class="note">Crashes: ${monthYear(P.window.d0)}–${throughMonth(P.window.d1)}. Fixes: dated fixes since January ${P.since} at places with
           crashes, counted once per place they reach (one long bike lane can reach many places); head-start walk signals are shown on their own because SDOT has added hundreds of them${(() => {
             const d = P.need.filter(r => r.dim === 'district'), t = d.reduce((s, r) => s + (r.lpi || 0), 0), top = d.slice().sort((a, b) => b.lpi - a.lpi)[0];
@@ -3658,7 +3664,7 @@
           ${early ? `<br><span class="pg-yard">Against an earlier period of the same length${w.e_n < w.n ? ` (the ${fmt(w.e_n)} with crash data back that far)` : ''}:
             ${fmt(w.eb)} then, ${fmt(w.ea)} after${clustered ? '' : ` (${chg(pc(w.eb, w.ea))}); citywide ${chg(pc(w.ecb, w.eca))}`}.</span>` : ''}
           ${result && !clustered ? `<br><b>Result:</b> ${result}.` : ''}
-          ${w.k === 'Bus lane' ? ` <i>Bus lanes are built for buses, not counted as a safety fix; shown because they change the street.</i>` : ''}
+          ${w.k === 'Bus lane' ? ` <i>Bus lanes are transit projects, not aimed at one kind of crash, so all crashes are counted.</i>` : ''}
           ${w.k === 'Protected bike lane' ? ` <i>A bike lane can bring more people biking, so more bike crashes can come with more riders; nothing here counts riders.</i>` : ''}
           ${w.n_all > w.n ? `<br><span class="muted">Not counted: ${fmt(w.n_all - w.n)} more where another dated fix went in at the same place over these years.</span>` : ''}</span></li>`;
       };

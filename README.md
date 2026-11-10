@@ -49,8 +49,8 @@ before the newest crash (recent police reports arrive late):
    rate for similar spots (same location type and street class), weighted crashes / (crashes + 20).
    Chosen because it best predicted later fatal/serious crashes in an out-of-sample test
    (rank on the first 3 years, count KSI crashes in the last 2). Results are on the site.
-4. **Repair boost:** safety-related requests (signals, streetlights, signs, sidewalks, ADA,
-   Safe Routes to School) since mid-2023, duplicates collapsed, raise the score by at most +25%.
+4. **Repair requests don't change the score.** They are listed on each place's page, but how often people
+   report problems depends on who lives and travels there as much as on danger. (A capped +25% boost was dropped in 2026.)
 
 **One list.** Intersections and stretches of street are ranked together, 1 to N, on the same score
 (ties: more crashes first). Picking only intersections, only stretches, or a council district on the site

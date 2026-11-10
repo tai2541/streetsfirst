@@ -13,7 +13,8 @@ set temp_directory = 'data/duckdb_tmp';
 -- Three rankings are computed side by side; the site lets people switch between them.
 --   ksi (recommended): expected harm. Crash harm (fatal = serious injury, "KSI") with repeated deaths
 --                      compounding; the fatal/serious part is blended with the typical share on similar
---                      streets (empirical Bayes); then a small capped boost from safety-related requests.
+--                      streets (empirical Bayes). Safety-related requests are shown but don't change the score
+--                      (request_boost_max = 0): how often people report problems depends on who lives and travels there.
 --   risk:              the same expected harm per million vehicles entering the spot (5 years of weekday counts).
 --   fatal (old v1):    fatal crashes weighted far above everything else. Retired from the site; still
 --                      computed so the change can be compared.
@@ -26,7 +27,7 @@ create or replace table weights as select * from (values
   ('ped_bike_mult',      1.5),   -- x this when a pedestrian or cyclist was involved AND someone was hurt
   ('ksi_prior_crashes', 20.0),   -- expected harm: how many crashes a spot needs before its own fatal/serious
                                  --   share counts as much as the typical share for similar streets
-  ('request_boost_max',  0.25),  -- safety-related requests raise the score by at most +25%...
+  ('request_boost_max',  0.0),   -- off: requests could raise the score by up to this share (was 0.25)...
   ('request_boost_half', 50.0),  -- ...reaching half that boost at this many request points
   ('request_radius_m',  60.0),   -- requests within this distance count toward a location
   ('risk_min_crashes',  10.0),   -- risk mode: only locations with at least this many crashes
