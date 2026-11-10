@@ -279,8 +279,8 @@
     `Scored: ${fmt(meta.collisions_scored)} SDOT collision reports from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)} ` +
     `at ${fmt(N)} places. Data fetched ${(d => d && !isNaN(d)
       ? d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'unknown')(D.fetchedAt && new Date(D.fetchedAt.replace(' ', 'T')))}.` +
-    `<br>Made by Dara Try. Questions, suggestions, or a mistake on this site? Email <a href="mailto:contact@streetsfirst.org">contact@streetsfirst.org</a>
-    (to report a street problem to the City, use the links on each place's page).`;
+    `<br>Made by Dara Try. Questions or suggestions about this website: <a href="mailto:contact@streetsfirst.org">contact@streetsfirst.org</a>.
+    This email can't fix streets: to report a street problem, use <a href="https://www.seattle.gov/customer-service-bureau#popular">the City's forms</a>.`;
 
   const scoreText = p => (mode === 'risk' ? `${p.score.toFixed(1)} <small>harm points per million vehicles</small>` : `<small>score</small> ${fmt(Math.round(p.score))}`);
   const topShare = rank => { const s = (100 * rank) / kindCount(rank); return s < 1 ? `top ${Math.max(0.1, Math.ceil(s * 10) / 10)}%` : s <= 50 ? `top ${Math.ceil(s)}%` : 'lower half'; };
@@ -3302,7 +3302,7 @@
         City's public data, downloaded and rebuilt automatically every Monday. All the code and every calculation are public on
         <a href="https://github.com/tai2541/streetsfirst" target="_blank" rel="noopener">GitHub</a> for anyone to read and check (other use needs permission).</p>
       <p><b>Who made it:</b> Dara Try, a Seattle resident. Questions or suggestions: <a href="mailto:contact@streetsfirst.org">contact@streetsfirst.org</a></p>
-      <p><b>See a mistake?</b> Email <a href="mailto:contact@streetsfirst.org">contact@streetsfirst.org</a>, or
+      <p><b>See a mistake in this website's numbers?</b> Email <a href="mailto:contact@streetsfirst.org">contact@streetsfirst.org</a>, or
         <a href="https://github.com/tai2541/streetsfirst/issues/new" target="_blank" rel="noopener">report it on GitHub</a>
         (a free account is needed). Corrections that come from the City's own data are fixed in the next rebuild.</p>
       <p class="note">Totals here can differ from SDOT's Vision Zero reports: SDOT's official figures count people, from crash data
