@@ -373,7 +373,15 @@
     if (planned.length) parts.push(`Planned here or nearby: ${planned.join(', ')}`);
     if (cip.length) parts.push(`Money budgeted ${cip[0].y0 === cip[0].y1 ? 'in ' + cip[0].y0 : cip[0].y0 + '–' + cip[0].y1} for a project named for this street, “${cip[0].t}” (it may not reach this spot)`);
     if (!recent.length && older.length) parts.push(`Older work only: ${list(older)}`);
-    if (!recent.length && bus.length) parts.push(`Bus lane ${bus[0].y} (not counted as a safety fix)`);
+    if (!recent.length && bus.length) parts.push(`Bus lane ${bus[0].y} (shown, but not counted as a dated safety fix)`);
+    // in place, but SDOT's data gives no date: never "no work recorded"
+    const undated = [...new Set([
+      ...(p.lpi_status === 'Existing' && !p.lpi_installed ? ['head-start walk signal'] : []),
+      ...(p.ntor_status === 'Existing' && !p.ntor_installed ? ['no turn on red'] : []),
+      ...(p.lt_protected && !p.lt_installed ? ['protected left turn'] : []),
+      ...(p.fixes || []).filter(f => f.s === 'Built' && !f.d).map(f => f.k.toLowerCase())])]
+      .filter(k => !done.some(f => f.k === k) && !(k === 'bus lane' && bus.length));
+    if (undated.length) parts.push(`In place with no install date in SDOT's data: ${undated.join(', ')}`);
     const cls = recent.length ? 'done' : planned.length || cip.length ? 'planned' : 'none';
     // say so when nothing is planned, since "what's planned here?" is the first question people bring
     if (parts.length && !planned.length && !cip.length) parts.push("nothing planned on SDOT's published project maps");
