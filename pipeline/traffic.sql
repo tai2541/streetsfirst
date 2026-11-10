@@ -38,12 +38,28 @@ select kind, segkey, case when st = 'PLANNED' then 'Planned' else 'Built' end as
 ) x
 where coalesce(st, 'INSVC') not in ('TEMPOUTSVC', 'REMOVED', 'RETIRED');
 
+-- SDOT's older protected bike lane layer, less the pieces SDOT's current bike facilities layer now records as something
+-- else (a painted or buffered lane, sharrows, a greenway, a trail) along most of their length: about 26 of 462 pieces,
+-- e.g. S Othello St at MLK, a painted lane in the current layer. Pieces the current layer doesn't cover at all are kept.
+create or replace table pbl_old as
+with old as (
+  select row_number() over () as id, to_timestamp(f.properties.DATE_COMPLETED::double / 1000)::date as d,
+         case f.properties.STATUS when 'CONST' then 'Under construction' else 'Built' end as status, gj_geom(f.geometry) as geom
+  from (select unnest(features) f from read_json('data/raw/bikelanes_*.json', maximum_object_size = 50000000)) where f.geometry is not null),
+fac as (
+  select f.properties.CATEGORY::varchar as cat, gj_geom(f.geometry) as geom
+  from (select unnest(features) f from read_json('data/raw/bikefac_*.json', maximum_object_size = 50000000)) where f.geometry is not null),
+m as (
+  select o.id, f.cat, sum(ST_Length(ST_Intersection(o.geom, ST_Buffer(f.geom, 30)))) as along
+  from old o join fac f on ST_DWithin(o.geom, f.geom, 30) group by o.id, f.cat),
+other as (
+  select m.id from m join old o using (id) group by m.id, o.geom
+  having arg_max(m.cat, m.along) <> 'BKF-PBL'
+     and coalesce(sum(m.along) filter (where m.cat = 'BKF-PBL'), 0) <= 0.5 * greatest(ST_Length(o.geom), 1))
+select d, status, geom from old where id not in (select id from other);
+
 create or replace table fix_lines as
-select 'Protected bike lane' as kind,
-       to_timestamp(f.properties.DATE_COMPLETED::double / 1000)::date as d,
-       case f.properties.STATUS when 'CONST' then 'Under construction' else 'Built' end as status,
-       gj_geom(f.geometry) as geom
-from (select unnest(features) f from read_json('data/raw/bikelanes_*.json', maximum_object_size = 50000000)) where f.geometry is not null
+select 'Protected bike lane' as kind, d, status, geom from pbl_old
 union all
 -- SDOT's protected bike lane layer above stopped being updated; the bike facilities layer has the newer lanes (and some
 -- old ones re-dated). A facilities lane counts only where it isn't already in the older layer: less than half of it

@@ -141,17 +141,19 @@ select location, date, peds, cyclists, coll_type from collisions;
 -- Dated things SDOT built at each place, and the kind of crash each one is meant to reduce.
 create or replace table dated_fixes as
 select location, 'Head-start walk signal' as kind, lpi_installed as d, 'turnped' as m from locations where lpi_status = 'Existing' and lpi_installed is not null
-union all select location, 'No turn on red', ntor_installed, 'turnped' from locations where ntor_status = 'Existing' and ntor_installed is not null
+union all select location, 'No turn on red', ntor_installed, 'rightped' from locations where ntor_status = 'Existing' and ntor_installed is not null
 union all select location, 'Protected left-turn signal', lt_installed, 'left' from locations where lt_protected and lt_installed is not null
 union all select location, f.k, f.d, case when f.k = 'Protected bike lane' then 'bike' else 'all' end
   from (select location, unnest(fixes) f from locations) where f.d is not null and f.s = 'Built' and not f.u
 union all select location, 'Traffic circle', circle_d, 'all' from loc_street_ctx where circle_d is not null;
 
 create or replace macro crash_kind(m, peds, cyclists, coll_type) as
-  -- No turn on red stops turns on a red light (right turns, and left turns onto a one-way street), so it's judged on
-  -- people walking hit by a turning driver, not on every crash involving someone walking
+  -- A head-start walk signal is judged on people walking hit by a turning driver (either way). No turn on red stops
+  -- turns on a red light, nearly all of them right turns (left turns on red are only onto a one-way street, which this
+  -- data doesn't record), so it's judged on people walking hit by a right-turning driver.
   case m when 'ped' then peds > 0 when 'bike' then cyclists > 0
          when 'turnped' then coll_type in ('Vehicle turning left hits pedestrian', 'Vehicle turning right hits pedestrian')
+         when 'rightped' then coll_type = 'Vehicle turning right hits pedestrian'
          when 'left' then coll_type = 'From opposite direction - one left turn - one straight' else true end;
 
 -- Equal periods, up to 3 years each side; the month it went in is skipped. Needs at least a year on both sides

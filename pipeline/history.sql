@@ -312,7 +312,7 @@ from working_fix group by k, m;
 
 -- places where the targeted crashes didn't go down: at least 2 after, and no fewer than before
 create or replace table working_places as
-select * from working_fix where a >= 2 and a >= b and b >= 2 and k <> 'Bus lane' and not other and days >= 730
+select * from working_fix where a >= 2 and a >= b and b >= 2 and k not in ('Bus lane', 'Protected bike lane') and not other and days >= 730
 qualify row_number() over (partition by k order by a - b desc, a desc, rank nulls last, location) <= 40;
 
 -- ---------------------------------------------------------------- export: site/data/progress.json

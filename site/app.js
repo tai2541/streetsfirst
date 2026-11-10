@@ -1388,7 +1388,7 @@
   function beforeAfter(p) {
     const L = p.before_after || [];
     if (!L.length) return '';
-    const what = { ped: 'crashes involving people walking', turnped: 'people walking hit by turning drivers', bike: 'crashes involving people biking', left: 'left-turn crashes', all: 'crashes' };
+    const what = { ped: 'crashes involving people walking', turnped: 'people walking hit by turning drivers', rightped: 'people walking hit by right-turning drivers', bike: 'crashes involving people biking', left: 'left-turn crashes', all: 'crashes' };
     const span = days => { const mo = Math.round(days / 30.44); return mo >= 12 && mo % 12 === 0 ? plural(mo / 12, 'year', 'years') : plural(mo, 'month', 'months'); };
     const city = (b, a) => { if (!b) return ''; const ch = Math.round(100 * (a / b - 1));
       return ch === 0 ? 'stayed about the same' : `went ${ch < 0 ? 'down' : 'up'} ${Math.abs(ch)}%`; };
@@ -1439,7 +1439,7 @@
       NB: 'south', SB: 'north', EB: 'west', WB: 'east' };   // an approach is named for where drivers come from
     const appr = /^all( legs)?$/i.test((p.ntor_approaches || '').trim()) ? ' (every direction)' : p.ntor_approaches ? (/^[NSEW]{1,2}B?([ ,&/]+(and )?[NSEW]{1,2}B?)*$/i.test(p.ntor_approaches.trim())
       ? ` (for drivers coming from the ${p.ntor_approaches.trim().split(/[ ,&/]+(?:and )?/i).map(x => dirWord[x.toUpperCase()]).reduce((s, x, i, a) => s + (i ? (i === a.length - 1 ? ' and ' : ', ') : '') + x, '')})`
-      : ` (${esc(p.ntor_approaches)} ${/[,&/]| and /.test(p.ntor_approaches) ? 'approaches' : 'approach'})`) : '';
+      : '') : '';   // anything else in that field is an internal note ("[field check]", "-"), not shown
     if (p.ntor_status === 'Existing') items.push(`<b>No turn on red</b>${appr} since ${p.ntor_installed ? fixDate(p.ntor_installed) : 'an unknown date'}.`);
     else if (p.ntor_status === 'Planned') items.push(`No turn on red <b>planned</b>${plannedFor(p.ntor_planned)}.`);
     else if (p.ntor_status === 'Not Feasible') items.push(`No turn on red judged <b>not feasible</b> by SDOT.`);
@@ -3692,7 +3692,7 @@
     // ---- 4. is it working? each kind of fix, the crashes it targets before and after, next to the city's change
     function workingPart() {
       const W = P.working; if (!W || !(W.kinds || []).length) return '';
-      const what = { ped: 'crashes involving someone walking', turnped: 'people walking hit by turning drivers', bike: 'crashes involving someone on a bike', left: 'left-turn crashes', all: 'crashes of any kind' };
+      const what = { ped: 'crashes involving someone walking', turnped: 'people walking hit by turning drivers', rightped: 'people walking hit by right-turning drivers', bike: 'crashes involving someone on a bike', left: 'left-turn crashes', all: 'crashes of any kind' };
       const pc = (b, a) => b ? Math.round(100 * (a / b - 1)) : null;
       const chg = c => c == null ? '' : c === 0 ? 'no change' : `${c < 0 ? 'down' : 'up'} ${Math.abs(c)}%`;
       const kindRow = w => {
@@ -3746,7 +3746,7 @@
           tend to go where crashes have been high, and places like that often see fewer crashes afterwards anyway,
           so a drop here doesn't prove a fix worked, and a few crashes either way can be chance. All crashes in police reports count here, not only the worst ones.</p>
         ${Object.keys(byK).length ? `<h4>Increases to look into (small numbers, often chance): places where the targeted crashes didn't go down</h4>
-          <p class="note">At least 2 before and 2 after the fix, and no fewer after, with two years or more on each side and no other dated fix there over these years (bus lanes aren't listed). Listed for each kind of fix, biggest increase first. Crashes on short
+          <p class="note">At least 2 before and 2 after the fix, and no fewer after, with two years or more on each side and no other dated fix there over these years (bus lanes and protected bike lanes aren't listed: bus lanes aren't aimed at one kind of crash, and more people ride a street once it has a protected lane, so more bike crashes there can mean more riders; most protected lanes also have only a year as their date). Listed for each kind of fix, biggest increase first. Crashes on short
             blocks can be recorded on the block next door, so check neighbouring blocks too.</p>
           ${Object.entries(byK).map(([k, arr]) => `<div class="pg-group"><h4>${esc(k)}</h4>
             <ul class="pg-list">${more('w-' + k, arr, 5, placeRow)}</ul></div>`).join('')}` : ''}

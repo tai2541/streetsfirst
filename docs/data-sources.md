@@ -212,7 +212,10 @@ builds; every week re-derives it all.
   city streets. For a block, dated fixes at the intersections at its ends (within 60 ft of the end of its street line) are
   listed on its page and counted separately, not as the block's own work: a fix at a corner doesn't reach crashes along the
   block, which SDOT records at the block.
-- **Is it working?:** head-start walk signals and no turn on red are judged on people walking hit by turning drivers,
-  the crash they target. The list of places where those crashes didn't go down needs at least 2 before and 2 after.
+- **Is it working?:** head-start walk signals are judged on people walking hit by turning drivers, no turn on red on
+  people walking hit by right-turning drivers (the turns it stops). The list of places where those crashes didn't go down
+  needs at least 2 before and 2 after, and leaves out bus lanes and protected bike lanes (more riders on a new protected
+  lane can mean more bike crashes). Protected bike lanes from SDOT's older layer that its current bike facilities layer
+  records as something else (painted or buffered lane, sharrows, greenway, trail) aren't counted.
 - **Links:** `#p=<key>` opens a place (the key is a hash of its name, so it survives re-ranking; old `#loc=N` links still
   work). `#progress` opens the view, `#progress=2018` a year, `#progress=d2` a council district's list.
