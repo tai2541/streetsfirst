@@ -62,11 +62,14 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force data\raw | Out-Null
           # Seattle's counts; the older top-level address is the fallback for the first run after the move to /seattle/.
-          try { Invoke-WebRequest "$env:SITE_URL/seattle/data/counts.json" -OutFile data\raw\counts.json -UseBasicParsing; Write-Host 'Got last counts.' }
-          catch {
-            try { Invoke-WebRequest "$env:SITE_URL/data/counts.json" -OutFile data\raw\counts.json -UseBasicParsing; Write-Host 'Got last counts (old address).' }
-            catch { Write-Host "No published counts yet (first run?): $($_.Exception.Message)" }
+          # Without them the 25% check would quietly switch off, so a site that can't be reached stops the run (after a
+          # few tries); run the workflow by hand with accept_counts to go ahead without the check.
+          $ok = $false
+          for ($i = 1; $i -le 4 -and -not $ok; $i++) {
+            try { Invoke-WebRequest "$env:SITE_URL/seattle/data/counts.json" -OutFile data\raw\counts.json -UseBasicParsing; $ok = $true; Write-Host 'Got last counts.' }
+            catch { Write-Host "Try $i : $($_.Exception.Message)"; if ($i -lt 4) { Start-Sleep -Seconds (30 * $i) } }
           }
+          if (-not $ok) { throw 'Could not get last row counts from the live site. Run the workflow with accept_counts to skip the 25% check.' }
       # Last run's map credit lines, so one Esri layer that can't be reached this week keeps last week's wording.
       - name: Get last map credits from the live site
         run: |

@@ -958,3 +958,10 @@ main { overflow: hidden; overflow: clip; }
 
 /* links on the dark summary cards */
 .city-summary a { color: var(--amber); font-weight: 600; text-underline-offset: 2px; }
+
+/* the address pop-up's own-street list: the place name wraps normally (the .pin-near row layout squeezed it) */
+.pin-mine li { display: block; }
+.pin-mine li .muted { white-space: normal; }
+/* a shared link that didn't open what it pointed at */
+.link-note { margin: 6px 10px; padding: 8px 10px; border-radius: 8px; background: #fff7e0; border: 1px solid #e6c766; font-size: 13px; }
+.link-note p { margin: 0; }

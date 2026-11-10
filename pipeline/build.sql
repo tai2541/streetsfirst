@@ -53,11 +53,13 @@ create or replace table request_weights as select * from (values
 
 create or replace macro wt(name) as (select v from weights where k = name);
 
--- A place on a bridge, viaduct, tunnel or ramp, judged by its own street (not the cross streets that bound a stretch,
--- and by whole words: CAMBRIDGE isn't a bridge). Such a place is above or below the streets around it, so requests,
+-- A place on a bridge, viaduct, tunnel or ramp, judged by its own street (not the cross streets that bound a stretch);
+-- an intersection only when every street meeting there is one (a ramp's end on a surface street is at street level).
+-- BR/BRIDGE only as the street's last word (or before a direction): Bridge Way N and CAMBRIDGE aren't bridges. Such a place is above or below the streets around it, so requests,
 -- crosswalks, sidewalks and projects found by distance belong to those streets, not to it.
 create or replace macro on_structure(loc) as
-  regexp_matches(regexp_replace(loc, ' BETWEEN .*', ''), '\b(BR|BRIDGE|VI|VIADUCT|TUNNEL|TUN)\b|\b(ON|OFF) RP\b');
+  list_bool_and(list_transform(string_split(regexp_replace(loc, ' BETWEEN .*', ''), ' AND '),
+    lambda s: regexp_matches(s, '\b(BR|BRIDGE)( (NB|SB|EB|WB|N|S|E|W))?$|\b(VI|VIADUCT|TUNNEL|TUN)\b|\b(ON|OFF) RP\b')));
 
 -- ---------------------------------------------------------------- raw -> clean
 create or replace table collisions as
@@ -295,18 +297,24 @@ c as (select location, list(distinct year order by year) as hcl_years, list(dist
             select s.unitdesc, c.year, c.type from streets s join hcl c on not c.at_corner and ST_DWithin(s.geom, c.geom, 40)
             where s.unitdesc in (select location from loc_pts where r = 40))
       group by location),
-lp as (select p.location,
+-- Each head-start walk signal or no turn on red record belongs to its one nearest intersection (within 100 ft), so a
+-- record at a skewed or offset junction that SDOT splits into several intersections isn't counted at each of them.
+lpi_at as (select l.rowid as rid, arg_min(p.location, ST_Distance(p.geom, l.geom)) as location
+           from lpi l join loc_pts p on p.r = 60 and ST_DWithin(p.geom, l.geom, 100) group by l.rowid),
+ntor_at as (select n.rowid as rid, arg_min(p.location, ST_Distance(p.geom, n.geom)) as location
+            from ntor n join loc_pts p on p.r = 60 and ST_DWithin(p.geom, n.geom, 100) group by n.rowid),
+lp as (select p.location,   -- at a place with several records: Existing first, then the nearest
          arg_min({'status': l.status, 'installed': l.installed, 'planned': l.planned_year},
                  {'s': case l.status when 'Existing' then 0 when 'Planned' then 1 else 2 end, 'd': ST_Distance(p.geom, l.geom),
                   'i': l.installed, 'p': l.planned_year}) as lpi
-       from loc_pts p join locations_all a using (location) join lpi l on ST_DWithin(p.geom, l.geom, 100)
-       where a.addr_type = 'I' group by p.location),
-nt as (select p.location,   -- same rule as head-start signals: the nearest record within 100 ft, Existing first
+       from loc_pts p join lpi_at x using (location) join lpi l on l.rowid = x.rid
+       group by p.location),
+nt as (select p.location,   -- same rule as head-start signals
          arg_min({'status': n.status, 'installed': n.installed, 'planned': n.planned_year, 'approaches': n.approaches},
                  {'s': case n.status when 'Existing' then 0 when 'Planned' then 1 else 2 end, 'd': ST_Distance(p.geom, n.geom),
                   'i': n.installed, 'p': n.planned_year}) as ntor
-       from loc_pts p join locations_all a using (location) join ntor n on ST_DWithin(p.geom, n.geom, 100)
-       where a.addr_type = 'I' group by p.location),
+       from loc_pts p join ntor_at x using (location) join ntor n on n.rowid = x.rid
+       group by p.location),
 sg as (select a.location, bool_or(ped_signal) ped_signal, bool_or(ped_audio) ped_audio,
               bool_or(lt_protected) lt_protected, min(lt_installed) filter (where lt_protected) lt_installed,
               max(installed) signal_installed   -- the newest signal install (a new or rebuilt signal)
@@ -536,7 +544,18 @@ union all select 'bus lane Status', v from (select distinct f.properties.Status 
   where v not in ('Active', 'Planned')
 union all select 'bike facility CATEGORY', v from (select distinct f.properties.CATEGORY as v
     from (select unnest(features) f from read_json('data/raw/bikefac_*.json', maximum_object_size = 50000000)))
-  where v not in ('BKF-PBL', 'BKF-OFFST', 'BKF-BBL', 'BKF-BL', 'BKF-CLMB', 'BKF-NGW', 'BKF-SHW');
+  where v not in ('BKF-PBL', 'BKF-OFFST', 'BKF-BBL', 'BKF-BL', 'BKF-CLMB', 'BKF-NGW', 'BKF-SHW')
+-- coded fields the scoring and context depend on: a renamed code would otherwise fall through quietly
+union all select 'crash ADDRTYPE', v from (select distinct addr_type as v from collisions) where v not in ('I', 'B', 'A')
+union all select 'High Injury Network PRIORITY', v from (select distinct priority as v from hin) where v not in ('High', 'Mid', 'Low')
+union all select 'street ARTCLASS', v::varchar from (select distinct artclass as v from streets) where v not in (0, 1, 2, 3, 4, 5, 9)
+union all select 'speed hump/cushion/radar CURRENT_STATUS', v from (select distinct st as v from (
+    select f.properties.CURRENT_STATUS as st from (select unnest(features) f from read_json('data/raw/humps_*.json', maximum_object_size = 50000000))
+    union all select f.properties.CURRENT_STATUS from (select unnest(features) f from read_json('data/raw/cushions_*.json', maximum_object_size = 50000000))
+    union all select f.properties.CURRENT_STATUS from (select unnest(features) f from read_json('data/raw/radar_*.json', maximum_object_size = 50000000))))
+  where v not in ('INSVC', 'PLANNED', 'TEMPOUTSVC', 'REMOVED', 'RETIRED')
+union all select 'neighborhood safety project stage', v from (select distinct stage as v from proj_raw_nispp)
+  where v not in ('Completed', 'Complete', 'Planned', 'In Design', 'Design', 'Construction', 'In Construction');
 create or replace temp table source_values_ok as
 select case when count(*) > 0 then error('Unknown source values (add them to build.sql if they are real): ' ||
          string_agg(what || ' = ' || v, '; ')) end from source_values;
@@ -649,18 +668,46 @@ select m as mode,
   count(*) filter (where list_max(sdot_hcl_years) >= (select y0 from yr))            as sdot_hcl_recent
 from sets group by m;
 
+-- Coverage: things that are always there, so a source that quietly blanked a field, or a join that came back empty,
+-- stops the build instead of publishing a site with the context missing.
+create or replace temp table coverage_ok as
+with c as (select
+  (select count(*) filter (where severity = 'Unknown') * 1.0 / count(*) from collisions where date >= ws() and date < we()) as unknown_share,
+  (select count(*) from collisions where date >= ws() and date < we()
+     and coll_type in ('Vehicle turning left hits pedestrian', 'Vehicle turning right hits pedestrian')) as turnped,
+  (select count(*) from collisions where date >= ws() and date < we() and coll_type = 'From opposite direction - one left turn - one straight') as leftturn,
+  (select count(*) from collisions where date >= ws() and date < we() and speeding) as speeding,
+  (select count(*) filter (where council_district is not null) * 1.0 / count(*) from ranked) as district_share,
+  (select count(*) filter (where neighborhood is not null) * 1.0 / count(*) from ranked) as hood_share,
+  (select count(*) filter (where speed_limit is not null) * 1.0 / count(*) from ranked) as speed_share,
+  (select count(*) filter (where sdot_hin is not null) * 1.0 / count(*) from ranked) as hin_share,
+  (select list(distinct district order by district) from council) as districts,
+  (select count(*) from bus_stretch) as bus_stretches,
+  (select count(*) from loc_bus) as bus_places)
+select case
+  when unknown_share > 0.15 then error('Coverage: ' || round(100 * unknown_share) || '% of scored crashes have unknown severity')
+  when turnped < 300 or leftturn < 500 or speeding < 500 then error('Coverage: crash type or speeding codes look renamed (turning-hits-pedestrian '
+       || turnped || ', left-turn ' || leftturn || ', speeding ' || speeding || ')')
+  when district_share < 0.99 or hood_share < 0.99 then error('Coverage: council district or neighborhood missing on many places')
+  when speed_share < 0.95 then error('Coverage: speed limit missing on ' || round(100 * (1 - speed_share)) || '% of places')
+  when hin_share < 0.15 then error('Coverage: High Injury Network matched on only ' || round(100 * hin_share) || '% of places')
+  when districts <> [1, 2, 3, 4, 5, 6, 7] then error('Coverage: council districts are ' || districts::varchar)
+  when bus_stretches < 300 or bus_places < 3000 then error('Coverage: bus timetable joins look empty (' || bus_stretches || ' stretches, '
+       || bus_places || ' places)')
+end from c;
 -- ---------------------------------------------------------------- exports for the site
 create or replace macro export_set() as table
   select * from ranked where rank <= 200 or rank_type <= 200 or rank_risk <= 200
      or killed >= 2   -- places where 2 or more people died are always shown, whatever their rank
      -- each council district's own top 50 intersections and top 50 stretches (and top 50 for how busy it is),
-     -- so the list filtered to one district (and to one kind) is complete
+     -- so the list filtered to one district (and to one kind) is complete; a place on the line between two districts
+     -- is in both districts' lists
      or location in (select location from (
           select location,
-            row_number() over (partition by council_district, addr_type = 'I' order by rank) as n_ksi,
-            row_number() over (partition by council_district, addr_type = 'I', rank_risk is null order by rank_risk) as n_risk,
+            row_number() over (partition by d, addr_type = 'I' order by rank) as n_ksi,
+            row_number() over (partition by d, addr_type = 'I', rank_risk is null order by rank_risk) as n_risk,
             rank_risk
-          from ranked where council_district is not null)
+          from (select *, unnest(list_filter([council_district, council_district2], lambda x: x is not null)) as d from ranked))
         where n_ksi <= 50 or (rank_risk is not null and n_risk <= 50))
      -- and for "how busy", each kind's top 200 citywide (the district lists above are per kind too)
      or location in (select location from (
@@ -692,7 +739,7 @@ create or replace table spot_export as
          fixes, vol_history, bus_trips, bus_routes, bus_stretch_id,
          sw_missing_tier, sw_poor_ft, sw_poor_assessed, proj_ids, proj_planned, cip, signal_installed,
          crosswalks, crosswalks_midblock, crosswalk_school, crosswalk_controls, curb_ramps, curb_ramps_poor, bike_facilities,
-         school, school_ft, rse_quintile, rse_year, council_district, council_member, council_url, before_after,
+         school, school_ft, rse_quintile, rse_year, council_district, council_district2, council_member, council_url, before_after,
          rank_years, rank_month_ago, rank_year_ago
   from ranked left join place_history using (location);
 

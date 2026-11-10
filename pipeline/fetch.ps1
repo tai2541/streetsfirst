@@ -52,9 +52,15 @@ function Get-ArcGISLayer([string]$Url, [string]$Fields, [string]$Prefix, [string
             orderByFields = $oid; resultOffset = $offset; resultRecordCount = 2000 }
     $qs = ($q.GetEnumerator() | ForEach-Object { "$($_.Key)=$([uri]::EscapeDataString([string]$_.Value))" }) -join '&'
     $file = Join-Path $tmp ('{0}_{1:D3}.json' -f $Prefix, $page)
-    Get-WithRetry "$Url/query?$qs" $file
-    $j = Get-Content $file -Raw | ConvertFrom-Json
-    if ($j.error) { throw "$Prefix page $page : $($j.error.message)" }
+    # ArcGIS Online under load can answer 200 with an error body or an HTML gateway page: retried like a failed download
+    for ($i = 1; $i -le 5; $i++) {
+      try {
+        Get-WithRetry "$Url/query?$qs" $file
+        $j = Get-Content $file -Raw | ConvertFrom-Json
+        if ($j.error) { throw "$Prefix page $page : $($j.error.message)" }
+        break
+      } catch { if ($i -eq 5) { throw }; Wait-Retry $i $_ }
+    }
     $n = @($j.features).Count; $total += $n
     $more = [bool]($j.exceededTransferLimit -or $j.properties.exceededTransferLimit) -or $n -eq 2000
     $offset += $n; $page++
@@ -94,10 +100,11 @@ Get-WithRetry $u (Join-Path $tmp 'service_requests.csv') 600
 $reqRows = Import-Csv (Join-Path $tmp 'service_requests.csv')
 $counts['requests'] = @($reqRows).Count
 Write-Host "service requests: $($counts['requests'])"
-# The server's count for the same filter (a cut-off download loses the newest requests first).
+# The server's count for the same filter (a cut-off download loses the newest requests first, about 500 a week, so the
+# allowed gap is small: only requests filed in the seconds between the two queries).
 $cq = "`$select=count(*) as n&`$where=createddate >= '$Since' AND webintakeservicerequests in ($in) AND latitude IS NOT NULL"
 $expect = [int]((Get-Json ('https://cos-data.seattle.gov/resource/5ngg-rpne.json?' + ($cq -replace ' ', '%20' -replace "'", '%27')))[0].n)
-if ([math]::Abs($counts['requests'] - $expect) -gt [math]::Max(5, 0.005 * $expect)) {
+if ([math]::Abs($counts['requests'] - $expect) -gt [math]::Max(20, 0.0002 * $expect)) {
   throw "Fetch check failed: requests downloaded $($counts['requests']) rows but the server counts $expect. Keeping the previous data."
 }
 # Each request type on its own: a renamed type would quietly return nothing, which a total can hide.
@@ -146,7 +153,6 @@ Get-ArcGISLayer "$gis/Radar_Speed_Signs_CDL/FeatureServer/0" 'SEGKEY,UNITDESC,CU
 Get-ArcGISLayer "$gis/ProtectedBikeLanes/FeatureServer/0" 'STREET_NAME,DATE_COMPLETED,STATUS,SEGKEY' 'bikelanes'
 Get-ArcGISLayer "$gis/Transit_Lanes/FeatureServer/1" 'SegKey,BlockName,InstallationDate,RemovalDate,Status,OfficialClass' 'buslanes'
 # King County Metro buses per day on each street (people moving through, for the traffic view)
-Get-ArcGISLayer "$gis/Seattle_Bus_Volumes/FeatureServer/0" 'TLINK_ID,FULLNAME_L,DAILY_TRIP_CNT,ROUTES_SERVICE,SCHED_DAY_TYPE_CODED_NUM' 'busvol'
 Get-ArcGISLayer "$gis/Vision_Zero_High_Injury_Network_Score/FeatureServer/2" 'SEGMENT_NAME,FROM_,TO_,LENGTH_MI,HIN_SCORE,PRIORITY' 'hin'
 Get-ArcGISLayer "$gis/Vision_Zero_High_Collision_Locations/FeatureServer/0" 'HCL_YEAR,LOCATION,INTKEY,TYPE' 'hcl'
 Get-ArcGISLayer "$gis/Vision_Zero_-_Leading_Pedestrian_Intervals_ACTIVE/FeatureServer/8" 'LOCATION,LPI_Status,LPI_Install_Date,LPI_Planned_Year' 'lpi'
@@ -237,12 +243,12 @@ Write-Host "gtfs stops: $($counts['gtfs_stops'])"
 # ---- 5. Sanity checks, then swap into data/raw ----
 $minimum = @{ collisions = 20000; requests = 50000; budget_sdot_shown = 300; streets = 20000; volumes = 1000
               hin = 50; hcl = 100; lpi = 500; ntor = 400; signals = 800; districts = 7; hoods_main = 15; hoods_sub = 80
-              volhist_years = 8; humps = 50; cushions = 30; radar = 30; bikelanes = 200; buslanes = 500; busvol = 2000; gtfs_stops = 3000
+              volhist_years = 8; humps = 50; cushions = 30; radar = 30; bikelanes = 200; buslanes = 500; gtfs_stops = 3000
               sw_missing = 8000; sw_poor = 1500; proj_sidewalk = 20; proj_nispp = 5
               crashhist = 50000; crosswalks = 4000; curbramps = 25000; bikefac = 1500; circles = 500; schools = 70; rse = 150; council = 7
               addresses = 150000 }
 foreach ($t in $types) { $minimum['req: ' + $t] = 1 }   # every request type still exists (and the 25% rule applies to each)
-$volatile = @('proj_sidewalk', 'proj_nispp')   # small project lists: big swings are normal
+$volatile = @('proj_sidewalk', 'proj_nispp', 'req: Snow and Ice')   # small project lists, and storms: big swings are normal
 $prev = @{}
 $prevFile = Join-Path $raw 'counts.json'
 if (Test-Path $prevFile) { (Get-Content $prevFile -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $prev[$_.Name] = [int]$_.Value } }

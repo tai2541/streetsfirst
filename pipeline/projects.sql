@@ -51,18 +51,14 @@ from (
 );
 
 -- Projects at each scored location: within about 100 ft of an intersection, or 40 ft of anywhere along a block
--- (the block's own street line, so a long block isn't judged from its midpoint; falls back to the point).
-create or replace table loc_shape as
-select p.location, p.r, coalesce(b.geom, p.geom) as geom
-from loc_pts p
-left join (select loc_name, ST_Union_Agg(geom) as geom from streets group by loc_name) b
-  on p.r = 40 and b.loc_name = p.location;
+-- (the block's own street line without its ends, loc_inner in traffic.sql: a long block isn't judged from its midpoint,
+-- and work at the corners at its ends or on a side street belongs to those, not to the block).
 
 create or replace table loc_proj as
 select p.location, list(j.id order by j.stage = 'done', j.year nulls last, j.id) as proj_ids,
        -- (pavement art is listed among the place's projects but isn't counted as planned safety work)
        coalesce(bool_or(j.stage <> 'done' and coalesce(j.scope, '') not ilike '%pavement art%'), false) as proj_planned
-from loc_shape p join proj j on ST_DWithin(p.geom, j.geom, case when p.r = 40 then 40 else p.r + 40 end)
+from loc_inner p join proj j on ST_DWithin(p.geom, j.geom, case when p.r = 40 then 40 else p.r + 40 end)
   and not on_structure(p.location)
 group by p.location;
 

@@ -114,7 +114,8 @@ select distinct location, k, d, year(d) as y from (
                                  else 'Head-start walk signal' end, make_date(j.year, 7, 1)
   from (select location, unnest(proj_ids) as id from locations) l join proj j using (id)
   where j.stage = 'done' and j.year is not null
-) where d <= current_date;   -- a finished project's assumed mid-year date can't be in the future
+) where d <= current_date   -- a finished project's assumed mid-year date can't be in the future
+     or (month(d) = 12 and day(d) >= 30 and year(d) = year(current_date));   -- SDOT's year-only date for something built this year
 
 -- The years "then" is compared with: the last 5 full calendar years whose crash reports are complete. The newest
 -- months still have many crashes with severity not yet recorded, so they're left out of this comparison.
@@ -185,7 +186,8 @@ group by c.location;
 create or replace table recent_fixes as
 select distinct f.location, f.k, f.d, r.rank, r.lat, r.lon
 from place_fixes f join ranked r using (location)
-where f.d >= (select max(date) from collisions) - interval 365 day and f.d <= current_date
+where f.d >= (select max(date) from collisions) - interval 365 day
+  and (f.d <= current_date or (month(f.d) = 12 and day(f.d) >= 30 and year(f.d) = year(current_date)))
   and f.k not in ('New sidewalk', 'Neighborhood safety project');
 
 -- ---------------------------------------------------------------- (3) need and published work, by district and equity index
@@ -213,7 +215,7 @@ places as (
     r.ksi, r.killed, r.seriously_injured, r.rank, r.addr_type, r.lat, r.lon, r.rank <= 50 as top50, coalesce(fx.lpi, 0) as lpi, coalesce(fx.other, 0) as other,
     fx.location is not null as fixed_recently,
     coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned' or len(r.cip) > 0, false) as proj_planned,
-    r.state_route
+    r.state_route, r.council_district2
   from ranked r left join fx using (location)
 ),
 long as (
@@ -225,7 +227,8 @@ by_g as (
     count(*) filter (where top50) as top50,
     count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null) as top50_nothing,
     count(*) filter (where top50 and state_route is not null) as top50_state,
-    list({'loc': location, 'r': rank, 't': addr_type, 'fixed': fixed_recently, 'planned': proj_planned, 'state': state_route, 'k': ksi}
+    list({'loc': location, 'r': rank, 't': addr_type, 'fixed': fixed_recently, 'planned': proj_planned, 'state': state_route, 'k': ksi,
+          'line': case when dim = 'district' then council_district2 end}
          order by rank) filter (where top50) as top50_list
   from long group by dim, grp
 ),

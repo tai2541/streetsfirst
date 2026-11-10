@@ -32,12 +32,13 @@ select try_cast(make_timestamp(f.properties.INSTALL_DATE::bigint * 1000) as date
 from (select unnest(features) f from read_json('data/raw/circles_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
--- Crosswalks: within 100 ft of an intersection, or along the block (its street line, 40 ft). Curb ramps: intersections.
+-- Crosswalks: within 100 ft of an intersection, or along the block (its street line without the ends, 40 ft; the
+-- crosswalks at its end corners belong to those intersections). Curb ramps: intersections.
 create or replace table loc_street_ctx as
 with cw as (
   select s.location, count(*) as n, count(*) filter (where c.midblock) as midblock, bool_or(c.school) as school,
          list(distinct c.control order by c.control) filter (where c.control is not null) as controls
-  from loc_shape s join crosswalks c on ST_DWithin(s.geom, c.geom, case when s.r = 40 then 40 else 100 end) and not on_structure(s.location)
+  from loc_inner s join crosswalks c on ST_DWithin(s.geom, c.geom, case when s.r = 40 then 40 else 100 end) and not on_structure(s.location)
   group by s.location),
 rp as (
   select p.location, count(*) as n, count(*) filter (where r.cond in ('POOR', 'VERY-POOR')) as poor
@@ -92,15 +93,25 @@ create or replace table loc_area_ctx as
 with sch as (   -- nearest public school within 1,000 ft
   select p.location, arg_min(s.name, {'d': ST_Distance(p.geom, s.geom), 'n': s.name}) as school, min(ST_Distance(p.geom, s.geom)) as school_ft
   from loc_pts p join schools s on ST_DWithin(p.geom, s.geom, 1000) group by p.location),
--- (a point exactly on a boundary is in two areas: take the lower-numbered one, every build)
 -- A place just outside every district (streets on the city limit, e.g. N 145th St) takes the nearest one within
 -- 300 ft: the district whose residents use that street.
-eq as (select p.location, arg_min({'q': r.quintile, 'y': r.yr}, {'d': ST_Distance(p.geom, r.geom), 'q': r.quintile}) as e
-       from loc_pts p join rse r on ST_DWithin(p.geom, r.geom, 300) group by p.location),
-cd as (select p.location, arg_min({'d': c.district, 'm': c.member, 'u': c.url}, {'x': ST_Distance(p.geom, c.geom), 'd': c.district}) as c
-       from loc_pts p join council c on ST_DWithin(p.geom, c.geom, 300) group by p.location)
+-- Boundaries run down the middle of main streets, where SDOT puts each crash, so a place within 25 ft of the nearest
+-- area is treated as on the line: for the equity index it takes the higher priority of the areas there; for districts
+-- it keeps the nearest (the lower number if exactly on the line) and also names the other (council_district2).
+eqd as (select p.location, r.quintile, r.yr, ST_Distance(p.geom, r.geom) as d,
+               case r.quintile when 'Highest Equity Priority' then 1 when 'Second Highest' then 2 when 'Middle' then 3
+                               when 'Second Lowest' then 4 when 'Lowest' then 5 else 6 end as pri
+        from loc_pts p join rse r on ST_DWithin(p.geom, r.geom, 300)),
+eq as (select location, arg_min({'q': quintile, 'y': yr}, {'p': pri, 'd': d}) as e
+       from (select *, min(d) over (partition by location) as d0 from eqd) where d <= d0 + 25 group by location),
+cdd as (select p.location, c.district, c.member, c.url, ST_Distance(p.geom, c.geom) as d
+        from loc_pts p join council c on ST_DWithin(p.geom, c.geom, 300)),
+cd as (select location, arg_min({'d': district, 'm': member, 'u': url}, {'x': d, 'd': district}) as c,
+              list(distinct district) filter (where d <= d0 + 25) as near
+       from (select *, min(d) over (partition by location) as d0 from cdd) group by location)
 select l.location, sch.school, round(sch.school_ft) as school_ft, eq.e.q as rse_quintile, eq.e.y as rse_year,
-       cd.c.d as council_district, cd.c.m as council_member, cd.c.u as council_url
+       cd.c.d as council_district, cd.c.m as council_member, cd.c.u as council_url,
+       list_min(list_filter(cd.near, lambda x: x <> cd.c.d)) as council_district2
 from locations l left join sch using (location) left join eq using (location) left join cd using (location);
 
 -- ---------------------------------------------------------------- before and after
@@ -108,7 +119,7 @@ from locations l left join sch using (location) left join eq using (location) le
 -- SDOT's intersection key, blocks by name (split roadways merged the same way as the scored crashes).
 create or replace table crash_hist as
 with raw as (select unnest(features, recursive := true)
-             from read_json('data/raw/crashhist_*.json', maximum_object_size = 50000000)),
+             from read_json('data/raw/crashhist_*.json', maximum_object_size = 50000000, maximum_sample_files = 1000)),
 ik as (select intkey, arg_max(location, {'n': n, 'l': location}) as location
        from (select intkey, location, count(*) as n from collisions where intkey is not null group by all) group by intkey)
 select coalesce(ik.location, m.location, trim(r.LOCATION)) as location,
@@ -133,7 +144,7 @@ select location, 'Head-start walk signal' as kind, lpi_installed as d, 'ped' as 
 union all select location, 'No turn on red', ntor_installed, 'turnped' from locations where ntor_status = 'Existing' and ntor_installed is not null
 union all select location, 'Protected left-turn signal', lt_installed, 'left' from locations where lt_protected and lt_installed is not null
 union all select location, f.k, f.d, case when f.k = 'Protected bike lane' then 'bike' else 'all' end
-  from (select location, unnest(fixes) f from locations) where f.d is not null and f.s = 'Built'
+  from (select location, unnest(fixes) f from locations) where f.d is not null and f.s = 'Built' and not f.u
 union all select location, 'Traffic circle', circle_d, 'all' from loc_street_ctx where circle_d is not null;
 
 create or replace macro crash_kind(m, peds, cyclists, coll_type) as
