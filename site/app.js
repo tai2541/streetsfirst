@@ -2748,6 +2748,13 @@
   const ftText = ft => (ft >= 1320 ? `${(ft / 5280).toFixed(1)} mi` : `${fmt(Math.round(ft / 10) * 10)} ft`);
   const blockName = b => niceName(b.replace(/ BETWEEN /, ' between ').replace(/ AND /, ' and '));
   const swProj = new Map((PJ.missing_blocks || []).map(x => [x.b, projById.get(x.p)]));
+  // SDOT's points for each reason a block needs a sidewalk, each shown out of the most SDOT gave any block.
+  const swMax = k => ((SW.counts || {}).max || {})[k];
+  const outOf = (v, k) => `${v ?? 0}${swMax(k) ? ` of ${swMax(k)}` : ''}`;
+  const swBar = (label, k, s, help) => { const v = s[k] ?? 0, m = swMax(k) || 1;
+    return `<div class="pg-bar"><span class="pg-bar-l">${label} <small class="muted">${help}</small></span>
+      <span class="pg-bar-t" aria-hidden="true"><span class="pg-bar-f w" style="width:${(100 * v / m).toFixed(1)}%"></span></span>
+      <span class="pg-bar-v">${outOf(v, k)}</span></div>`; };
   const SMODES = {
     missing: {
       hint: `Blocks with no sidewalk, in SDOT's own order of priority. SDOT scores each missing block for safety, equity, schools,
@@ -2755,10 +2762,10 @@
         ${fmt(SW.counts.tier1_blocks || 0)} of ${fmt(SW.counts.missing_blocks || 0)} blocks with a missing sidewalk are Tier 1.`,
       items: () => SW.missing, rank: s => s.id, name: s => blockName(s.name),
       sub: s => [s.hood, s.art && s.art !== 'Not Designated' ? s.art : 'Neighborhood street'].filter(Boolean).join(' · '),
-      score: s => `Tier ${s.tier} <small>SDOT score ${s.score}</small>`,
+      score: s => `Tier ${s.tier} <small>need ${outOf(s.score, 'score')}</small>`,
       chips: s => [
         { cls: 'serious', text: s.sides === 2 ? 'No sidewalk on either side' : 'No sidewalk on one side' },
-        ...(s.safety ? [{ cls: 'fatal', text: `SDOT safety score ${s.safety}` }] : []),
+        ...(s.safety ? [{ cls: 'fatal', text: `safety need ${outOf(s.safety, 'safety')}` }] : []),
         ...(s.school ? [{ cls: 'ped', text: 'near a school' }] : []),
         ...(s.transit ? [{ cls: 'state', text: 'near transit' }] : []),
         ...(swProj.get(s.id) ? [{ cls: 'proj', text: `SDOT project: ${projStage(swProj.get(s.id))}` }] : [])],
@@ -2770,17 +2777,18 @@
       <div class="dhead">
         <div class="where">${esc(SMODES.missing.sub(s))} · ${copyLoc(blockName(s.name))}</div>
         <p class="verdict"><b>${s.sides === 2 ? 'No sidewalk on either side' : 'No sidewalk on one side'}</b> of this
-          ${ftText(s.ft)} block. SDOT puts building one in <b>Tier ${s.tier}</b> of 5 (Tier 1 = build first), with a score of
-          ${s.score}.</p>
+          ${ftText(s.ft)} block. SDOT puts building one in <b>Tier ${s.tier}</b> of 5 (Tier 1 = build first), with
+          <b>${outOf(s.score, 'score')}</b> need points in all.</p>
         ${swProj.get(s.id) ? `<p class="proj-callout">${swProj.get(s.id).stage === 'done'
           ? `SDOT's project map lists a new sidewalk on this block as <b>${esc(projStage(swProj.get(s.id)))}</b>, so it may no
              longer be missing. The missing-sidewalk list comes from an older SDOT plan layer.`
           : `SDOT has a new sidewalk project on this block: <b>${esc(projStage(swProj.get(s.id)))}</b>.`}
           <span class="muted">From ${esc(PROJ_SRC.sidewalk())}: SDOT's project line runs along this block.</span></p>` : ''}
-        <div class="stat-grid">
-          ${stat(s.safety ?? 0, 'safety score')}${stat(s.equity ?? 0, 'equity score')}
-          ${stat(s.school ?? 0, 'school score')}${stat(s.transit ?? 0, 'transit score')}
-        </div>
+        <h3>Why SDOT says it's needed</h3>
+        <p class="note">SDOT gives each block points for each reason it needs a sidewalk; more points, more need. Each is shown
+          out of the most SDOT gave any block.</p>
+        ${swBar('Safety', 'safety', s, 'crashes and speeds')}${swBar('Equity', 'equity', s, '')}
+        ${swBar('Schools', 'school', s, 'near a school')}${swBar('Transit', 'transit', s, 'near bus or rail')}
       </div>
       ${reportBox(blockName(s.name))}
       <h3>Safety spots along this block</h3>${safetyList(safetyAlong(s.pts))}

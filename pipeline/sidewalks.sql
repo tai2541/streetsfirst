@@ -75,6 +75,9 @@ copy (
     'counts': {
       'missing_blocks': (select count(*) from sw_missing_blocks),
       'tier1_blocks': (select count(*) from sw_missing_blocks where tier = 1),
+      -- the highest points SDOT gave any block for each reason, so the page can say "16 of 16"
+      'max': (select {'score': max(score), 'safety': max(safety_sc), 'equity': max(equity_sc), 'school': max(school_sc),
+                      'transit': max(transit_sc)} from sw_missing),
       'missing_miles': (select round(sum(ST_Length(geom)) / 5280) from sw_missing),
       'poor_blocks': (select count(*) from sw_poor_blocks),
       'poor_miles': (select round(sum(ST_Length(geom)) / 5280, 1) from sw_poor),
