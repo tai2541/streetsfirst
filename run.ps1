@@ -110,6 +110,27 @@ foreach ($r in $ranks) {
 [IO.File]::WriteAllText((Join-Path $PSScriptRoot 'site\data\ranks.csv'), $sb.ToString(), (New-Object Text.UTF8Encoding $true))
 Write-Host "Wrote site\data\ranks.csv: $($ranks.Count) places, data as of $asOf"
 
+# The top 50 as a checking sheet (site/data/top50_check.csv; made in build.sql): how the site reads SDOT's layers at
+# each place, with SDOT's intersection keys, and an empty column for corrections.
+$top = Import-Csv (Join-Path $PSScriptRoot 'data\top50_raw.csv') -Encoding UTF8
+if ($top.Count -ne 50) { throw "top50_raw.csv has $($top.Count) places, not 50" }
+$from = $top[0].crashes_from.Substring(0, 7); $to = $top[0].crashes_to.Substring(0, 7)
+$sb = New-Object Text.StringBuilder
+[void]$sb.AppendLine((@("Rank (as of $asOf)", 'Type', 'Place (as the site names it)',
+  "SDOT intersection(s): INTKEY, SDOT's LOCATION, crashes there", 'Council district(s)',
+  "Crashes $from to $to (duplicate reports removed)", 'Crashes that killed or seriously hurt someone',
+  'No turn on red (SDOT NTOR layer)', 'Head-start walk signal (SDOT LPI layer)',
+  'Protected left turn (SDOT signal layer, LTPROTECTEDYN: one Y/N per signal)', 'Other work at this place (SDOT layers)',
+  "Work at the corners at this block's ends since $from", 'Run by', 'Link',
+  'Optional: anything wrong? (a one-line email is plenty)') | ForEach-Object { & $q $_ }) -join ',')
+foreach ($r in $top) {
+  [void]$sb.AppendLine((@($r.rank, $r.type, $r.location, $r.intkeys, $r.districts, $r.crashes, $r.ksi, $r.ntor, $r.lpi,
+    $r.left_turn, $r.other_work, $r.end_work, $r.run_by, ($pageUrl + '#p=' + [SfKey]::Of($r.location)), '') |
+    ForEach-Object { & $q $_ }) -join ',')
+}
+[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'site\data\top50_check.csv'), $sb.ToString(), (New-Object Text.UTF8Encoding $true))
+Write-Host "Wrote site\data\top50_check.csv"
+
 # Full details for every place (crash list, requests; and the place's fields for places outside the ranked lists):
 # one small script per map area, loaded only when someone opens a place there, so the main data file stays small.
 # Each line of data\more.ndjson is one area. Each file carries the data fingerprint, so the page can tell when an area

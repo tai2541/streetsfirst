@@ -91,7 +91,8 @@ select
   hour(try_strptime(INCDTTM, '%m/%d/%Y %I:%M:%S %p')) as hour,
   SPEEDING = 'Y'                           as speeding,
   coordinates[1]                           as lon,
-  coordinates[2]                           as lat
+  coordinates[2]                           as lat,
+  trim(LOCATION)                           as sdot_location      -- SDOT's own name, kept when split roadways are merged below
 from raw
 where LOCATION is not null and coordinates is not null
 -- Probable duplicate reports: same place, day, severity, crash type, people, vehicles and conditions under two
@@ -750,6 +751,46 @@ create or replace table spot_export as
 copy (
   select * from spot_export where location in (select location from export_set()) order by rank
 ) to 'site/data/priorities.json' (format json, array true);
+
+-- The top 50 as a checking sheet (site/data/top50_check.csv, finished by run.ps1 with the header, date and links): how the
+-- site reads SDOT's layers at each place, with SDOT's own intersection keys and names, so someone at SDOT can check a row
+-- against their records. A date SDOT gives as the year only (Jan 1 in the walk-signal layers, Dec 30/31 in the bike
+-- layers) is written as the year.
+create or replace macro yr_only(d, jan) as
+  case when d is null then null
+       when strftime(d, '%m-%d') in ('12-30', '12-31') or (jan and strftime(d, '%m-%d') = '01-01')
+         then year(d)::varchar || ' (year only)' else d::varchar end;
+create or replace macro walk_layer(st, d, plan, appr) as
+  case when st is null then 'no record in SDOT layer' else
+    concat_ws(', ', st,
+      case when st = 'Existing' then coalesce(yr_only(d, true), 'no install date') end,
+      case when st = 'Planned' and plan is not null and plan <> '' then 'for ' || plan end,
+      case when appr is not null and appr <> '' then 'approaches as SDOT lists them: ' || appr end) end;
+copy (
+  with ik as (
+    select location, string_agg(intkey || ': ' || sdot_location || ' (' || n || ')', '; ' order by n desc, intkey) as keys
+    from (select location, intkey, arg_max(sdot_location, 1) as sdot_location, count(*) as n
+          from collisions where intkey is not null and intkey > 0 and addr_type = 'I' and date >= ws() and date < we()
+          group by all)
+    group by location)
+  select s.rank, case s.addr_type when 'I' then 'Intersection' else 'Stretch' end as type, s.location,
+    case when s.addr_type = 'I' then ik.keys end as intkeys,
+    concat_ws(' and ', s.council_district, s.council_district2) as districts, s.crashes, s.ksi,
+    case when s.addr_type = 'I' then walk_layer(s.ntor_status, s.ntor_installed, s.ntor_planned, s.ntor_approaches) end as ntor,
+    case when s.addr_type = 'I' then walk_layer(s.lpi_status, s.lpi_installed, s.lpi_planned, null) end as lpi,
+    case when s.addr_type <> 'I' then null
+         when s.lt_protected then 'Y' || coalesce(' since ' || s.lt_installed, '')
+         when s.signalized then 'N' else 'not in SDOT signal layer' end as left_turn,
+    array_to_string(list_transform(coalesce(s.fixes, []), lambda f: f.k || ': ' || f.s || coalesce(' ' || yr_only(f.d, false), '')
+      || case when f.u and f.d is not null then ' (some sections undated)' when f.d is null then ' (no date)' else '' end), '; ') as other_work,
+    array_to_string(list_transform(list_sort(list_filter(coalesce(s.end_fixes, []), lambda f: f.d >= w.w0)),
+      lambda f: f.at || ': ' || f.k || ' ' || f.d), '; ') as end_work,
+    case when nullif(s.state_route, '') is not null then 'WSDOT (' || s.state_route || ')'
+         when nullif(s.state_hwy, '') is not null then 'City (' || s.state_hwy || ', a state highway the City runs)' else 'City' end as run_by,
+    ws() as crashes_from, (we() - interval 1 day)::date as crashes_to
+  from spot_export s left join ik using (location) cross join (select ws() as w0) w
+  where s.rank <= 50 order by s.rank
+) to 'data/top50_raw.csv' (header true);
 
 
 -- A stretch's point is the middle of its crashes, which on a long block can be far from its ends. For stretches with an
