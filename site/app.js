@@ -834,7 +834,7 @@
   const canShare = () => !!navigator.share && matchMedia('(pointer: coarse)').matches;
   const spotOpen = () => !detailEl.hidden && !detailEl.classList.contains('home');
   let ready = false;   // set at the end of start-up; the overview isn't drawn before then
-  const refreshHome = () => { if (ready && !spotOpen() && !isNarrow()) { if (placeG && detailEl.classList.contains('place')) showPlace(placeG); else renderHome(); } };
+  const refreshHome = () => { if (ready && !spotOpen()) { if (placeG && detailEl.classList.contains('place')) showPlace(placeG); else if (!isNarrow()) renderHome(); } };
   const pickSpot = (p, fly, from) => (spotOpen() && current && current.rank_ksi === p.rank_ksi ? closeDetail(true) : select(p, fly, from));
   const pickLine = (t, fly) => (spotOpen() && tSel === t ? closeDetail(true) : selectTraffic(t, fly));
   // The part of the map not under the floating list.
@@ -895,7 +895,7 @@
   window.addEventListener('resize', () => {
     applyPanel(); applyLayout();
     // Crossing the phone/desktop width: the overview lives only on desktop.
-    if (!spotOpen()) { if (isNarrow()) { detailEl.hidden = true; detailEl.classList.remove('home', 'place'); } else if (detailEl.hidden) refreshHome(); }
+    if (!spotOpen()) { if (isNarrow()) { if (!placeG) { detailEl.hidden = true; detailEl.classList.remove('home', 'place'); } } else if (detailEl.hidden) refreshHome(); }
   });
   applyPanel();
   applyLayout();
@@ -1956,7 +1956,7 @@
   function closeDetail(restoreFocus) {
     mainEl.classList.remove('split'); clearFocus();
     const wasLine = tSel; tSel = null;
-    if (isNarrow()) { detailEl.hidden = true; detailEl.classList.remove('home', 'place'); applyLayout(); phoneDetailHidden(); }
+    if (isNarrow() && !(placeG && detailFrom === 'map')) { detailEl.hidden = true; detailEl.classList.remove('home', 'place'); applyLayout(); phoneDetailHidden(); }
     else if (placeG) showPlace(placeG, true); else renderHome();
     tSel = wasLine;
     const right = isNarrow() ? 30 : detailEl.offsetWidth + 30;
@@ -1979,7 +1979,10 @@
     else if (restoreFocus) document.getElementById('list').querySelector('button')?.focus({ preventScroll: true });
     opener = null;
   }
-  document.getElementById('closeDetail').onclick = () => closeDetail(true);
+  document.getElementById('closeDetail').onclick = () => {
+    if (!spotOpen() && placeG && detailEl.classList.contains('place')) { const pm = pinMarkerOf(placeG); if (pm) deselectPin(placeG, pm); else hidePlace(placeG); }
+    else closeDetail(true);
+  };
   // picking a district (or going back to all of Seattle) frames its places
   document.getElementById('distFilter').addEventListener('change', () => setTimeout(showAll, 0));
   // The district picked goes in the address (?d=2), so a link to the list, or to a place opened from it, keeps it.
@@ -2362,8 +2365,11 @@
   function showPlace(g, force) {
     const nb = nearbySpots(g.lat, g.lon);
     placeG = g; drawNearby(g, nb);
-    if (isNarrow() || (spotOpen() && !force)) return;
+    if (spotOpen() && !force) return;
+    const wasHidden = detailEl.hidden;
+    if (isNarrow() && wasHidden) lastTap = { where: 'map', t: Date.now() };   // rises over the map, with ×
     detailEl.hidden = false; detailEl.classList.add('home', 'place'); applyLayout();
+    phoneDetailShown(wasHidden);
     renderGraphs = () => {};
     document.getElementById('detailTitle').textContent = '📍 ' + pinTitle(g) + (g.preview ? ' (not saved yet)' : '');
     const body = document.getElementById('detailBody'), list = nb.all.slice(0, 10), mine = onMyStreet(g);
@@ -2403,14 +2409,17 @@
   function hidePlace(g) {
     if (!placeG || placeG.id !== g.id) return;
     placeG = null; nearLayer.clearLayers();
-    if (detailEl.classList.contains('place')) refreshHome();
+    if (detailEl.classList.contains('place')) {
+      if (isNarrow()) { detailEl.hidden = true; detailEl.classList.remove('home', 'place'); applyLayout(); phoneDetailHidden(); }
+      else refreshHome();
+    }
   }
 
   // Focus a button in a marker's pop-up once it's open (after the map has moved there).
   function focusPop(m, sel) {
     if (!m) return;
-    const f = () => { const el = small() ? m.getPopup() && m.getPopup().getElement() : detailEl; const b = el && el.querySelector(sel); if (b) b.focus({ preventScroll: true }); };
-    if (m.isPopupOpen()) f(); else m.once(small() ? 'popupopen' : 'panelopen', () => setTimeout(f, 0));
+    const f = () => { const b = detailEl.querySelector(sel); if (b) b.focus({ preventScroll: true }); };
+    if (m.isPopupOpen()) f(); else m.once('panelopen', () => setTimeout(f, 0));
   }
   function showAddress(g) {
     // On a phone the list sheet would cover the pin: drop it to its smallest height and put the keyboard away first.
@@ -2458,68 +2467,46 @@
     if (!pinView) pinView = viewBefore || { c: map.getCenter(), z: map.getZoom() };
     if (spotOpen()) closeDetail(false);
     const go = () => { m.openPopup(); };
-    // On phones the map is short: put the pin low in the part of the map the sheet doesn't cover, so its pop-up
-    // fits above it.
+    // Phones: the pin's summary rises in the bottom sheet first, then the map fits the whole quarter-mile circle in the
+    // part the sheet doesn't cover.
+    if (small()) {
+      m.openPopup();
+      const b = L.latLng(g.lat, g.lon).toBounds(2 * 410), o = { paddingTopLeft: [10, 10], paddingBottomRight: [10, cover + 10], maxZoom: 16 };
+      if (reduceMotion) map.fitBounds(b, o); else map.flyToBounds(b, { ...o, duration: 0.8 });
+      return m;
+    }
     let c = L.latLng(g.lat, g.lon);
-    if (small()) { const h = map.getSize().y, pinY = 0.8 * (h - cover); c = map.unproject(map.project(c, 16).add([0, h / 2 - pinY]), 16); }
-    else if (!detailEl.hidden) c = map.unproject(map.project(c, 16).add([detailEl.offsetWidth / 2, 0]), 16);
+    if (!detailEl.hidden) c = map.unproject(map.project(c, 16).add([detailEl.offsetWidth / 2, 0]), 16);
     if (reduceMotion) { map.setView(c, 16, { animate: false }); go(); }
     else { map.once('moveend', go); map.flyTo(c, 16, { duration: 0.8 }); }
     return m;
   }
   function drawPin(g) {
     const old = !g.preview && pinMarkers.get(g.id); if (old) pinLayer.removeLayer(old);
-    const nb = nearbySpots(g.lat, g.lon), mine = onMyStreet(g);
     // g.name is an optional nickname ("Home", "Maya's school"); g.label stays the real address for copying and reporting.
     const title = pinTitle(g);
-    const html = `<div class="pin-pop"><div class="pin-head"><div class="pin-title">📍 ${esc(title)}</div>${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}${g.picked ? `<div class="pin-addr">Spot picked on the map${g.name ? '' : ' · nearest address'}</div>` : ''}${g.preview ? '<div class="pin-addr">Not saved yet</div>' : ''}</div>
-      ${g.note ? `<p class="pin-warn">${esc(g.note)}</p>` : ''}
-      <div class="pin-near">${nb.crashes
-        ? `<p>Within a quarter mile (about a 5-minute walk), ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}: <b>${plural(nb.crashes, 'crash', 'crashes')}</b>${nb.ksi ? `; <b>${nb.ksi} of them killed or seriously hurt someone</b>` : '; none killed or seriously hurt anyone'}${nb.pb ? `; ${nb.pb} involved someone walking or biking` : ''}.</p>
-          ${mine ? `<div class="pin-mine"><b>On ${esc(mine.name)}</b>${mine.list.length ? `<ul>${mine.list.map(n => `<li><button type="button" class="linkbtn" data-open="${n.x.rank}">${rankTxt(n.x.rank)} · ${esc(niceName(n.x.name))}</button>
-            <span class="muted">${n.worst ? 'highest-ranked on this street nearby · ' : ''}${plural(n.x.crashes, 'crash', 'crashes')}${n.x.ksi ? `, ${n.x.ksi} serious` : ''} · ${distText(n.m)}</span></li>`).join('')}</ul>` : ': no crashes reported within 800 feet.'}</div>` : ''}
-          ${(c => c ? `<p class="pin-civic">Council member: <b>${esc(c.member || '—')}</b> (District ${c.d}) · <a href="#progress=d${c.d}">Is it getting fixed in District ${c.d}?</a></p>` : '')(councilAt(g.lat, g.lon))}
-          ${(sch => sch && !g.school ? `<p>Nearest public school: <b>${esc(schoolName(sch.name))}</b> (about ${distText(sch.m)}).</p>` : '')(schoolNear(g.lat, g.lon))}
-          Highest-ranked places nearby (out of ${fmt(N)}):<ul>${nb.worst.map(n => `<li><button type="button" class="linkbtn" data-open="${n.x.rank}">${rankTxt(n.x.rank)} · ${esc(niceName(n.x.name))}</button>
-            <span class="muted">${plural(n.x.crashes, 'crash', 'crashes')}${n.x.ksi ? `, ${n.x.ksi} serious` : ''} · ${distText(n.m)}</span></li>`).join('')}</ul>`
-        : 'No reported crashes within a quarter mile in the last five years.'}</div>
-      <details class="pin-res" data-loc="${esc(g.label)}"><summary>Report a problem here</summary>${resourceList()}</details>
-      ${pinActions(g)}</div>`;
     const m = L.marker([g.lat, g.lon], {
       pane: 'pin', keyboard: true, title: title, alt: (g.preview ? 'Found address (not saved): ' : 'Your pin: ') + (g.name ? `${g.name}, ${g.label}` : g.label),
       icon: L.divIcon({ className: 'addr-pin' + (g.preview ? ' preview' : ''), iconSize: [30, 42], iconAnchor: [15, 40], popupAnchor: [0, -36], html: '<span></span>' })
-    }).bindPopup(html, { maxWidth: small() ? Math.min(320, map.getSize().x - 120) : 320, minWidth: small() ? Math.min(240, map.getSize().x - 120) : 50,   // room for the map buttons, the edge and the pop-up frame
-      maxHeight: small() ? Math.max(150, Math.round(0.8 * (map.getSize().y - cover)) - 80) : 420,
-      autoPanPaddingTopLeft: small() ? [62, 64] : [12, 12], autoPanPaddingBottomRight: [12, 12] }).addTo(pinLayer);
+    }).addTo(pinLayer);
     if (g.preview) previewMarker = m; else pinMarkers.set(g.id, m);
-    // Desktop: no pop-up over the map (it hid the crash dots around the pin); the pin's summary and buttons go in
-    // the right panel. Clicking the pin again deselects it. Phones keep the pop-up. Decided per call, so resizing works.
-    const P = L.Marker.prototype, inPanel = () => !small() && !!placeG && placeG.id === g.id && detailEl.classList.contains('place');
-    m.openPopup = ll => {
-      if (small()) return P.openPopup.call(m, ll);
+    // No pop-up over the map (it hid the circle and the crash dots around the pin): the pin's summary and buttons go in
+    // the right panel, or on phones the bottom sheet. Clicking the pin again deselects it.
+    const inPanel = () => !!placeG && placeG.id === g.id && detailEl.classList.contains('place') && !detailEl.hidden;
+    m.openPopup = () => {
       if (spotOpen()) { mainEl.classList.remove('split'); clearFocus(); viewBefore = null; history.replaceState(null, '', location.pathname + location.search); }
       showPlace(g, true); m.fire('panelopen');
       return m;
     };
-    m.closePopup = () => { if (!small()) hidePlace(g); return P.closePopup.call(m); };
-    m.isPopupOpen = () => (small() ? P.isPopupOpen.call(m) : inPanel());
+    m.closePopup = () => { hidePlace(g); return m; };
+    m.isPopupOpen = inPanel;
     const toggle = () => (m.isPopupOpen() ? deselectPin(g, m) : selectPin(g, m));
     m.off('click', m._openPopup, m).off('keypress', m._onKeyPress, m);
     m.on('click', e => { L.DomEvent.stop(e); toggle(); });
     m.on('keypress', e => { if (e.originalEvent.key === 'Enter') toggle(); });
-    m.on('popupclose', () => {
-      hidePlace(g);
-      // closing with × leaves focus nowhere: put it back on the pin
-      setTimeout(() => { const a = document.activeElement; if ((!a || a === document.body) && m.getElement && m.getElement()) m.getElement().focus({ preventScroll: true }); }, 0);
-    });
-    m.on('popupopen', e => {     // popups stop clicks from bubbling, so wire their buttons here
-      const pe = e.popup.getElement(); if (pe) { pe.setAttribute('role', 'dialog'); pe.setAttribute('aria-label', pinTitle(g)); }
-      showPlace(g);
-      wirePin(e.popup.getElement(), g, m);
-    });
     return m;
   }
-  // The pin's buttons, in its phone pop-up or in the desktop panel.
+  // The pin's buttons, in the details panel (the bottom sheet on phones).
   function pinActions(g) {
     return g.preview
       ? `<div class="pin-actions"><button type="button" class="report-btn pin-add">📍 Add to my pins</button>
