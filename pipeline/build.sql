@@ -213,7 +213,7 @@ create or replace table lpi as   -- Leading Pedestrian Intervals (walk signal st
 select f.properties.LPI_Status as status,
        make_timestamp(f.properties.LPI_Install_Date::bigint * 1000)::date as installed,
        f.properties.LPI_Planned_Year as planned_year,
-       ST_Centroid(gj_geom(f.geometry)) as geom
+       ST_Centroid(gj_geom(f.geometry)) as geom, gj_geom(f.geometry) as geom_all
 from (select unnest(features) f from read_json('data/raw/lpi_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
@@ -223,7 +223,7 @@ select f.properties.NTOR_Status as status,
        case when make_timestamp(f.properties.NTOR_Install_Date::bigint * 1000) >= timestamp '1950-01-01'
             then make_timestamp(f.properties.NTOR_Install_Date::bigint * 1000)::date end as installed,
        f.properties.NTOR_Planned_Year as planned_year, nullif(trim(f.properties.Approaches), '') as approaches,
-       ST_Centroid(gj_geom(f.geometry)) as geom
+       ST_Centroid(gj_geom(f.geometry)) as geom, gj_geom(f.geometry) as geom_all
 from (select unnest(features) f from read_json('data/raw/ntor_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
@@ -298,12 +298,18 @@ c as (select location, list(distinct year order by year) as hcl_years, list(dist
             select s.unitdesc, c.year, c.type from streets s join hcl c on not c.at_corner and ST_DWithin(s.geom, c.geom, 40)
             where s.unitdesc in (select location from loc_pts where r = 40))
       group by location),
--- Each head-start walk signal or no turn on red record belongs to its one nearest intersection (within 100 ft), so a
--- record at a skewed or offset junction that SDOT splits into several intersections isn't counted at each of them.
-lpi_at as (select l.rowid as rid, arg_min(p.location, ST_Distance(p.geom, l.geom)) as location
-           from lpi l join loc_pts p on p.r = 60 and ST_DWithin(p.geom, l.geom, 100) group by l.rowid),
-ntor_at as (select n.rowid as rid, arg_min(p.location, ST_Distance(p.geom, n.geom)) as location
-            from ntor n join loc_pts p on p.r = 60 and ST_DWithin(p.geom, n.geom, 100) group by n.rowid),
+-- Each point of a head-start walk signal or no turn on red record belongs to its one nearest intersection (within
+-- 100 ft), so a record at a skewed or offset junction that SDOT splits into several intersections isn't counted at each
+-- of them. A record can have several points (e.g. both halves of a split roadway, up to ~300 ft apart): each point is
+-- matched on its own (their midpoint can fall between the corners, which dropped some records before).
+lpi_pt as (select row_number() over () as pid, * from (select rid, unnest(ST_Dump(geom_all)).geom as g from (select rowid as rid, geom_all from lpi))),
+ntor_pt as (select row_number() over () as pid, * from (select rid, unnest(ST_Dump(geom_all)).geom as g from (select rowid as rid, geom_all from ntor))),
+lpi_at as (select distinct rid, location from (
+             select l.rid, l.pid, arg_min(p.location, ST_Distance(p.geom, l.g)) as location
+             from lpi_pt l join loc_pts p on p.r = 60 and ST_DWithin(p.geom, l.g, 100) group by l.rid, l.pid)),
+ntor_at as (select distinct rid, location from (
+             select n.rid, n.pid, arg_min(p.location, ST_Distance(p.geom, n.g)) as location
+             from ntor_pt n join loc_pts p on p.r = 60 and ST_DWithin(p.geom, n.g, 100) group by n.rid, n.pid)),
 lp as (select p.location,   -- at a place with several records: Existing first, then the nearest
          arg_min({'status': l.status, 'installed': l.installed, 'planned': l.planned_year},
                  {'s': case l.status when 'Existing' then 0 when 'Planned' then 1 else 2 end, 'd': ST_Distance(p.geom, l.geom),
