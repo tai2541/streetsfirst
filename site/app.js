@@ -1432,7 +1432,7 @@
     const hclType = { Signalized: 'signalized intersections', 'Non-Signalized': 'intersections without a signal', 'Mid-Block': 'mid-block', Pedestrian: 'pedestrian', Bicycle: 'bicycle' };
     if (p.sdot_hcl_years && p.sdot_hcl_years.length) items.push(`On SDOT's <b>High Collision Locations</b> list${(p.sdot_hcl_types || []).length
       ? ` (${p.sdot_hcl_types.map(t => hclType[t] || esc(t)).join(', ')})` : ''} in ${esc(p.sdot_hcl_years.join(', '))}.`);
-    if (p.lpi_status === 'Existing') items.push(`<b>Head-start walk signal</b> (Leading Pedestrian Interval: the walk light comes on a few seconds before cars get a green) since ${p.lpi_installed ? monthYear(p.lpi_installed) : 'an unknown date'}.`);
+    if (p.lpi_status === 'Existing') items.push(`<b>Head-start walk signal</b> (Leading Pedestrian Interval: the walk light comes on a few seconds before cars get a green) since ${p.lpi_installed ? (/-01-01$/.test(p.lpi_installed) ? p.lpi_installed.slice(0, 4) : monthYear(p.lpi_installed)) : 'an unknown date'}.`);
     else if (p.lpi_status === 'Planned') items.push(`Head-start walk signal <b>planned</b>${plannedFor(p.lpi_planned)}.`);
     else if (p.lpi_status === 'Not Feasible') items.push(`Head-start walk signal judged <b>not feasible</b> by SDOT.`);
     const dirWord = { N: 'north', S: 'south', E: 'east', W: 'west', NE: 'northeast', NW: 'northwest', SE: 'southeast', SW: 'southwest',
@@ -1440,7 +1440,7 @@
     const appr = /^all( legs)?$/i.test((p.ntor_approaches || '').trim()) ? ' (every direction)' : p.ntor_approaches ? (/^[NSEW]{1,2}B?([ ,&/]+(and )?[NSEW]{1,2}B?)*$/i.test(p.ntor_approaches.trim())
       ? ` (for drivers coming from the ${p.ntor_approaches.trim().split(/[ ,&/]+(?:and )?/i).map(x => dirWord[x.toUpperCase()]).reduce((s, x, i, a) => s + (i ? (i === a.length - 1 ? ' and ' : ', ') : '') + x, '')})`
       : '') : '';   // anything else in that field is an internal note ("[field check]", "-"), not shown
-    if (p.ntor_status === 'Existing') items.push(`<b>No turn on red</b>${appr} since ${p.ntor_installed ? fixDate(p.ntor_installed) : 'an unknown date'}.`);
+    if (p.ntor_status === 'Existing') items.push(`<b>No turn on red</b>${appr} since ${p.ntor_installed ? fixDate(p.ntor_installed, /-01-01$/.test(p.ntor_installed)) : 'an unknown date'}.`);
     else if (p.ntor_status === 'Planned') items.push(`No turn on red <b>planned</b>${plannedFor(p.ntor_planned)}.`);
     else if (p.ntor_status === 'Not Feasible') items.push(`No turn on red judged <b>not feasible</b> by SDOT.`);
     if (p.lt_protected) items.push(`Protected left-turn signal${p.lt_installed ? ' since ' + p.lt_installed.slice(0, 4) : ''}.`);
