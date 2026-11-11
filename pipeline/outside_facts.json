@@ -1,0 +1,47 @@
+{
+  "about": "Facts on the site that can't come from the data (phone numbers, laws). Each is checked weekly by pipeline/check_outside.js: the site must still say it (says), and its official source page must still say it too (expect, matched case-insensitively against the page's text). A failed check opens a GitHub issue; it doesn't stop the weekly data update. Every outside link on the site is also checked to still open.",
+  "formPages": {
+    "about": "The City's request forms open as .../cwi/direct/<CODE>, and the form site shows the same page for any code, real or not. So each code the site uses (CWI + 'CODE' in site/app.js) must still be linked from one of these official City pages.",
+    "pages": [
+      "https://www.seattle.gov/customer-service-bureau",
+      "https://www.seattle.gov/city-light/in-the-community/safety-and-reliability/streetlight-maintenance"
+    ]
+  },
+  "facts": [
+    {
+      "id": "spu-emergency",
+      "what": "Seattle Public Utilities' 24/7 line for street flooding and sewer backups",
+      "says": ["(206) 386-1800", "tel:+12063861800", "24/7"],
+      "source": "https://www.seattle.gov/utilities/your-services/emergencies",
+      "expect": ["\\(206\\) 386-1800", "24 hours a day, 7 days a week"]
+    },
+    {
+      "id": "city-customer-service",
+      "what": "The City's customer service phone line and its hours",
+      "says": ["(206) 684-2489", "tel:+12066842489", "weekdays 8 to 5"],
+      "source": "https://www.seattle.gov/customer-service-bureau",
+      "expect": ["684-CITY \\(2489\\)|684-2489", "Monday ?- ?Friday,? 8 a\\.m\\. (to|-) 5 p\\.m\\."]
+    },
+    {
+      "id": "city-light-streetlights",
+      "what": "Seattle City Light's phone line for streetlights out",
+      "says": ["(206) 684-7056"],
+      "source": "https://www.seattle.gov/city-light/in-the-community/safety-and-reliability/streetlight-maintenance",
+      "expect": ["Seattle City Light", "\\(206\\) 684-7056"]
+    },
+    {
+      "id": "rcw-47-24",
+      "what": "State law: in a large city, the City runs state highways on city streets (signals, crossings, lanes)",
+      "says": ["RCW 47.24"],
+      "source": "https://app.leg.wa.gov/RCW/default.aspx?cite=47.24.020",
+      "expect": ["city or town shall exercise full responsibility for and control over any such street", "traffic control signals", "population of"]
+    },
+    {
+      "id": "sidewalk-repair-owner",
+      "what": "In Seattle, adjacent property owners are responsible for sidewalk repair",
+      "says": ["adjacent property is often responsible for sidewalk repair"],
+      "source": "https://www.seattle.gov/transportation/projects-and-programs/programs/maintenance-and-paving/sidewalk-repair-program",
+      "expect": ["adjacent property owners keep their sidewalk", "repairs to the sidewalks"]
+    }
+  ]
+}

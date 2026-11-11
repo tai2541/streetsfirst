@@ -58,7 +58,7 @@ create or replace table loc_proj as
 select p.location, list(j.id order by j.stage = 'done', j.year nulls last, j.id) as proj_ids,
        -- (pavement art is listed among the place's projects but isn't counted as planned safety work)
        coalesce(bool_or(j.stage <> 'done' and coalesce(j.scope, '') not ilike '%pavement art%'), false) as proj_planned
-from loc_inner p join proj j on ST_DWithin(p.geom, j.geom, case when p.r = 40 then 40 else p.r + 40 end)
+from loc_inner p join proj j on ST_DWithin(p.geom, j.geom, case when p.r = 40 then near_block_ft() else near_ix_ft() end)
   and not on_structure(p.location)
 group by p.location;
 

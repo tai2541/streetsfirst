@@ -135,6 +135,30 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+  # Facts on the site that can't come from the data (phone numbers, a state law, City request forms, outside links):
+  # each checked against its official page (pipeline/outside_facts.json). A failure opens its own issue but doesn't
+  # stop the data update, so a City website redesign never freezes the crash data.
+  outside-facts:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5
+        with:
+          persist-credentials: false
+      - id: check
+        run: node pipeline/check_outside.js 2>&1 | tee outside.txt; exit "${PIPESTATUS[0]}"
+      - if: failure() && steps.check.outcome == 'failure'
+        run: |
+          url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body="$(grep 'OUTSIDE CHECK FAILED' outside.txt | head -30)"
+          n=$(gh issue list -R "${{ github.repository }}" --state open --search "Outside facts need checking in:title" --json number -q '.[0].number')
+          if [ -n "$n" ]; then gh issue comment "$n" -R "${{ github.repository }}" --body "Still failing: $url"$'\n\n'"$body"
+          else gh issue create -R "${{ github.repository }}" --title "Outside facts need checking" --body "Something on the site that comes from an outside page may have changed (the data update still went ahead). Run: $url"$'\n\n'"$body"; fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   # Keeps the weekly schedule from being switched off for inactivity (no commits needed).
   keepalive:
     if: github.event_name == 'schedule'

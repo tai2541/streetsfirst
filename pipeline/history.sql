@@ -6,9 +6,10 @@
 -- Past rankings use the same expected-harm method on the 5 years of crashes before each date. Repair requests aren't
 -- available that far back, so past ranks are by crashes alone, like today's (requests don't change scores). The monthly
 -- snapshots (for "what changed") keep the request term, now zero, so last month's list is comparable with today's.
--- Yearly snapshots start in 2018 (crashes 2013-2017): before 2013 SDOT's data records far fewer injury crashes.
+-- Yearly snapshots start in hist_from_year() (its crash years are the window_years() before it): in the oldest years
+-- SDOT's data records far fewer injury crashes.
 
--- Every crash since 2011, with today's place names.
+-- Every crash on hand (from hist_start()), with today's place names.
 create or replace table crash_full as
 select location, date, severity, peds, cyclists from crash_hist where date < ws()
 union all
@@ -30,13 +31,13 @@ select coalesce(a.location, o.location) as location, coalesce(a.addr_type, o.add
 from locations_all a full join old o using (location)
 left join loc_context x on x.location = coalesce(a.location, o.location);
 
--- The dates: 1 January of each year (5 full years before it), and the end of each of the last 12 scored months.
+-- The dates: 1 January of each year (window_years() full years before it), and the end of each of the last 12 scored months.
 create or replace table hist_periods as
 select 'y' || y as id, 'year' as kind, y::int as yr, null::int as months_ago,
-       make_date(y::int - 5, 1, 1) as d0, make_date(y::int, 1, 1) as d1
-from scoring_window s, range(2018, 2101) t(y) where make_date(y::int, 1, 1) <= s.w_end
+       make_date(y::int - window_years(), 1, 1) as d0, make_date(y::int, 1, 1) as d1
+from scoring_window s, range(hist_from_year(), year(current_date)::int + 2) t(y) where make_date(y::int, 1, 1) <= s.w_end
 union all
-select 'm' || k, 'month', null, k::int, (s.w_end - to_months(60 + k::int))::date, (s.w_end - to_months(k::int))::date
+select 'm' || k, 'month', null, k::int, (s.w_end - to_months(window_months() + k::int))::date, (s.w_end - to_months(k::int))::date
 from scoring_window s, range(0, 13) t(k);
 
 -- Expected harm per place for every period at once (the same formula as eb_in in build.sql).
@@ -108,7 +109,7 @@ select distinct location, k, d, year(d) as y from (
   union all
   -- the same signal date the place's page shows (so a "fix" here is always one a reader can see there)
   select location, 'Traffic signal installed or rebuilt', signal_installed
-  from locations where addr_type = 'I' and signal_installed >= date '1990-01-01'
+  from locations where addr_type = 'I' and signal_installed >= signal_from()
   union all
   select l.location, case j.kind when 'sidewalk' then 'New sidewalk' when 'safety' then 'Neighborhood safety project'
                                  else 'Head-start walk signal' end, make_date(j.year, 7, 1)
@@ -117,10 +118,11 @@ select distinct location, k, d, year(d) as y from (
 ) where d <= current_date   -- a finished project's assumed mid-year date can't be in the future
      or (month(d) = 12 and day(d) >= 30 and year(d) = year(current_date));   -- SDOT's year-only date for something built this year
 
--- The years "then" is compared with: the last 5 full calendar years whose crash reports are complete. The newest
+-- The years "then" is compared with: the last window_years() full calendar years whose crash reports are complete. The newest
 -- months still have many crashes with severity not yet recorded, so they're left out of this comparison.
 create or replace table cmp_window as
-select make_date(year(w_end - interval 6 month)::int - 5, 1, 1) as c0, make_date(year(w_end - interval 6 month)::int, 1, 1) as c1
+select make_date(year(w_end - to_months(cmp_lag_months()))::int - window_years(), 1, 1) as c0,
+       make_date(year(w_end - to_months(cmp_lag_months()))::int, 1, 1) as c1
 from scoring_window;
 
 -- Fatal and serious crashes at places with a known location, any date range (the same rule for every period).
@@ -128,13 +130,13 @@ create or replace macro ksi_city(d0, d1) as (
   select count(*) from crash_full c join hist_places hp using (location)
   where hp.lat is not null and c.date >= d0 and c.date < d1 and c.severity in ('Fatal Collision', 'Serious Injury Collision'));
 
--- The worst 50 of each year, plus places ranked 51-150 the same year (a comparison group that was also bad, but less so).
+-- The worst worst_n() of each year, plus places ranked just below them, to worst_ref_to(), the same year (a comparison group that was also bad, but less so).
 -- Each place's fixes are grouped by when the first one came: during the ranked years, between them and the comparison
 -- years, during the comparison years, or not until after them / none.
 create or replace table worst_then as
 with t as (
   select p.yr, h.location, h.rk, h.crashes, h.ksi, p.d0, p.d1
-  from hist_rank h join hist_periods p using (id) where p.kind = 'year' and h.rk <= 150
+  from hist_rank h join hist_periods p using (id) where p.kind = 'year' and h.rk <= worst_ref_to()
 ),
 f as (
   select t.yr, t.location, min(pf.d) as first_fix,
@@ -168,10 +170,10 @@ select 'cmp', null, w.c0, w.c1, ksi_city(w.c0, w.c1), all_city(w.c0, w.c1) from 
 create or replace table month_change as
 with m1 as (select location, rk from hist_rank where id = 'm1')
 select r.location, r.rank as rank_now, m1.rk as rank_before, r.crashes, r.ksi, r.lat, r.lon,
-  case when r.rank <= 50 and coalesce(m1.rk, 1e9) > 50 then 'in'
-       when r.rank > 50 and m1.rk <= 50 then 'out' end as top50
+  case when r.rank <= top_n() and coalesce(m1.rk, 1e9) > top_n() then 'in'
+       when r.rank > top_n() and m1.rk <= top_n() then 'out' end as top50
 from ranked r left join m1 using (location)
-where r.rank <= 200 or m1.rk <= 50;
+where r.rank <= list_n() or m1.rk <= top_n();
 
 -- Newest crash records, not in the ranking yet: the months after the scored window.
 create or replace table recent_ksi as
@@ -182,11 +184,11 @@ from collisions c left join ranked r using (location)
 where c.date >= we() and c.severity in ('Fatal Collision', 'Serious Injury Collision')
 group by c.location;
 
--- Fixes SDOT recorded in the 12 months before the data was fetched (dated fixes only, not year-only projects).
+-- Fixes SDOT recorded in the recent_fix_days() before the data was fetched (dated fixes only, not year-only projects).
 create or replace table recent_fixes as
 select distinct f.location, f.k, f.d, r.rank, r.lat, r.lon
 from place_fixes f join ranked r using (location)
-where f.d >= (select max(date) from collisions) - interval 365 day
+where f.d >= (select max(date) from collisions) - to_days(recent_fix_days())
   and (f.d <= current_date or (month(f.d) = 12 and day(f.d) >= 30 and year(f.d) = year(current_date)))
   and f.k not in ('New sidewalk', 'Neighborhood safety project');
 
@@ -230,7 +232,7 @@ recent as (
 ),
 places as (
   select r.location, coalesce(r.council_district::varchar, 'none') as district, coalesce(r.rse_quintile, 'none') as rse,
-    r.ksi, r.killed, r.seriously_injured, r.rank, r.addr_type, r.lat, r.lon, r.rank <= 50 as top50, coalesce(fx.lpi, 0) as lpi, coalesce(fx.other, 0) as other,
+    r.ksi, r.killed, r.seriously_injured, r.rank, r.addr_type, r.lat, r.lon, r.rank <= top_n() as top50, coalesce(fx.lpi, 0) as lpi, coalesce(fx.other, 0) as other,
     r.location in (select location from recent) as fixed_recently,
     r.location in (select location from end_fixes) as ends_fixed,
     coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned' or len(r.cip) > 0, false) as proj_planned,
@@ -278,9 +280,9 @@ with sp as (
 )
 select street, count(*) as places, sum(crashes) as crashes, sum(ksi) as ksi, sum(killed) as killed,
   sum(seriously_injured) as hurt, sum(ped_crashes) as ped, sum(bike_crashes) as bike,
-  count(*) filter (where rank <= 50) as top50, count(*) filter (where rank <= 100) as top100,
-  count(*) filter (where rank <= 100 and state_route is not null) as top100_state,
-  count(*) filter (where rank <= 100 and state_route is null and not fixed_recently and not proj_planned) as top100_nothing,
+  count(*) filter (where rank <= top_n()) as top50, count(*) filter (where rank <= wide_n()) as top100,
+  count(*) filter (where rank <= wide_n() and state_route is not null) as top100_state,
+  count(*) filter (where rank <= wide_n() and state_route is null and not fixed_recently and not proj_planned) as top100_nothing,
   list_sort(list_distinct(list(district) filter (where district <> 'none'))) as districts,
   arg_min(location, rank) as worst, min(rank) as worst_rank
 from sp where street <> '' group by street;
@@ -310,9 +312,10 @@ select k, m, count(*) filter (where not other) as n, count(*) as n_all,
        count(*) filter (where not other and pb > 0) as p_had, count(*) filter (where not other and pb > 0 and b < pb) as p_fewer
 from working_fix group by k, m;
 
--- places where the targeted crashes didn't go down: at least 2 after, and no fewer than before
+-- places where the targeted crashes didn't go down: at least inc_min_crashes() before and after, no fewer after
 create or replace table working_places as
-select * from working_fix where a >= 2 and a >= b and b >= 2 and k not in ('Bus lane', 'Protected bike lane') and not other and days >= 730
+select * from working_fix where a >= inc_min_crashes() and a >= b and b >= inc_min_crashes() and k not in ('Bus lane', 'Protected bike lane') and not other
+  and days >= inc_min_days()
 qualify row_number() over (partition by k order by a - b desc, a desc, rank nulls last, location) <= 40;
 
 -- ---------------------------------------------------------------- export: site/data/progress.json
@@ -324,19 +327,19 @@ copy (
                 'ksi_city': (select k.ksi from ksi_by_period k where k.id = p.id),
                 'crashes_city': (select k.crashes from ksi_by_period k where k.id = p.id),
                 'ref': (select {'n': count(*), 'ksi': sum(w.ksi_then), 'ksi_cmp': sum(w.ksi_cmp)} from worst_then w
-                        where w.yr = p.yr and w.rank_then between 51 and 150),
+                        where w.yr = p.yr and w.rank_then between worst_n() + 1 and worst_ref_to()),
                 'places': (select list({'r': w.rank_then, 'loc': w.location, 'ksi': w.ksi_then, 'c': w.crashes_then,
                                         'now': w.rank_now, 'ksi_cmp': w.ksi_cmp, 'c_cmp': w.crashes_cmp, 'd': w.district,
                                         'state': w.state_route, 'g': w.fix_group, 'fx': w.fixes,
                                         't': coalesce((select hp.addr_type from hist_places hp where hp.location = w.location), 'B')} order by w.rank_then)
-                           from worst_then w where w.yr = p.yr and w.rank_then <= 50)} order by p.yr)
+                           from worst_then w where w.yr = p.yr and w.rank_then <= worst_n())} order by p.yr)
               from hist_periods p, cmp_window cw where p.kind = 'year' and p.d1 <= cw.c0),
     'month': {
       'd_before': (select d1 from hist_periods where id = 'm1'),
       'd_now': (select d1 from hist_periods where id = 'm0'),
       'moves': (select list({'loc': location, 'now': rank_now, 'was': rank_before, 'in50': top50} order by rank_now)
-                from month_change where top50 is not null or (rank_now <= 50 and rank_before - rank_now >= 5)
-                  or (rank_before <= 50 and rank_now - rank_before >= 5)),
+                from month_change where top50 is not null or (rank_now <= top_n() and rank_before - rank_now >= move_min())
+                  or (rank_before <= top_n() and rank_now - rank_before >= move_min())),
       'recent_ksi': (select list({'loc': location, 'f': fatal, 's': serious, 'last': last_date, 'rank': rank}
                                  order by fatal desc, serious desc, last_date desc, location) from recent_ksi),
       'recent_ksi_total': (select {'f': sum(fatal), 's': sum(serious), 'from': we(), 'to': max(last_date)} from recent_ksi),
@@ -358,6 +361,9 @@ copy (
                               'dist': districts, 'worst': worst, 'wr': worst_rank} order by ksi desc, crashes desc, street)
                  from (select * from street_totals order by ksi desc, crashes desc, street limit 30)),
     'since': year(ws()),
+    -- the kinds of work counted as a fix, and the share of those fixes at intersections (not along blocks)
+    'fix_kinds': (select list(distinct k order by k) from place_fixes),
+    'fix_ix_share': (select round(avg((l.addr_type = 'I')::int), 3) from place_fixes f join locations_all l using (location)),
     'since_d': strftime(ws(), '%B %Y'),
     'window': {'d0': ws(), 'd1': we()}
   } as progress

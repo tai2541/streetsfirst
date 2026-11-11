@@ -2,7 +2,7 @@
 --   * What's on the street: marked crosswalks, curb ramps (intersections), bike facilities of every type, traffic circles
 --   * Nearby public school, the City's Race and Social Equity Index for the census tract, the council district and member
 --   * Before and after: crashes in equal periods before and after something SDOT built with a known date, next to the
---     citywide change in the same kind of crash over the same periods (uses older crash years, 2011 on)
+--     citywide change in the same kind of crash over the same periods (uses the older crash years fetch.ps1 gets)
 
 -- ---------------------------------------------------------------- what's on the street
 create or replace table crosswalks as
@@ -38,11 +38,11 @@ create or replace table loc_street_ctx as
 with cw as (
   select s.location, count(*) as n, count(*) filter (where c.midblock) as midblock, bool_or(c.school) as school,
          list(distinct c.control order by c.control) filter (where c.control is not null) as controls
-  from loc_inner s join crosswalks c on ST_DWithin(s.geom, c.geom, case when s.r = 40 then 40 else 100 end) and not on_structure(s.location)
+  from loc_inner s join crosswalks c on ST_DWithin(s.geom, c.geom, case when s.r = 40 then near_block_ft() else near_ix_ft() end) and not on_structure(s.location)
   group by s.location),
 rp as (
   select p.location, count(*) as n, count(*) filter (where r.cond in ('POOR', 'VERY-POOR')) as poor
-  from loc_pts p join curbramps r on ST_DWithin(p.geom, r.geom, 100) where p.r = 60 group by p.location),
+  from loc_pts p join curbramps r on ST_DWithin(p.geom, r.geom, near_ix_ft()) where p.r = 60 group by p.location),
 -- Bike facilities: at an intersection, any within 60 ft; on a block, only one running along most of it (not a cross street)
 bk as (
   select s.location, list(distinct b.kind order by b.kind) as kinds, min(b.ord) as best
@@ -50,7 +50,7 @@ bk as (
   where s.r <> 40 or ST_Length(ST_Intersection(s.geom, ST_Buffer(b.geom, 30))) > 0.5 * greatest(ST_Length(s.geom), 1)
   group by s.location),
 tc as (
-  select p.location, min(c.d) as d from loc_pts p join circles c on ST_DWithin(p.geom, c.geom, 100) where p.r = 60 group by p.location)
+  select p.location, min(c.d) as d from loc_pts p join circles c on ST_DWithin(p.geom, c.geom, near_ix_ft()) where p.r = 60 group by p.location)
 select l.location,
   coalesce(cw.n, 0) as crosswalks, coalesce(cw.midblock, 0) as crosswalks_midblock, coalesce(cw.school, false) as crosswalk_school,
   coalesce(cw.controls, []) as crosswalk_controls,
@@ -75,8 +75,9 @@ where f.geometry is not null;
 -- A term that ends within the week counts as ended: the site is rebuilt weekly, so this never names a former member
 -- (at worst, the district shows without a name for a few days).
 create or replace table council_now as
-select lower(trim(OfficeRecordFullName)) as n
-from read_json('data/raw/legistar_council.json', columns = {'OfficeRecordFullName': 'VARCHAR', 'OfficeRecordEndDate': 'VARCHAR'})
+select lower(trim(OfficeRecordFullName)) as n, trim(OfficeRecordFullName) as full_name,
+       try_cast(OfficeRecordStartDate as timestamp)::date as started
+from read_json('data/raw/legistar_council.json', columns = {'OfficeRecordFullName': 'VARCHAR', 'OfficeRecordEndDate': 'VARCHAR', 'OfficeRecordStartDate': 'VARCHAR'})
 where OfficeRecordEndDate is null or try_cast(OfficeRecordEndDate as timestamp) is null
    or try_cast(OfficeRecordEndDate as timestamp) >= current_date + interval 7 day;
 create or replace table council as
@@ -92,7 +93,7 @@ where f.geometry is not null;
 create or replace table loc_area_ctx as
 with sch as (   -- nearest public school within 1,000 ft
   select p.location, arg_min(s.name, {'d': ST_Distance(p.geom, s.geom), 'n': s.name}) as school, min(ST_Distance(p.geom, s.geom)) as school_ft
-  from loc_pts p join schools s on ST_DWithin(p.geom, s.geom, 1000) group by p.location),
+  from loc_pts p join schools s on ST_DWithin(p.geom, s.geom, school_ft()) group by p.location),
 -- A place just outside every district (streets on the city limit, e.g. N 145th St) takes the nearest one within
 -- 300 ft: the district whose residents use that street.
 -- Boundaries run down the middle of main streets, where SDOT puts each crash, so a place within 25 ft of the nearest
@@ -115,7 +116,7 @@ select l.location, sch.school, round(sch.school_ft) as school_ft, eq.e.q as rse_
 from locations l left join sch using (location) left join eq using (location) left join cd using (location);
 
 -- ---------------------------------------------------------------- before and after
--- Older crashes (2011 up to the scored years) plus the current ones, with the current place names: intersections by
+-- Older crashes (from the first one fetched, up to the scored years) plus the current ones, with the current place names: intersections by
 -- SDOT's intersection key, blocks by name (split roadways merged the same way as the scored crashes).
 create or replace table crash_hist as
 with raw as (select unnest(features, recursive := true)
@@ -137,6 +138,10 @@ create or replace table crash_all as
 select location, date, peds, cyclists, coll_type from crash_hist where date < ws()
 union all
 select location, date, peds, cyclists, coll_type from collisions;
+-- The first day of crash data on hand (fetch.ps1 decides how far back to fetch): before-and-after periods never reach
+-- further back than this, and the site's "older crashes from <year>" comes from it.
+create or replace table crash_bounds as select min(date) as d0 from crash_all;
+create or replace macro hist_start() as (select d0 from crash_bounds);
 
 -- Dated things SDOT built at each place, and the kind of crash each one is meant to reduce.
 create or replace table dated_fixes as
@@ -156,8 +161,8 @@ create or replace macro crash_kind(m, peds, cyclists, coll_type) as
          when 'rightped' then coll_type = 'Vehicle turning right hits pedestrian'
          when 'left' then coll_type = 'From opposite direction - one left turn - one straight' else true end;
 
--- Equal periods, up to 3 years each side; the month it went in is skipped. Needs at least a year on both sides
--- (crash data here starts 2011; the after period ends when the scored years end).
+-- Equal periods, up to ba_max_days() each side; the month it went in is skipped. Needs at least ba_min_days() on both
+-- sides (never before the first crash on hand, hist_start(); the after period ends when the scored years end).
 -- Some SDOT layers give only a year, written as Dec 30 or 31 (most protected bike lanes): for those the whole year is
 -- skipped (before ends Jan 1 of that year, after starts Jan 1 of the next), since the real day could be any in it.
 -- The walk-signal layers (head-start walk signal, no turn on red) write a year-only date as Jan 1.
@@ -165,13 +170,13 @@ create or replace table before_after as
 with f00 as (
   select *, (month(d) = 12 and day(d) >= 30)
             or (kind in ('Head-start walk signal', 'No turn on red') and month(d) = 1 and day(d) = 1) as yo
-  from dated_fixes where d >= date '2012-01-01'),
+  from dated_fixes where d >= hist_start() + interval 365 day),
 f0 as (
   select *, case when yo then make_date(year(d), 1, 1) else d end as b_end,
             case when yo then make_date(year(d) + 1, 1, 1) else d + 30 end as a_start
   from f00),
-f as (select *, least(1095, b_end - date '2011-01-01', we() - a_start)::int as days from f0),
-f2 as (select * from f where days >= 365)
+f as (select *, least(ba_max_days(), b_end - hist_start(), we() - a_start)::int as days from f0),
+f2 as (select * from f where days >= ba_min_days())
 select f2.location, list({'k': kind, 'd': d, 'm': m, 'days': days, 'yo': yo,
     'b': (select count(*) from crash_all c where c.location = f2.location and c.date >= f2.b_end - f2.days and c.date < f2.b_end
                                           and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)),
@@ -181,11 +186,11 @@ select f2.location, list({'k': kind, 'd': d, 'm': m, 'days': days, 'yo': yo,
     'ca': (select count(*) from crash_all c where c.date >= f2.a_start and c.date < f2.a_start + f2.days and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)),
     -- An earlier stretch of the same length, before the "before" (the month between is skipped, as after a fix). The
     -- "before" can be high because it got the place picked; the earlier stretch had no part in that, so earlier against
-    -- after is the fairer test. Needs crash data back that far (2011; these counts don't use severity, whose coding is
-    -- thin before 2013).
-    'pb': case when f2.b_end - 2 * f2.days - 30 >= date '2011-01-01' then (select count(*) from crash_all c where c.location = f2.location
+    -- after is the fairer test. Needs crash data back that far (hist_start(); these counts don't use severity, whose
+    -- coding is thin in the oldest years).
+    'pb': case when f2.b_end - 2 * f2.days - 30 >= hist_start() then (select count(*) from crash_all c where c.location = f2.location
             and c.date >= f2.b_end - 2 * f2.days - 30 and c.date < f2.b_end - f2.days - 30 and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)) end,
-    'pcb': case when f2.b_end - 2 * f2.days - 30 >= date '2011-01-01' then (select count(*) from crash_all c
+    'pcb': case when f2.b_end - 2 * f2.days - 30 >= hist_start() then (select count(*) from crash_all c
             where c.date >= f2.b_end - 2 * f2.days - 30 and c.date < f2.b_end - f2.days - 30 and crash_kind(f2.m, c.peds, c.cyclists, c.coll_type)) end,
     -- another dated fix at the same place from the earlier stretch to the end of the after period: its effect would be
     -- mixed in (a head-start walk signal next to a no turn on red, say), so the citywide summary leaves these out

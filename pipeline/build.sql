@@ -54,6 +54,40 @@ create or replace table request_weights as select * from (values
 
 create or replace macro wt(name) as (select v from weights where k = name);
 
+-- ---------------------------------------------------------------- settings the site's explanations also state
+-- Each is set once here and used by the pipeline below. meta.json publishes them ("cfg") and the page's text reads them
+-- from there, so an explanation can never repeat a number that has since changed. Never type one of these numbers into
+-- site/app.js or site/index.html; pipeline/check_text.js fails the build if a new typed-in number appears in the page text.
+create or replace macro window_months() as 60;      -- the scored crash window, in full months
+create or replace macro window_years() as window_months() // 12;   -- the same in years (past rankings use whole years)
+create or replace macro lag_months() as 3;          -- the newest months left unscored: police reports arrive late
+create or replace macro top_n() as 50;              -- "the top 50": the summary, the SDOT comparison, districts' lists
+create or replace macro list_n() as 200;            -- places published with full details in the ranked lists
+create or replace macro busy_min_crashes() as 10;   -- "busy" places, for the High Injury Network comparison
+create or replace macro near_ix_ft() as 100;        -- "nearby" an intersection: SDOT work, projects, crosswalks, curb ramps
+create or replace macro near_block_ft() as 40;      -- "nearby" a block: within this of its street line
+create or replace macro school_ft() as 1000;        -- the nearest public school is shown within this
+create or replace macro merge_dlat() as 0.00055;    -- the two sides of a divided street merge within this (degrees of
+create or replace macro merge_dlon() as 0.0008;     --   latitude and longitude: about 60 m each way)
+create or replace macro hist_from_year() as 2018;   -- past rankings: 1 January of each year from this one
+create or replace macro worst_n() as 50;            -- "Did the worst places get fixed?": the worst of a year...
+create or replace macro worst_ref_to() as 150;      -- ...next to the places ranked just below them, down to this rank
+create or replace macro recent_fix_days() as 365;   -- "Fixes SDOT recorded in the last 12 months"
+create or replace macro ba_min_days() as 365;       -- before and after a fix: at least this long on each side...
+create or replace macro ba_max_days() as 1095;      -- ...and at most this long
+create or replace macro inc_min_crashes() as 2;     -- "Increases to look into": at least this many targeted crashes before and after...
+create or replace macro inc_min_days() as 730;      -- ...over at least this long on each side
+create or replace macro wide_n() as 100;            -- "Whole streets": places in the citywide top 100 (and top_n)
+create or replace macro cmp_lag_months() as 6;      -- past rankings are compared with the last full years ending this long ago (severity fills in late)
+create or replace macro move_min() as 5;
+create or replace macro deaths_min() as 2;          -- places where at least this many people died are always listed
+create or replace macro repeat_years() as 3;        -- "repeat serious crashes": someone killed or seriously hurt in this many different years            -- "what changed since last month": top places that moved at least this many ranks
+create or replace macro bus_min_mi() as 0.25;       -- bus stretches shorter than this aren't ranked (whole-minute timetables)
+-- Interstate numbers are federal names (I-5 rather than SR 5); they don't change. Which routes are freeways comes from
+-- WSDOT's access-control data instead (state_routes.sql).
+create or replace macro signal_from() as date '1990-01-01';   -- signal install dates before this aren't shown as fixes
+create or replace macro interstate(srn) as srn in ('005', '090', '405');
+
 -- A place on a bridge, viaduct, tunnel or ramp, judged by its own street (not the cross streets that bound a stretch);
 -- an intersection only when every street meeting there is one (a ramp's end on a surface street is at street level).
 -- BR/BRIDGE only as the street's last word (or before a direction): Bridge Way N and CAMBRIDGE aren't bridges. Such a place is above or below the streets around it, so requests,
@@ -110,7 +144,7 @@ create or replace macro road_norm(t) as regexp_replace(t, ' (WR|ER|NR|SR) ', ' '
 create or replace table loc_merge as
 with p as (select location raw, road_norm(location) k, avg(lon) lon, avg(lat) lat from collisions group by location),
 g as (select k, max(lon) - min(lon) dlon, max(lat) - min(lat) dlat, count(*) n from p group by k)
-select p.raw, case when g.n > 1 and g.dlon < 0.0008 and g.dlat < 0.00055 then p.k else p.raw end as location
+select p.raw, case when g.n > 1 and g.dlon < merge_dlon() and g.dlat < merge_dlat() then p.k else p.raw end as location
 from p join g using (k);
 update collisions set location = m.location from loc_merge m where collisions.location = m.raw and m.raw <> m.location;
 
@@ -149,8 +183,8 @@ select coalesce(try_cast(left(trim(column0), 10) as date), current_date) as d
 from read_csv('data/raw/fetched_at.txt', header = false, all_varchar = true, columns = {'column0': 'VARCHAR'});
 create or replace macro fetched() as (select d from fetch_day);
 create or replace table scoring_window as
-with e as (select (date_trunc('month', max(date) filter (where date <= fetched())) - interval 3 month)::date as w_end from collisions)
-select (w_end - interval 60 month)::date as w_start, w_end,
+with e as (select (date_trunc('month', max(date) filter (where date <= fetched())) - to_months(lag_months()))::date as w_end from collisions)
+select (w_end - to_months(window_months()))::date as w_start, w_end,
        (w_end - interval 24 month)::date as test_start,                       -- validation split
        greatest(date '2023-06-01', (w_end - interval 36 month)::date) as req_start  -- request scoring window
 from e;
@@ -307,10 +341,10 @@ lpi_pt as (select row_number() over () as pid, * from (select rid, unnest(ST_Dum
 ntor_pt as (select row_number() over () as pid, * from (select rid, unnest(ST_Dump(geom_all)).geom as g from (select rowid as rid, geom_all from ntor))),
 lpi_at as (select distinct rid, location from (
              select l.rid, l.pid, arg_min(p.location, ST_Distance(p.geom, l.g)) as location
-             from lpi_pt l join loc_pts p on p.r = 60 and ST_DWithin(p.geom, l.g, 100) group by l.rid, l.pid)),
+             from lpi_pt l join loc_pts p on p.r = 60 and ST_DWithin(p.geom, l.g, near_ix_ft()) group by l.rid, l.pid)),
 ntor_at as (select distinct rid, location from (
              select n.rid, n.pid, arg_min(p.location, ST_Distance(p.geom, n.g)) as location
-             from ntor_pt n join loc_pts p on p.r = 60 and ST_DWithin(p.geom, n.g, 100) group by n.rid, n.pid)),
+             from ntor_pt n join loc_pts p on p.r = 60 and ST_DWithin(p.geom, n.g, near_ix_ft()) group by n.rid, n.pid)),
 lp as (select p.location,   -- at a place with several records: Existing first, then the nearest
          arg_min({'status': l.status, 'installed': l.installed, 'planned': l.planned_year},
                  {'s': case l.status when 'Existing' then 0 when 'Planned' then 1 else 2 end, 'd': ST_Distance(p.geom, l.geom),
@@ -594,7 +628,7 @@ select *,
   -- Risk: expected harm per million vehicles over the 5 scoring years (weekday counts x 365 x 5; intersections:
   -- streets added together, i.e. vehicles entering).
   case when volume is not null and crashes >= wt('risk_min_crashes')
-       then expected_harm * 1e6 / (greatest(volume, wt('risk_vol_floor')) * 365.0 * 5) end as score_risk
+       then expected_harm * 1e6 / (greatest(volume, wt('risk_vol_floor')) * 365.0 * window_months() / 12.0) end as score_risk
 from b;
 
 create or replace table ranked as
@@ -645,8 +679,8 @@ methods as (
     from train t join loc_context x using (location))
 )
 select m as method,
-  coalesce(sum(t.ksi) filter (where rk <= 50), 0)::int  as future_ksi_50,
-  coalesce(sum(t.ksi) filter (where rk <= 200), 0)::int as future_ksi_200
+  coalesce(sum(t.ksi) filter (where rk <= top_n()), 0)::int  as future_ksi_50,
+  coalesce(sum(t.ksi) filter (where rk <= list_n()), 0)::int as future_ksi_200
 from methods left join test t using (location) group by m;
 
 create or replace table validation_splits as
@@ -663,9 +697,9 @@ join val_split(ws(), (select b_mid::date from validation_splits), (select b_mid:
 create or replace table sdot_agreement as
 with yr as (select year(ws()) y0),
 sets as (
-  select 'ksi' m, * from ranked where rank <= 50
-  union all select 'risk', * from ranked where rank_risk <= 50
-  union all select 'baseline_crash_count', * from (select * from ranked order by crashes desc, location limit 50)
+  select 'ksi' m, * from ranked where rank <= top_n()
+  union all select 'risk', * from ranked where rank_risk <= top_n()
+  union all select 'baseline_crash_count', * from (select * from ranked order by crashes desc, location limit top_n())
 )
 select m as mode,
   count(*) filter (where sdot_hin is not null)                                       as on_hin,
@@ -702,8 +736,8 @@ select case
 end from c;
 -- ---------------------------------------------------------------- exports for the site
 create or replace macro export_set() as table
-  select * from ranked where rank <= 200 or rank_type <= 200 or rank_risk <= 200
-     or killed >= 2   -- places where 2 or more people died are always shown, whatever their rank
+  select * from ranked where rank <= list_n() or rank_type <= list_n() or rank_risk <= list_n()
+     or killed >= deaths_min()   -- places where deaths_min() or more people died are always shown, whatever their rank
      -- each council district's own top 50 intersections and top 50 stretches (and top 50 for how busy it is),
      -- so the list filtered to one district (and to one kind) is complete; a place on the line between two districts
      -- is in both districts' lists
@@ -713,11 +747,11 @@ create or replace macro export_set() as table
             row_number() over (partition by d, addr_type = 'I', rank_risk is null order by rank_risk) as n_risk,
             rank_risk
           from (select *, unnest(list_filter([council_district, council_district2], lambda x: x is not null)) as d from ranked))
-        where n_ksi <= 50 or (rank_risk is not null and n_risk <= 50))
+        where n_ksi <= top_n() or (rank_risk is not null and n_risk <= top_n()))
      -- and for "how busy", each kind's top 200 citywide (the district lists above are per kind too)
      or location in (select location from (
           select location, row_number() over (partition by addr_type = 'I' order by rank_risk) as n
-          from ranked where rank_risk is not null) where n <= 200);
+          from ranked where rank_risk is not null) where n <= list_n());
 
 -- Map areas for the on-demand detail files: a grid of about 1.1 km x 1.1 km cells.
 create or replace macro cell_of(lat, lon) as floor(lat / 0.01)::int || '_' || floor(-lon / 0.015)::int;
@@ -789,7 +823,7 @@ copy (
          when nullif(s.state_hwy, '') is not null then 'City (' || s.state_hwy || ', a state highway the City runs)' else 'City' end as run_by,
     ws() as crashes_from, (we() - interval 1 day)::date as crashes_to
   from spot_export s left join ik using (location) cross join (select ws() as w0) w
-  where s.rank <= 50 order by s.rank
+  where s.rank <= top_n() order by s.rank
 ) to 'data/top50_raw.csv' (header true);
 
 
@@ -923,8 +957,8 @@ copy (
     (select count(*) from locations where addr_type <> 'I') as stretches_scored,
     (select list({'mode': mode, 'on_hin': on_hin, 'on_hin_high': on_hin_high, 'sdot_hcl_recent': sdot_hcl_recent} order by mode)
      from sdot_agreement)                                   as sdot_agreement,
-    (select round(count(*) filter (where sdot_hin is not null) * 1.0 / count(*), 3) from locations where crashes >= 10) as busy_share_on_hin,
-    (select count(*) from locations where crashes >= 10)    as busy_locations,
+    (select round(count(*) filter (where sdot_hin is not null) * 1.0 / count(*), 3) from locations where crashes >= busy_min_crashes()) as busy_share_on_hin,
+    (select count(*) from locations where crashes >= busy_min_crashes())    as busy_locations,
     (select list({'method': method, 'k50': future_ksi_50, 'k200': future_ksi_200, 'b50': b_ksi_50, 'b200': b_ksi_200} order by future_ksi_50 desc, method) from validation) as validation,
     (select b_mid::date from validation_splits)            as test2_from,
     ((select b_end from validation_splits) - interval 1 day)::date as test2_to,
@@ -943,12 +977,12 @@ copy (
        and severity in ('Fatal Collision', 'Serious Injury Collision')) as city_ksi_located,
     (select count(*) from collisions where date >= ws() and date < we() and peds + cyclists > 0
        and severity in ('Fatal Collision', 'Serious Injury Collision')) as city_ped_bike_ksi,
-    (select round(sum(ksi) filter (where rank <= 50) * 1.0 / sum(ksi), 3) from ranked) as top50_ksi_share,
-    (select sum(ksi) filter (where rank <= 50) from ranked) as top50_ksi,
+    (select round(sum(ksi) filter (where rank <= top_n()) * 1.0 / sum(ksi), 3) from ranked) as top50_ksi_share,
+    (select sum(ksi) filter (where rank <= top_n()) from ranked) as top50_ksi,
     -- how many of the top 50 are intersections, and how many miles the stretches among them add up to
-    (select count(*) filter (where rank <= 50 and is_int) from ranked) as top50_intersections,
+    (select count(*) filter (where rank <= top_n() and is_int) from ranked) as top50_intersections,
     (select round(sum((select sum(ST_Length(s.geom)) from streets s where s.loc_name = r.location)) / 5280, 1)
-       from ranked r where not r.is_int and r.rank <= 50) as top50_stretch_miles,
+       from ranked r where not r.is_int and r.rank <= top_n()) as top50_stretch_miles,
     (select sum(ksi) from ranked) as city_ksi_crashes,
     -- looking ahead: the top 50 ranked on the first 3 years (the site's rule, so the validation's own number), and
     -- their share of the next 2 years' KSI crashes
@@ -981,6 +1015,37 @@ copy (
     (select round(sum(wet_crashes)  / sum(road_known),  3) from locations) as city_wet_share,
     (select round(sum(dark_crashes) / sum(light_known), 3) from locations) as city_dark_share,
     (select round(median(block_ft)) from loc_context where block_ft is not null) as median_block_ft,
+    -- The settings at the top of this file, for the page's text: it reads them from here rather than typing them in.
+    {'window_months': window_months(), 'window_years': window_years(), 'lag_months': lag_months(), 'top_n': top_n(),
+     'list_n': list_n(), 'busy_min_crashes': busy_min_crashes(), 'near_ix_ft': near_ix_ft(), 'near_block_ft': near_block_ft(),
+     'school_ft': school_ft(), 'merge_ft': round(merge_dlat() * 111320 / 0.3048, -1)::int, 'hist_from_year': hist_from_year(),
+     'worst_n': worst_n(), 'worst_ref_to': worst_ref_to(), 'recent_fix_days': recent_fix_days(), 'ba_min_days': ba_min_days(),
+     'ba_max_days': ba_max_days(), 'inc_min_crashes': inc_min_crashes(), 'inc_min_days': inc_min_days(), 'wide_n': wide_n(),
+     'cmp_lag_months': cmp_lag_months(), 'move_min': move_min(), 'bus_min_mi': bus_min_mi(),
+     'signal_from_year': year(signal_from()), 'deaths_min': deaths_min(), 'repeat_years': repeat_years()} as cfg,
+    hist_start() as crash_hist_from,
+    -- Facts the page states about the data, measured each week (so a sentence like "has no locations" can't go stale):
+    -- the divided street with the most crashes whose two sides were merged into one place (the page's example)
+    (select arg_max(location, n) from (select location, count(*) as n from collisions
+       where location in (select location from loc_merge where raw <> location) group by location)) as merge_example,
+    (select count(distinct quintile) from rse where quintile is not null) as rse_levels,
+    (select max(tier) from sw_missing) as sw_max_tier,
+    -- whether the City's budget file has any column that could locate spending, and the project maps any cost column
+    (select count(*) = 0 from (describe select * from read_csv('data/raw/capital_budget.csv'))
+       where regexp_matches(column_name, '(?i)(location|address|lat|lon|geom|coord|street|district|neighborhood)')) as budget_no_location,
+    (select count(*) = 0 from (select unnest(json_keys(f.properties::json)) as k from (select unnest(features) f
+       from read_json(['data/raw/proj_sidewalk_*.json', 'data/raw/proj_nispp_*.json'], maximum_object_size = 50000000, union_by_name = true)))
+       where regexp_matches(k, '(?i)(cost|budget|amount|dollar|fund|price)')) as proj_no_cost,
+    -- speed humps: how many SDOT lists, and how many with an install date
+    (select {'n': count(*), 'dated': count(f.properties::json->>'INSTALL_DATE')}
+       from (select unnest(features) f from read_json('data/raw/humps_*.json', maximum_object_size = 50000000))) as humps,
+    -- repair requests: the share of those over a year old still marked "Reported", and how many per full calendar year
+    (select round(avg((status = 'Reported')::int), 3) from requests where date < fetched() - interval 365 day) as requests_old_reported,
+    (select list({'y': y, 'n': n} order by y) from (select year(date) as y, count(*) as n from requests group by 1)
+       where y > (select year(min(date)) from requests) and y < year(fetched())) as requests_by_year,
+    -- crash reports SDOT places at places WSDOT runs (freeways, ramps, state bridges), in the scored years
+    (select count(*) from collisions c join locations l using (location)
+       where l.state_route is not null and c.date >= ws() and c.date < we()) as wsdot_crashes,
     (select list({'k': k, 'v': v} order by k) from weights)       as weights,
     (select list({'type': type, 'w': w} order by w desc, type) from request_weights) as request_weights
 ) to 'site/data/meta.json' (format json, array false);
@@ -990,6 +1055,10 @@ copy (
   select {
     'council': (select list({'d': district, 'member': member, 'url': url,
                  'geom': ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(geom, 40), 'EPSG:2926', 'EPSG:4326'))::json} order by district) from council),
+    -- serving council members not tied to a district map seat: the citywide positions (from the City Clerk's list)
+    'citywide': (select list(full_name order by full_name) from council_now
+                 where n not in (select lower(trim(member)) from council where member is not null)
+                   and (started is null or started <= current_date)),
     'schools': (select list([name, round(ST_Y(ST_Transform(geom, 'EPSG:2926', 'EPSG:4326')), 5)::varchar,
                              round(ST_X(ST_Transform(geom, 'EPSG:2926', 'EPSG:4326')), 5)::varchar, type] order by name) from schools)
   } as ctx

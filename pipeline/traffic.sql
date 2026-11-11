@@ -91,7 +91,7 @@ select location, kind, case when d >= date '1990-01-01' then d end as d, status 
   where a.addr_type <> 'I'
   union all
   select p.location, fp.kind, fp.d, fp.status
-  from loc_pts p join locations_all a using (location) join fix_points fp on ST_DWithin(p.geom, fp.geom, 100)
+  from loc_pts p join locations_all a using (location) join fix_points fp on ST_DWithin(p.geom, fp.geom, near_ix_ft())
   where a.addr_type = 'I'
   union all
   select p.location, fl.kind, fl.d, fl.status
@@ -251,7 +251,7 @@ where ST_Within(ST_Centroid(ST_Transform(geo.line, 'EPSG:4326', 'EPSG:2926')), (
 
 -- per mile, so long stretches don't win just for being long; short stretches are too coarse to trust
 create or replace table bus_stretch as
-select *, case when miles >= 0.25 then lost_min / miles end as lost_per_mile from bus_stretch;
+select *, case when miles >= bus_min_mi() then lost_min / miles end as lost_per_mile from bus_stretch;
 create or replace table bus_stretch as
 select *, case when lost_per_mile is not null then row_number() over (partition by lost_per_mile is null order by lost_per_mile desc, id) end as rank_bus
 from bus_stretch;

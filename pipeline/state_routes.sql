@@ -51,17 +51,22 @@ from loc_pts p join streets st on p.r <> 40 and ST_DWithin(p.geom, st.geom, 15)
 join wsdot_routes r on ST_DWithin(st.geom, r.geom, 50);
 
 create or replace table place_state as
+-- The best-matching piece, all from one row. Ties (two pieces both fully along a route, e.g. a ramp and the street
+-- beside it, or a street over the SR 99 tunnel and the cross street that is the route) are broken the same way every
+-- build: a street before a ramp, then the shorter piece (the one that is most nearly the route itself), then the route.
 with m as (
-  select location, arg_max(srn, share) as srn, arg_max(ramp, share) as ramp, arg_max(part, share) as part
-  from sr_cand where share > 0.5 group by location
+  select location, b.srn, b.ramp, b.part from (
+    select location, arg_max({'srn': srn, 'ramp': ramp, 'part': part},
+                             {'share': share, 'street': not ramp, 'short': -ST_Length(part), 'srn': srn}) as b
+    from sr_cand where share > 0.5 group by location)
 ),
 c as (
   select m.location,
-    case when m.srn in ('005', '090', '405') then 'I-' || ltrim(m.srn, '0') else 'SR ' || ltrim(m.srn, '0') end as route,
+    case when interstate(m.srn) then 'I-' || ltrim(m.srn, '0') else 'SR ' || ltrim(m.srn, '0') end as route,
     -- most of it along a limited-access section (any interstate or ramp is one)
-    m.ramp or m.srn in ('005', '090', '405') or coalesce((select sum(ST_Length(ST_Intersection(m.part, ST_Buffer(l.geom, 50))))
+    m.ramp or interstate(m.srn) or coalesce((select sum(ST_Length(ST_Intersection(m.part, ST_Buffer(l.geom, 50))))
       from wsdot_limited l where ST_DWithin(m.part, l.geom, 50)) / nullif(ST_Length(m.part), 0) > 0.5, false) as lim,
-    m.ramp or m.srn in ('005', '090', '405') or exists(select 1 from wsdot_limited l where ST_DWithin(m.part, l.geom, 50)) as lim_near,
+    m.ramp or interstate(m.srn) or exists(select 1 from wsdot_limited l where ST_DWithin(m.part, l.geom, 50)) as lim_near,
     (select arg_max(b.name, ST_Length(ST_Intersection(m.part, ST_Buffer(b.geom, 30)))) from wsdot_bridges b
       where ST_DWithin(m.part, b.geom, 30) and ST_Length(ST_Intersection(m.part, ST_Buffer(b.geom, 30))) > 0.5 * ST_Length(m.part)) as bridge,
     -- SDOT names its bridges, ramps, tunnels and highway pieces; a plain street can't be part of a freeway or state bridge
