@@ -36,6 +36,7 @@ const UNIT = 'years?|months?|weeks?|days?|hours?|ft|feet|foot|miles?|mi|places?|
 const PATTERNS = [
   new RegExp(`\\b(\\d[\\d,.]*|${NUMWORD})(-| )(${UNIT})\\b`, 'i'),             // "5 years", "200 ft", "five levels"
   new RegExp(`\\b(top|worst|tier|positions?|within|under|over|least|than)[- ](\\d[\\d,]*|${NUMWORD})\\b`, 'i'), // "top 50", "Tier 5", "at least 2"
+  new RegExp(`\\b(\\d[\\d,]*|${NUMWORD}) or (more|fewer|less)\\b`, 'i'),          // "5 or more places"
   /\b(19[5-9]\d|20[0-4]\d)\b/,                                                    // a year
   /\b\d+\s*[–-]\s*\d+\b/,                                                         // a typed range "51–150"
   /[½¼¾]/,

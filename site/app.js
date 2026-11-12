@@ -3805,8 +3805,8 @@
     // ---- 2. since last month
     function monthPart() {
       const ins = M.moves.filter(m => m.in50 === 'in'), outs = M.moves.filter(m => m.in50 === 'out');
-      const dk = m => m.was - m.now;
-      const up = M.moves.filter(m => !m.in50 && m.was && dk(m) >= 5), down = M.moves.filter(m => !m.in50 && m.was && -dk(m) >= 5);
+      const dk = m => m.was - m.now, MV = cfg('move_min');
+      const up = M.moves.filter(m => !m.in50 && m.was && dk(m) >= MV), down = M.moves.filter(m => !m.in50 && m.was && -dk(m) >= MV);
       const arrow = m => !m.was ? 'new' : dk(m) > 0 ? `▲${dk(m)}` : `▼${-dk(m)}`;
       const row = m => `<li><span class="pg-l1"><span class="pg-rk">${rankTxt(m.now)}</span> ${placeBtn(m.loc)}</span>
         <span class="pg-l2">${m.was ? `${arrow(m)}: was ${rankTxt(m.was, false)} a month ago` : 'not ranked a month ago'}</span></li>`;
@@ -3821,8 +3821,8 @@
         <div class="pg-grid">
           ${group(`New in the top ${TOP}`, ins, 'No changes.')}
           ${group(`Left the top ${TOP}`, outs, 'No changes.')}
-          ${group('Moved up 5 or more places', up, 'None.')}
-          ${group('Moved down 5 or more places', down, 'None.')}
+          ${group(`Moved up ${MV} or more places`, up, 'None.')}
+          ${group(`Moved down ${MV} or more places`, down, 'None.')}
         </div>
         <h4>Newest crash reports, not in the ranking yet</h4>
         <p>From ${monthYear(T.from)} to ${monthYear(T.to)}, police reports so far list <b>${plural(T.f || 0, 'crash', 'crashes')}
