@@ -289,7 +289,8 @@
   // ---------- ranking modes ----------
   const MODES = {
     ksi: { label: 'Most likely to hurt people', hint: `Where crashes are most likely to kill or seriously hurt someone next, estimated from ${WY} years of every crash, not only the worst. The score adds up every crash here, weighted by how badly people were hurt; ▲ and ▼ show places that moved up or down the ranking since last month. Start here.`, unit: 'score' },
-    risk: { label: 'Most dangerous for how busy it is', hint: 'Crash harm for every million vehicles that pass through. Often quieter streets.', unit: 'per million vehicles' }
+    risk: { label: 'Most dangerous for how busy it is', hint: 'Crash harm for every million vehicles that pass through. Often quieter streets.', unit: 'per million vehicles' },
+    pb: { label: 'Most likely to hurt people walking or biking', hint: `The same estimate as "Most likely to hurt people", from only the crashes where someone walking or biking was involved (${fmt(meta.pb_crashes_scored || 0)} in ${WY} years), compared with what's typical for those crashes on similar streets. Places with none aren't ranked here.`, unit: 'score' }
   };
   let mode = (() => { try { return JSON.parse(localStorage.getItem('ipm.mode')) || 'ksi'; } catch { return 'ksi'; } })();
   if (!MODES[mode]) mode = 'ksi';
@@ -298,10 +299,10 @@
   const N = meta.locations_scored;
   function applyMode() {
     D.priorities.forEach(p => {
-      p.rank = { ksi: p.rank_ksi, risk: p.rank_risk }[mode] ?? null;
-      p.score = { ksi: p.score_ksi, risk: p.score_risk }[mode] ?? null;
+      p.rank = { ksi: p.rank_ksi, risk: p.rank_risk, pb: p.rank_pb }[mode] ?? null;
+      p.score = { ksi: p.score_ksi, risk: p.score_risk, pb: p.score_pb }[mode] ?? null;
     });
-    byId.forEach(p => { if (p.more) { p.rank = { ksi: p.rank_ksi, risk: p.rank_risk }[mode] ?? null; p.score = { ksi: p.score_ksi, risk: p.score_risk }[mode] ?? null; } });
+    byId.forEach(p => { if (p.more) { p.rank = { ksi: p.rank_ksi, risk: p.rank_risk, pb: p.rank_pb }[mode] ?? null; p.score = { ksi: p.score_ksi, risk: p.score_risk, pb: p.score_pb }[mode] ?? null; } });
     // Locations without a rank in this mode (e.g. no traffic count for "risk") sort last and aren't shown.
     D.priorities.sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
     document.getElementById('modeHint').textContent = MODES[mode].hint;
@@ -1679,7 +1680,8 @@
     if (st.length) parts.push(st.join(', ').replace(/^./, c => c.toUpperCase()) + '.');
     const rk = p.rank_ksi;
     const line2 = `Ranks <b>#${fmt(rk)}</b> of ${fmt(kindCount(rk))} places with crashes (${topShare(rk)})` +
-      (p.rank_risk ? `, and #${fmt(p.rank_risk)} of the ${fmt(D.priorities.filter(q => q.rank_risk).length)} places with a traffic count and enough crashes to rate, once you account for how busy it is` : '') + '.';
+      (p.rank_risk ? `, and #${fmt(p.rank_risk)} of the ${fmt(D.priorities.filter(q => q.rank_risk).length)} places with a traffic count and enough crashes to rate, once you account for how busy it is` : '') + '.'
+      + (p.rank_pb ? ` For people walking or biking: #${fmt(p.rank_pb)} of the ${fmt(meta.pb_places)} places where someone walking or biking was in a crash.` : '');
     const why = p.killed >= DEATHS && rk > TOP
       ? `<p class="callout">${p.fatal >= 2 ? `${p.killed} people died here, in ${p.fatal} crashes.` : `One crash here killed ${p.killed} people.`} It ranks ${rankTxt(rk)} because the ranking estimates where people are most
           likely to be hurt next, and this spot has few other crashes (${p.crashes} in total), which gives the ranking little history to tell whether the
@@ -1723,9 +1725,13 @@
       ? `<p><b>Risk ${p.score_risk.toFixed(1)} per million vehicles</b> = expected harm ${fmt(Math.round(p.expected_harm))} ÷
           (${fmt(Math.max(p.volume, weight('risk_vol_floor')))} vehicles a weekday × 365 × ${WY} years ÷ 1 million).</p>`
       : `<p class="note">Not ranked for risk: ${p.volume ? `fewer than ${weight('risk_min_crashes')} crashes` : 'no SDOT traffic count'}.</p>`;
-    const ranks = `<p class="note">Ranks${asOfShort() ? ` as of ${asOfShort()}` : ''}: ${rankTxt(p.rank_ksi)} most likely to hurt people · ${p.rank_risk ? '#' + p.rank_risk : 'unranked'} for how busy it is.
+    const pbLine = p.score_pb != null
+      ? `<p><b>Walking and biking score ${fmt(Math.round(p.score_pb))}</b> = the same calculation from only its ${plural(p.pb_crashes, 'crash', 'crashes')} where someone walking or biking was involved:
+          expected harm ${fmt(Math.round(p.pb_expected_harm))} (${Math.round(100 * p.pb_eb_weight)}% this spot's own record, the rest what's typical for those crashes on ${esc(groupName(p.ref_group))})${p.request_boost >= 0.005 ? ` × repair boost ${(1 + p.request_boost).toFixed(2)}` : ''}.</p>`
+      : `<p class="note">Not ranked for walking and biking: no crash here involved someone walking or biking ${windowTxt()}.</p>`;
+    const ranks = `<p class="note">Ranks${asOfShort() ? ` as of ${asOfShort()}` : ''}: ${rankTxt(p.rank_ksi)} most likely to hurt people · ${p.rank_risk ? '#' + p.rank_risk : 'unranked'} for how busy it is · ${p.rank_pb ? '#' + p.rank_pb : 'unranked'} for people walking or biking.
         Ranks change weekly; <a href="https://github.com/tai2541/streetsfirst/releases" target="_blank" rel="noopener">each week's list is saved</a>.</p>`;
-    return (mode === 'risk' ? riskLine + ksiLine : ksiLine + riskLine) + ranks;
+    return (mode === 'risk' ? riskLine + ksiLine + pbLine : mode === 'pb' ? pbLine + ksiLine + riskLine : ksiLine + riskLine + pbLine) + ranks;
   }
   const groupName = g => {
     const [a, s] = g.split(' / ');
@@ -1784,8 +1790,8 @@
     docTitle(p.name);
     document.getElementById('detailTitle').innerHTML = inDist
       ? `<span class="drank" title="${esc(`#${p.dr} ${listName}`)}">#${fmt(p.dr)}</span> ${esc(p.name)}` +
-        `<small class="dcity">${esc(listName)} · ${mode === 'risk' && p.rank != null ? '#' + fmt(p.rank) : rankTxt(p.rank_ksi)} citywide</small>`
-      : `<span class="drank" title="${esc(mode === 'risk' && p.rank != null ? 'Rank once you account for how busy it is' : rankTxt(p.rank_ksi))}">${mode === 'risk' && p.rank != null ? '#' + fmt(p.rank) : rankTxt(p.rank_ksi, false)}</span> ${esc(p.name)}`;
+        `<small class="dcity">${esc(listName)} · ${mode !== 'ksi' && p.rank != null ? '#' + fmt(p.rank) : rankTxt(p.rank_ksi)} citywide</small>`
+      : `<span class="drank" title="${esc(mode !== 'ksi' && p.rank != null ? (mode === 'risk' ? 'Rank once you account for how busy it is' : 'Rank for people walking or biking') : rankTxt(p.rank_ksi))}">${mode !== 'ksi' && p.rank != null ? '#' + fmt(p.rank) : rankTxt(p.rank_ksi, false)}</span> ${esc(p.name)}`;
     document.getElementById('detailBody').innerHTML = `
       <div class="dhead">
         ${p.neighborhood ? `<div class="where">${esc(p.neighborhood)}${p.area && p.area !== p.neighborhood ? ` <span class="muted">· ${esc(p.area)}</span>` : ''}</div>` : ''}
@@ -1951,7 +1957,7 @@
     if (i < 0) return null;
     const p = zipObj(d.c, d.r[i]);
     p.rank_ksi = p.rank; p.name = niceName(p.location); p.more = true;
-    p.rank = { ksi: p.rank_ksi, risk: p.rank_risk }[mode] ?? null;
+    p.rank = { ksi: p.rank_ksi, risk: p.rank_risk, pb: p.rank_pb }[mode] ?? null;
     p.score = { ksi: p.score_ksi, risk: p.score_risk }[mode] ?? null;
     ingestCell(d);
     byId.set(p.rank_ksi, p);
@@ -3310,6 +3316,12 @@
         spot shows which it uses.</p>
       <p class="note">Why isn't this the default? Total harm counts every person hurt. A busy street with many injuries
         affects more people than a quiet one with a high rate.</p>`;
+    const pb = `
+      <h3>Most likely to hurt people walking or biking</h3>
+      <p>The same expected harm as the main ranking, worked out from only the crashes where someone walking or biking was involved
+        (${fmt(meta.pb_crashes_scored || 0)} of the ${fmt(meta.collisions_scored)}). Those crashes are rarer, so each place is blended with what's typical
+        <i>for those crashes</i> on similar streets, not with all crashes. ${fmt(meta.pb_places || 0)} places had at least one and are ranked;
+        the repair-report boost is the same as in the main ranking. It's tested the same way as the main ranking, below.</p>`;
     const V = (meta.validation || []).reduce((o, a) => (o[a.method] = a, o), {});
     const vname = { expected: 'This site (one list for intersections and stretches)', expected_split: 'Intersections and stretches ranked apart, alternating', old_reliability: 'Previous version of this site', crash_count: 'Most crashes',
                     raw_harm: 'Crash harm, no blending', ksi_count: 'Most fatal/serious crashes' };
@@ -3358,6 +3370,28 @@
         ${ex2.k200}${two ? ' and ' + ex2.b200 : ''}. Use "Show" to see intersections or stretches on their own, ranked again within that kind.</p>` : ''}
       <p class="note">Test 1 was also used to choose the method, so it flatters it a little${two ? '; Test 2 was added afterwards as a check' : ''}. Spots that rank high after a bad few years usually improve somewhat on their own (regression to
         the mean): the blending evens out the fatal/serious share where numbers are small, but not the crash count itself.</p>`;
+    // The walking and biking ranking, tested like the main one: crashes that later killed or seriously hurt someone walking
+    // or biking, caught by each method's top lists. Said from the numbers, whichever way they fall.
+    function pbValidation() {
+      const vs = meta.validation_pb || []; if (!vs.length) return '';
+      const W = vs.reduce((o, a) => (o[a.method] = a, o), {}), me = W.pb_expected, main = W.main_expected;
+      const names = { pb_expected: 'This ranking (walking and biking crashes, blended)', main_expected: 'The main ranking (all crashes)',
+                      pb_crash_count: 'Most walking and biking crashes', pb_ksi_count: 'Most walking and biking crashes that killed or seriously hurt someone' };
+      const cols = two ? ['k50', 'k200', 'b50', 'b200'] : ['k50', 'k200'];
+      // column by column, so a mixed result is said as mixed
+      const cmp = !me || !main ? '' : (() => { const d = cols.map(c => me[c] - main[c]);
+        const more = d.filter(x => x > 0).length, fewer = d.filter(x => x < 0).length;
+        const pairs = cols.map(c => `${fmt(me[c])} against ${fmt(main[c])}`).join('; ');
+        return `Against the main ranking, this ranking caught more in ${more} of the ${cols.length} columns and fewer in ${fewer} (${pairs}).`; })();
+      return `<h3>Testing the walking and biking ranking</h3>
+        <p>Same test as above, counting only crashes that killed or seriously hurt someone walking or biking: ${fmt(meta.test_pb_ksi_total || 0)} in Test 1${two ? `, ${fmt(meta.test2_pb_ksi_total || 0)} in Test 2` : ''}.</p>
+        <table class="vtable"><thead>
+          <tr><th scope="col" rowspan="2">Method</th><th scope="colgroup" colspan="2">Test 1</th>${two ? '<th scope="colgroup" colspan="2">Test 2</th>' : ''}</tr>
+          <tr>${`<th scope="col">Top ${TOP}</th><th scope="col">Top ${LIST}</th>`.repeat(two ? 2 : 1)}</tr></thead><tbody>
+          ${vs.map(v => `<tr class="${v.method === 'pb_expected' ? 'total' : ''}"><td>${names[v.method] || esc(v.method)}</td><td>${v.k50}</td><td>${v.k200}</td>${two ? `<td>${v.b50}</td><td>${v.b200}</td>` : ''}</tr>`).join('')}
+        </tbody></table>
+        <p class="note">${cmp} These are small numbers, so a few crashes either way can be chance.</p>`;
+    }
     const ag = (meta.sdot_agreement || []).reduce((o, a) => (o[a.mode] = a, o), {});
     const agRow = (m, label) => ag[m] ? `<tr><td>${label}</td><td>${ag[m].on_hin}</td><td>${ag[m].on_hin_high}</td><td>${ag[m].sdot_hcl_recent}</td></tr>` : '';
     const agreement = `
@@ -3365,7 +3399,7 @@
       <p>SDOT's High Injury Network and High Collision Locations come from overlapping crash data, so this is a
         consistency check, not independent proof. Top ${TOP} of each ranking:</p>
       <table class="vtable"><thead><tr><th scope="col"></th><th scope="col">High Injury Network</th><th scope="col">of those "High"</th><th scope="col">High Collision list ${meta.window_from.slice(0, 4)}+</th></tr></thead><tbody>
-        ${agRow('ksi', 'Most likely to hurt people')}${agRow('risk', 'Most dangerous for how busy it is')}
+        ${agRow('ksi', 'Most likely to hurt people')}${agRow('risk', 'Most dangerous for how busy it is')}${agRow('pb', 'Most likely to hurt people walking or biking')}
         ${agRow('baseline_crash_count', `Baseline: ${TOP} spots with most crashes`)}
       </tbody></table>
       <p class="note">For scale: ${Math.round(100 * meta.busy_share_on_hin)}% of the ${fmt(meta.busy_locations)} spots with ${cfg('busy_min_crashes')}+ crashes are on the High Injury Network.</p>`;
@@ -3391,8 +3425,9 @@
         ${monthYear(meta.window_to)} (${fmt(meta.collisions_scored)} SDOT collision reports), ranked by how likely people are to keep
         getting killed or seriously hurt there.</p>
       ${example}
-      ${mode === 'risk' ? risk + ksi : ksi + risk}
+      ${mode === 'risk' ? risk + ksi + pb : mode === 'pb' ? pb + ksi + risk : ksi + risk + pb}
       ${validation}
+      ${pbValidation()}
       ${agreement}
       <h3>Street details and SDOT actions</h3>
       <p class="note">From SDOT's street network, traffic counts, signal inventory and Vision Zero layers: street type, speed

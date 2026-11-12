@@ -404,7 +404,8 @@ left join (select location,
            from pick group by location) n using (location);
 
 -- ---------------------------------------------------------------- crash harm (any date range)
-create or replace macro harm_in(d0, d1) as table
+-- pb: only crashes involving someone walking or biking (the walking and biking ranking)
+create or replace macro harm_in(d0, d1, pb := false) as table
 with c as (
   select location, date, id, severity, peds, cyclists, road_cond, light_cond, speeding, fatalities, serious_injuries, coll_type,
     severity in ('Fatal Collision', 'Serious Injury Collision') as is_ksi,
@@ -428,7 +429,7 @@ with c as (
        when 'Property Damage Only Collision' then wt('pdo')
        else 0 end)
     * (case when peds + cyclists > 0 then wt('ped_bike_mult') else 1 end) as pts_old
-  from collisions where date >= d0 and date < d1
+  from collisions where date >= d0 and date < d1 and (not pb or peds + cyclists > 0)
 )
 select location,
   count(*)                                                        as crashes,
@@ -472,10 +473,11 @@ from c group by location;
 -- A spot with 3 crashes leans mostly on the typical share; one with 60 leans on its own record. Every crash
 -- is evidence of exposure, so busy spots with many minor crashes still count. Chosen because it predicted
 -- future fatal/serious crashes better than the alternatives (see the validation table below).
-create or replace macro eb_in(d0, d1) as table
+-- With pb, the same from crashes involving someone walking or biking only, with its own typical share for similar streets.
+create or replace macro eb_in(d0, d1, pb := false) as table
 with h as (
   select h.* exclude (ksi_harm_raw), coalesce(h.ksi_harm_raw, 0) as ksi_harm, x.addr_class, x.street_bucket, x.addr_class || ' / ' || x.street_bucket as ref_group
-  from harm_in(d0, d1) h join loc_context x using (location)
+  from harm_in(d0, d1, pb := pb) h join loc_context x using (location)
 ),
 g as (select ref_group, count(*) ref_n, sum(ksi_harm) / sum(crashes) as ref_ksi_harm_per_crash,
              sum(harm - ksi_harm) / nullif(sum(crashes - unknown_sev), 0) as ref_other_harm_per_known,
@@ -623,15 +625,20 @@ with b as (
     wt('request_boost_max') * coalesce(s.request_points, 0)
       / (coalesce(s.request_points, 0) + wt('request_boost_half')) as request_boost
   from locations l left join location_request_summary s using (location)
-)
-select *,
+),
+-- Walking and biking: the same expected harm, from crashes involving someone walking or biking only (places with none
+-- aren't ranked on it), with the same boost for repair requests.
+pb as (select location, expected_harm as pb_expected_harm, round(eb_weight, 3) as pb_eb_weight, ref_ksi_share as pb_ref_ksi_share
+       from eb_in(ws(), we(), pb := true))
+select b.*, pb.pb_expected_harm, pb.pb_eb_weight, pb.pb_ref_ksi_share,
+  pb.pb_expected_harm * (1 + request_boost)                         as score_pb,
   expected_harm * (1 + request_boost)                                as score_ksi,
   pts_old + request_points * wt('request_mult')                      as score_fatal,
   -- Risk: expected harm per million vehicles over the 5 scoring years (weekday counts x 365 x 5; intersections:
   -- streets added together, i.e. vehicles entering).
   case when volume is not null and crashes >= wt('risk_min_crashes')
        then expected_harm * 1e6 / (greatest(volume, wt('risk_vol_floor')) * 365.0 * window_months() / 12.0) end as score_risk
-from b;
+from b left join pb using (location);
 
 create or replace table ranked as
 -- One list: intersections and the stretches of street between them ranked together by score, so #1 is the place most
@@ -652,6 +659,8 @@ select row_number() over (order by round(score_rank, 9) desc, crashes desc, loca
        row_number() over (order by round(score_fatal, 9) desc, crashes desc, location)     as rank_fatal,
        case when score_risk is not null
             then row_number() over (partition by score_risk is null order by round(score_risk, 12) desc, crashes desc, location) end as rank_risk,
+       case when score_pb is not null
+            then row_number() over (partition by score_pb is null order by round(score_pb, 9) desc, pb_crashes desc, location) end as rank_pb,
        *
 from b;
 
@@ -694,6 +703,31 @@ from val_split(ws(), (select a_test0 from validation_splits), (select a_test0 fr
 join val_split(ws(), (select b_mid::date from validation_splits), (select b_mid::date from validation_splits),
                (select b_end::date from validation_splits)) b using (method);
 
+-- 1b) The same test for the walking and biking ranking: rank on earlier years only, then count the crashes that killed or
+--    seriously hurt someone walking or biking afterwards at each method's top 50 and top 200. Against: the main ranking
+--    (all crashes), and counting the walking and biking crashes, or the worst of them, alone.
+create or replace macro val_split_pb(t0, t1, v0, v1) as table
+with train as (select * from eb_in(t0, t1, pb := true)),
+main as (select * from eb_in(t0, t1)),
+test as (select location, count(*) filter (where severity in ('Fatal Collision', 'Serious Injury Collision')) ksi
+         from collisions where date >= v0 and date < v1 and peds + cyclists > 0 group by location),
+methods as (
+  select 'pb_expected' m, location, row_number() over (order by round(expected_harm, 9) desc, crashes desc, location) rk from train
+  union all select 'main_expected', location, row_number() over (order by round(expected_harm, 9) desc, crashes desc, location) from main
+  union all select 'pb_crash_count', location, row_number() over (order by crashes desc, harm desc, location) from train
+  union all select 'pb_ksi_count', location, row_number() over (order by ksi desc, crashes desc, location) from train
+)
+select m as method,
+  coalesce(sum(t.ksi) filter (where rk <= top_n()), 0)::int  as future_ksi_50,
+  coalesce(sum(t.ksi) filter (where rk <= list_n()), 0)::int as future_ksi_200
+from methods left join test t using (location) group by m;
+
+create or replace table validation_pb as
+select a.method, a.future_ksi_50, a.future_ksi_200, b.future_ksi_50 as b_ksi_50, b.future_ksi_200 as b_ksi_200
+from val_split_pb(ws(), (select a_test0 from validation_splits), (select a_test0 from validation_splits), we()) a
+join val_split_pb(ws(), (select b_mid::date from validation_splits), (select b_mid::date from validation_splits),
+                  (select b_end::date from validation_splits)) b using (method);
+
 -- 2) Consistency with SDOT's own lists (built from overlapping crash data, so not independent),
 --    with fair baselines: busy crash locations are on the High Injury Network anyway.
 create or replace table sdot_agreement as
@@ -701,6 +735,7 @@ with yr as (select year(ws()) y0),
 sets as (
   select 'ksi' m, * from ranked where rank <= top_n()
   union all select 'risk', * from ranked where rank_risk <= top_n()
+  union all select 'pb', * from ranked where rank_pb <= top_n()
   union all select 'baseline_crash_count', * from (select * from ranked order by crashes desc, location limit top_n())
 )
 select m as mode,
@@ -738,7 +773,7 @@ select case
 end from c;
 -- ---------------------------------------------------------------- exports for the site
 create or replace macro export_set() as table
-  select * from ranked where rank <= list_n() or rank_type <= list_n() or rank_risk <= list_n()
+  select * from ranked where rank <= list_n() or rank_type <= list_n() or rank_risk <= list_n() or rank_pb <= list_n()
      or killed >= deaths_min()   -- places where deaths_min() or more people died are always shown, whatever their rank
      -- each council district's own top 50 intersections and top 50 stretches (and top 50 for how busy it is),
      -- so the list filtered to one district (and to one kind) is complete; a place on the line between two districts
@@ -747,23 +782,28 @@ create or replace macro export_set() as table
           select location,
             row_number() over (partition by d, addr_type = 'I' order by rank) as n_ksi,
             row_number() over (partition by d, addr_type = 'I', rank_risk is null order by rank_risk) as n_risk,
-            rank_risk
+            row_number() over (partition by d, addr_type = 'I', rank_pb is null order by rank_pb) as n_pb,
+            rank_risk, rank_pb
           from (select *, unnest(list_filter([council_district, council_district2], lambda x: x is not null)) as d from ranked))
-        where n_ksi <= top_n() or (rank_risk is not null and n_risk <= top_n()))
+        where n_ksi <= top_n() or (rank_risk is not null and n_risk <= top_n()) or (rank_pb is not null and n_pb <= top_n()))
      -- and for "how busy", each kind's top 200 citywide (the district lists above are per kind too)
      or location in (select location from (
           select location, row_number() over (partition by addr_type = 'I' order by rank_risk) as n
-          from ranked where rank_risk is not null) where n <= list_n());
+          from ranked where rank_risk is not null) where n <= list_n())
+     or location in (select location from (
+          select location, row_number() over (partition by addr_type = 'I' order by rank_pb) as n
+          from ranked where rank_pb is not null) where n <= list_n());
 
 -- Map areas for the on-demand detail files: a grid of about 1.1 km x 1.1 km cells.
 create or replace macro cell_of(lat, lon) as floor(lat / 0.01)::int || '_' || floor(-lon / 0.015)::int;
 
 -- Every place's site fields (the same columns for the ranked spots and, loaded on demand, for every other place).
 create or replace table spot_export as
-  select rank, rank_type, rank_noboost, rank_fatal, rank_risk, location, addr_type, round(lon, 6) lon, round(lat, 6) lat,
+  select rank, rank_type, rank_noboost, rank_fatal, rank_risk, rank_pb, location, addr_type, round(lon, 6) lon, round(lat, 6) lat,
          cell_of(lat, lon) as cell,
          round(score_ksi, 1) score_ksi,
-         round(score_fatal, 1) score_fatal, round(score_risk, 1) score_risk,
+         round(score_fatal, 1) score_fatal, round(score_risk, 1) score_risk, round(score_pb, 1) score_pb,
+         round(pb_expected_harm, 1) pb_expected_harm, pb_eb_weight, round(pb_ref_ksi_share, 4) pb_ref_ksi_share,
          round(harm, 1) harm, round(expected_harm, 1) expected_harm, round(eb_weight, 3) eb_weight,
          round(ksi_harm, 1) ksi_harm, round(block_ft) block_ft, round(ref_other_harm_per_known, 2) ref_other_harm_per_known,
          ref_group, ref_n, round(ref_ksi_share, 4) ref_ksi_share, round(ref_ksi_harm_per_crash, 2) ref_ksi_harm_per_crash,
@@ -962,6 +1002,13 @@ copy (
     (select round(count(*) filter (where sdot_hin is not null) * 1.0 / count(*), 3) from locations where crashes >= busy_min_crashes()) as busy_share_on_hin,
     (select count(*) from locations where crashes >= busy_min_crashes())    as busy_locations,
     (select list({'method': method, 'k50': future_ksi_50, 'k200': future_ksi_200, 'b50': b_ksi_50, 'b200': b_ksi_200} order by future_ksi_50 desc, method) from validation) as validation,
+    (select list({'method': method, 'k50': future_ksi_50, 'k200': future_ksi_200, 'b50': b_ksi_50, 'b200': b_ksi_200} order by future_ksi_50 desc, method) from validation_pb) as validation_pb,
+    (select count(*) from ranked where rank_pb is not null) as pb_places,
+    (select count(*) from collisions where date >= ws() and date < we() and peds + cyclists > 0) as pb_crashes_scored,
+    (select count(*) filter (where severity in ('Fatal Collision', 'Serious Injury Collision')) from collisions
+       where peds + cyclists > 0 and date >= (select test_start from scoring_window) and date < we()) as test_pb_ksi_total,
+    (select count(*) filter (where severity in ('Fatal Collision', 'Serious Injury Collision')) from collisions
+       where peds + cyclists > 0 and date >= (select b_mid from validation_splits) and date < (select b_end from validation_splits)) as test2_pb_ksi_total,
     (select b_mid::date from validation_splits)            as test2_from,
     ((select b_end from validation_splits) - interval 1 day)::date as test2_to,
     (select count(*) filter (where severity in ('Fatal Collision', 'Serious Injury Collision')) from collisions
