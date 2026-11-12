@@ -349,6 +349,7 @@
     const dark = pct(p.dark_crashes, p.light_known), cityDark = Math.round(100 * meta.city_dark_share);
     if (p.light_known >= 15 && dark >= cityDark + 15 && binomUpper(p.dark_crashes, p.light_known, meta.city_dark_share) < 0.01) out.push({ cls: 'cond', text: `${dark}% in the dark (city ${cityDark}%)` });
     if (p.unlit_crashes) out.push({ cls: 'cond', text: `${p.unlit_crashes} with streetlights off/none` });
+    if (p.lights_out && p.dark_crashes) out.push({ cls: 'cond', text: `${plural(p.lights_out, 'streetlight', 'streetlights')} reported out nearby` });
     if (p.speeding_crashes >= 2 && pct(p.speeding_crashes, p.crashes) >= 15)
       out.push({ cls: 'cond', text: `speed-related: ${p.speeding_crashes} of ${p.crashes}` });
     if (p.state_route) out.push({ cls: 'state', text: `${p.state_route}: run by WSDOT` });
@@ -429,6 +430,18 @@
   // What has been done here, in one line, from the layers this site reads (SDOT's data has gaps, so "nothing" is
   // always worded as "nothing recorded in these layers"). Budget projects are shown, never counted as fixes; a bus lane since then counts as work, but not as a safety fix.
   const projKind = j => (j.kind === 'lpi' ? 'head-start walk signal' : j.kind === 'sidewalk' ? 'new sidewalk' : (j.scope || 'safety project').toLowerCase().split(',')[0]);
+  // A block: planned work at the intersections at its two ends, grouped by corner: [{ at, ks: ['no turn on red', ...] }]
+  function endPlanned(p) {
+    const by = new Map();
+    for (const e of p.end_planned || []) {
+      const j = e.id != null ? projById.get(+e.id) || projById.get(e.id) : null;
+      const k = e.k ? e.k.toLowerCase() : j ? projKind(j) : null;
+      if (!k) continue;
+      if (!by.has(e.at)) by.set(e.at, new Set());
+      by.get(e.at).add(k);
+    }
+    return [...by].sort((a, b) => a[0].localeCompare(b[0])).map(([at, ks]) => ({ at, ks: [...ks].sort() }));
+  }
   function workSummary(p) {
     const d0 = meta.window_from, since = monthYear(d0);
     const done = [], bus = [], at = (d, k) => ({ d, y: +d.slice(0, 4), k });
@@ -457,6 +470,8 @@
       parts.push(`${recent.length ? 'At' : 'Only at'} the corners at its ends since ${since} (they don't reach crashes along the block): ${atC.join('; ')}`);
     }
     if (planned.length) parts.push(`Planned here or nearby: ${planned.join(', ')}`);
+    const endsP = endPlanned(p);
+    if (endsP.length) parts.push(`Planned at the corners at its ends (not counted as this block's own work): ${endsP.map(e => `at ${niceName(e.at)}: ${e.ks.join(', ')}`).join('; ')}`);
     if (cip.length) parts.push(`Money budgeted ${cip[0].y0 === cip[0].y1 ? 'in ' + cip[0].y0 : cip[0].y0 + '–' + cip[0].y1} for a project named for this street, “${cip[0].t}” (it may not reach this spot)`);
     if (older.length) parts.push(`${recent.length ? 'Earlier' : 'Older work only'}: ${list(older)}`);
     const busNew = bus.filter(f => f.d >= d0);
@@ -472,7 +487,7 @@
     if (undated.length) parts.push(`In place with no install date in SDOT's data: ${undated.join(', ')}`);
     const cls = recent.length || busNew.length ? 'done' : planned.length || cip.length ? 'planned' : 'none';
     // say so when nothing is planned, since "what's planned here?" is the first question people bring
-    if (parts.length && !planned.length && !cip.length) parts.push("nothing planned on SDOT's published project maps");
+    if (parts.length && !planned.length && !cip.length) parts.push(endsP.length ? "nothing else planned on SDOT's published project maps" : "nothing planned on SDOT's published project maps");
     const text = parts.length ? parts.join(' · ') : 'No work recorded here in the SDOT layers this site reads';
     return { cls, text, short: parts[0] || text };
   }
@@ -608,7 +623,30 @@
   const setProjects = on => { if (on && !projOn()) projLayer.addTo(map); else if (!on && projOn()) map.removeLayer(projLayer); };
   const projToggleBtn = () => `<button type="button" class="linkbtn proj-toggle" aria-pressed="${projOn()}">${projLabel()}</button>`;
   document.addEventListener('click', e => { if (e.target.closest && e.target.closest('.proj-toggle')) setProjects(!projOn()); });
-  const layersCtl = L.control.layers(baseLayers, { 'Neighborhood names': hoodLabels, 'SDOT planned & recent projects': projLayer }, { position: 'topleft' }).addTo(map);
+  // The layer menu: a labelled "Map layers" button that says how many layers are on (testers missed the bare icon), and a
+  // short line under each layer saying what it shows.
+  const layerName = (name, what) => `<span class="lc-name">${name}</span><span class="lc-what">${what}</span>`;
+  const layersCtl = L.control.layers(baseLayers, {
+    [layerName('Neighborhood names', 'Labels for each neighborhood')]: hoodLabels,
+    [layerName('SDOT planned & recent projects', 'Dashed lines: planned. Faded lines: finished')]: projLayer
+  }, { position: 'topleft' }).addTo(map);
+  {
+    const box = layersCtl.getContainer(), btn = box.querySelector('.leaflet-control-layers-toggle');
+    const list = box.querySelector('.leaflet-control-layers-list');
+    if (list) {
+      list.insertAdjacentHTML('afterbegin', '<div class="lc-h">Background map</div>');
+      const ov = list.querySelector('.leaflet-control-layers-overlays');
+      if (ov) ov.insertAdjacentHTML('beforebegin', '<div class="lc-h">Show on the map</div>');
+    }
+    const onCount = () => layersCtl._layers.filter(l => l.overlay && map.hasLayer(l.layer)).length;
+    const label = () => {
+      if (!btn) return;
+      const n = onCount();
+      btn.innerHTML = `<span class="lc-btn">Map layers</span>${n ? `<span class="lc-n">${n} on</span>` : ''}`;
+      btn.title = 'Map layers'; btn.setAttribute('aria-label', `Map layers: background map and ${n ? `${n} layer${n > 1 ? 's' : ''} on` : 'no layers on'}`);
+    };
+    label(); map.on('overlayadd overlayremove layeradd layerremove', () => setTimeout(label));
+  }
   // School walk zones (SDOT and Seattle Public Schools' School Walking Maps), from the late data: a map layer that's off until
   // switched on (in the layer menu or from a place inside one). Context only, never in a score.
   map.createPane('walkzones'); map.getPane('walkzones').style.zIndex = 410;
@@ -620,7 +658,7 @@
       g.bindTooltip(`${esc(z.n)}${z.g ? ` (grades ${esc(z.g)})` : ''}: school walk zone`, { sticky: true });
       g.addTo(walkLayer);
     });
-    layersCtl.addOverlay(walkLayer, 'School walk zones');
+    layersCtl.addOverlay(walkLayer, layerName('School walk zones', 'Where children walk to each public school'));
   };
   document.addEventListener('click', e => { if (e.target.closest && e.target.closest('.wz-show')) { if (!map.hasLayer(walkLayer)) walkLayer.addTo(map); toast('School walk zones shown on the map'); } });
   // The area this map covers: Seattle city limits. Everything outside is dimmed and the edge is outlined,
@@ -736,6 +774,7 @@
   });
   document.body.classList.toggle('paused', paused);
 
+  let lastShown = [];   // the places in the list as last drawn (for the district card's WSDOT line)
   function currentRows() {
     const n = +document.getElementById('topN').value;
     const type = document.getElementById('addrFilter').value;
@@ -767,6 +806,7 @@
 
   function render() {
     const { rows, extra } = currentRows();
+    lastShown = [...rows, ...extra]; distState();
     const maxScore = Math.max(...rows.map(r => r.score), 1);
 
     layer.clearLayers(); markers = {}; legendTiers();
@@ -815,7 +855,8 @@
 
     const list = document.getElementById('list');
     const card = (p, isExtra, i) => {
-      const chips = reasons(p).slice(0, 3);
+      // up to 3 reasons, plus "run by WSDOT" always (a council office shouldn't be asked about a freeway ramp it can't fix)
+      const all = reasons(p), chips = [...all.filter(r => r.cls !== 'state').slice(0, 3), ...all.filter(r => r.cls === 'state')];
       const outside = isExtra && p.dr == null && D.priorities.some(q => q.dr != null);   // an extra outside a district or kind list
       const rk = p.rank != null && !outside ? `#${fmt(shownN(p))}` : '—';
       const kind = p.addr_type === 'I' ? 'Intersection' : 'Stretch';
@@ -871,6 +912,7 @@
   };
   const REQ_COLOR = '#1baf7a';       // aqua: requests (shape = square, never color alone)
   const focus = L.layerGroup().addTo(map);
+  let reqAllStreets = false;   // a stretch's page: also show nearby requests whose address names another street
   let crashFilter = 'all', reqFilter = '', showAllCrashes = false, showAllReqs = false, current = null, opener = null,
     progReturn = null;   // a place opened from the "Is it getting fixed?" tab: closing it goes back there
 
@@ -1433,6 +1475,15 @@
     return `${fmt(p.volume)} ${what} <span class="muted">(${src})</span>`;
   }
 
+  // Streetlights reported out near a place this week (City Light's open repair tickets). Context only.
+  function lightsOutLine(p) {
+    if (p.lights_out == null) return '';
+    const near = p.addr_type === 'I' ? `within ${cfg('near_ix_ft')} ft` : `along the block (within ${cfg('near_light_ft')} ft of its center line)`;
+    const src = `<span class="muted">(Seattle City Light's list of open streetlight repairs: ${fmt(meta.city_lights_out)} citywide this week)</span>`;
+    if (!p.lights_out) return `<li>Streetlights reported out ${near}: none ${src}</li>`;
+    return `<li>Streetlights reported out ${near}: <b>${p.lights_out}</b>${p.lights_out_major ? ` (${p.lights_out_major} waiting on major parts)` : ''} ${src}</li>`;
+  }
+
   // Street context from SDOT's street network, traffic counts and Vision Zero layers.
   function crosswalkText(p) {
     if (!p.crosswalks) return p.addr_type === 'I' ? 'none' : 'none on this block';
@@ -1512,6 +1563,7 @@
       if (f.s !== 'Built') items.push(`${esc(f.k)} <b>${esc(f.s.toLowerCase())}</b>.`);
       else items.push(`<b>${esc(f.k)}</b>${f.n > 1 ? ` (${f.n})` : ''}${f.d ? (f.u ? ` (one section dated ${fixDate(f.d)}; SDOT gives no date for the rest)` : ' since ' + fixDate(f.d)) : ''}.`);
     });
+    endPlanned(p).forEach(e => items.push(`At the corner with ${esc(niceName(e.at))}: ${esc(e.ks.join(', '))} <b>planned</b> <span class="muted">(at the end of this block, so not counted as its own work)</span>.`));
     if (p.addr_type === 'I' && !p.signalized) items.push('No traffic signal in SDOT\'s signal data.');
     else if (p.signalized && p.signal_installed && +p.signal_installed.slice(0, 4) >= 1990)
       items.push(`<b>Traffic signal</b> installed or last rebuilt in ${p.signal_installed.slice(0, 4)} (SDOT signal data).`);
@@ -1576,6 +1628,15 @@
       ${list.length > 20 && !expanded ? `<button type="button" class="linkbtn" data-more="crashes">${showAllCrashes ? 'Show fewer' : `Show all ${list.length}`}</button>` : ''}`;
   }
 
+  // Is a repair request's address on this street? "8621 INVERNESS DR NE, SEATTLE, WA 98115", "MERCER ST & DEXTER AVE N, ...",
+  // or the hundred block shown for private requests ("9200 block of 31ST AVE SW"). SDOT's split-roadway names
+  // ("AURORA AVE N SR") count as the street itself.
+  const streetNorm = s => String(s || '').toUpperCase().replace(/ (WR|ER|NR|SR) /g, ' ').replace(/\s+/g, ' ').trim();
+  function onStreet(addr, location) {
+    const st = streetNorm(String(location).split(' BETWEEN ')[0] + ' ').trim();
+    const a = String(addr || '').split(',')[0].replace(/^\d+[A-Z]?(-\d+)?\s+(block of\s+)?/i, '');
+    return a.split(/\s+(?:&|AND)\s+/i).some(x => streetNorm(x + ' ') === st);
+  }
   function reqTable(reqs) {
     const list = reqs.filter(r => !reqFilter || r.t === reqFilter);
     const shown = showAllReqs || expanded ? list : list.slice(0, 20);
@@ -1660,6 +1721,26 @@
   }
 
   // One plain-language summary someone could quote.
+  // "In short": two plain sentences at the top of a place's page, built by rules from its data: how it ranks and who was
+  // hurt, then what SDOT has done or planned (the same test as the "SDOT work" line under it).
+  function inShort(p, w) {
+    const rk = p.rank_ksi; if (rk == null) return '';
+    const since = monthYear(meta.window_from);
+    const hurt = p.killed && p.seriously_injured ? `${killedTxt(p.killed, p.fatal)} and ${fmt(p.seriously_injured)} seriously injured here`
+      : p.killed ? `${killedTxt(p.killed, p.fatal)} here`
+      : p.seriously_injured ? `${plural(p.seriously_injured, 'person', 'people')} seriously injured here`
+      : `${plural(p.crashes, 'crash', 'crashes')} here, none of them killing or seriously hurting anyone`;
+    const s1 = `${rk <= TOP ? `One of the ${TOP} places in Seattle` : `Ranks #${fmt(rk)} of Seattle's ${fmt(kindCount(rk))} places with crashes`}${rk <= TOP ? ` most likely to see someone killed or seriously hurt (#${fmt(rk)})` : ' for how likely someone is to be killed or seriously hurt there'}: ${hurt} since ${since}.`;
+    // a stretch: work at the corners at its ends doesn't count as its own, but say it's there
+    const block = p.addr_type !== 'I', endDone = block && (p.end_fixes || []).some(f => f.d >= meta.window_from), endPlan = block && endPlanned(p).length > 0;
+    const corner = endDone && endPlan ? '; the corners at its ends have some, with more planned there'
+      : endDone ? '; the corners at its ends have some' : endPlan ? '; work is planned at a corner at its end' : '';
+    const s2 = p.state_route ? `WSDOT runs this place, so changes here are WSDOT's to make.`
+      : w.cls === 'done' ? `SDOT has made safety changes here since ${since}${w.text.includes('Planned') || (p.cip || []).length ? ', and has more planned' : ''}.`
+      : w.cls === 'planned' ? `Nothing built here since ${since}, but SDOT has work planned or budgeted.`
+      : `No safety work ${block ? 'on the block itself' : 'here'} since ${since} and none planned, in the SDOT data this site reads${corner}.`;
+    return `<p class="inshort"><b>In short:</b> ${esc(s1)} ${esc(s2)}</p>`;
+  }
   function verdict(p) {
     const parts = [];
     let s = `${plural(p.crashes, 'crash', 'crashes')} from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}`;
@@ -1686,7 +1767,7 @@
           danger here will continue, so it leans on what's typical for similar streets.${p.fatal >= 2 ? ' That may understate it: repeated deaths can mean traffic moves at deadly speeds.' : ''} It's always added to the lists
           so it isn't overlooked.</p>` : '';
     const w = workSummary(p);
-    return `<p class="verdict">${esc(parts.join(' '))}</p><p class="verdict2">${line2}</p>
+    return `${inShort(p, w)}<p class="verdict">${esc(parts.join(' '))}</p><p class="verdict2">${line2}</p>
       <p class="workline w-${w.cls}"><b>SDOT work:</b> ${esc(w.text)}.</p>${why}`;
   }
 
@@ -1753,7 +1834,7 @@
     }
     rememberView();
     liteToken++;   // a pending area-file load for an earlier pick must not replace this one
-    if (!current || current.rank_ksi !== p.rank_ksi) { crashFilter = 'all'; reqFilter = ''; showAllCrashes = showAllReqs = false; }
+    if (!current || current.rank_ksi !== p.rank_ksi) { crashFilter = 'all'; reqFilter = ''; showAllCrashes = showAllReqs = false; reqAllStreets = false; }
     if (from !== undefined && !keepFocus) opener = from;
     if (from !== undefined && !keepFocus && from !== document.getElementById('tabbtn-progress')) progReturn = null;
     current = p;
@@ -1764,7 +1845,16 @@
     // there moved the search box out of reach once the details closed)
     if (li && !fly && !isNarrow()) li.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' });
 
-    const det = (D.details && D.details[p.location]) || { crashes: [], requests: [] };
+    const det0 = (D.details && D.details[p.location]) || { crashes: [], requests: [] };
+    // A stretch of street: by default only the repair requests whose address is on its own street (the search circle
+    // also reaches cross streets at its ends); the rest are one click away, since an address is only the nearest one.
+    const own = p.addr_type === 'B' && !reqAllStreets ? det0.requests.filter(r => onStreet(r.a, p.location)) : det0.requests;
+    const reqOther = det0.requests.length - own.length;
+    const det = own === det0.requests ? det0 : { ...det0, requests: own };
+    const reqStreetNote = p.addr_type !== 'B' ? '' : reqOther
+      ? `<div class="note">Showing the ${plural(own.length, 'request', 'requests')} whose address is on ${esc(niceName(p.location.split(' BETWEEN ')[0]))}. ${plural(reqOther, 'more', 'more')} nearby name another street.
+          <button type="button" class="linkbtn" id="reqAllStreets">Show them too</button></div>`
+      : reqAllStreets && det0.requests.some(r => !onStreet(r.a, p.location)) ? `<div class="note">Including requests whose address is on another street. <button type="button" class="linkbtn" id="reqAllStreets">Only this street</button></div>` : '';
     const kind = { I: 'Intersection', B: 'Stretch between intersections', A: 'Alley' }[p.addr_type] || 'Location';
     const sv = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${p.lat},${p.lon}`;
     const types = countBy(det.crashes.filter(c => c.t), c => crashType(c.t)).slice(0, 6);
@@ -1826,10 +1916,12 @@
             <ul class="tight">
               <li>Wet/icy road: ${p.wet_crashes} of ${p.road_known} with known conditions (${pct(p.wet_crashes, p.road_known)}%; city ${Math.round(100 * meta.city_wet_share)}%)</li>
               <li>Dark: ${p.dark_crashes} of ${p.light_known} (${pct(p.dark_crashes, p.light_known)}%; city ${Math.round(100 * meta.city_dark_share)}%) · streetlights off/none: ${p.unlit_crashes}</li>
+              ${lightsOutLine(p)}
             </ul>`)}
           ${sec('reqtypes', `Repair requests within ${R} ft`, `
             <div class="legend"><span><i class="sq" style="background:${REQ_COLOR}"></i>Request location (on map)</span>
               <span><i class="ring"></i>Dashed circle: ${R} ft search area</span></div>
+            ${reqStreetNote}
             ${hbars(countBy(det.requests, r => r.t), REQ_COLOR, 'requests') || '<div class="note">None in Find It Fix It data.</div>'}`)}
         </div>
         <div class="dcol">
@@ -1880,19 +1972,9 @@
         showTab(document.getElementById('tabbtn-traffic')); tmodeEl.value = 'bus'; renderTraffic(); selectTraffic(st);
         return;
       }
-      if (e.target.id === 'copyLink') {
-        const url = location.href;
-        if (canShare()) {
-          const h = document.getElementById('detailTitle').cloneNode(true); h.querySelectorAll('.dcity, .drank').forEach(x => x.remove());
-          const v = document.querySelector('#detailBody .verdict');
-          navigator.share({ title: h.textContent.trim() + ' · Streets First', text: v ? v.textContent.replace(/\s+/g, ' ').trim().slice(0, 240) : '', url }).catch(() => {});
-          return;
-        }
-        const done = () => { e.target.textContent = 'Link copied'; announce('Link copied'); setTimeout(() => (e.target.textContent = 'Copy link'), 1800); };
-        if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, () => prompt('Copy this link:', url));
-        else prompt('Copy this link:', url);
-        return;
-      }
+      if (e.target.id === 'copyLink') { shareLink(e.target); return; }
+      if (e.target.id === 'reqAllStreets') { reqAllStreets = !reqAllStreets; showAllReqs = false; reqFilter = ''; select(p, false, null, true);
+        const b = document.getElementById('reqAllStreets'); if (b) b.focus(); return; }
       // (the tables are rebuilt, so focus goes back to the same control, and the result is announced)
       const refocus = sel => { const n = body.querySelector(sel); if (n) n.focus(); };
       const cf = e.target.closest('[data-cf]');
@@ -3098,6 +3180,43 @@
        ${list.length > 8 ? `<div class="note">and ${list.length - 8} more in the safety top ${LIST}.</div>` : ''}`
     : `<div class="note">None of the safety top ${LIST} are along here.</div>`;
 
+  // Share or copy the link in the address bar (a place, a bus stretch or a sidewalk block)
+  function shareLink(btn) {
+    const url = location.href;
+    if (canShare()) {
+      const h = document.getElementById('detailTitle').cloneNode(true); h.querySelectorAll('.dcity, .drank').forEach(x => x.remove());
+      const v = document.querySelector('#detailBody .verdict');
+      navigator.share({ title: h.textContent.trim() + ' · Streets First', text: v ? v.textContent.replace(/\s+/g, ' ').trim().slice(0, 240) : '', url }).catch(() => {});
+      return;
+    }
+    const label = btn.textContent, done = () => { btn.textContent = 'Link copied'; announce('Link copied'); setTimeout(() => (btn.textContent = label), 1800); };
+    if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, () => prompt('Copy this link:', url));
+    else prompt('Copy this link:', url);
+  }
+  // Shareable links for a bus stretch (#b=) or a sidewalk block (#s=): a key made from what the item is (its stops and
+  // routes, or the block's name and list), not its place in the list, so a link keeps working when the lists change.
+  // (Two bus stretches can share stops and routes; a point halfway along tells them apart.)
+  function lineKey(mode, s) {
+    if (mode === 'bus') { const f = flatPts(s.pts), m = f[Math.floor(f.length / 2)] || [];
+      return keyOf(`${s.from}|${s.to}|${(s.routes || []).join(',')}|${m.map(v => (+v).toFixed(4)).join(',')}`); }
+    if (mode === 'missing' || mode === 'poor') return keyOf(mode + '|' + s.name);
+    return null;
+  }
+  const lineHash = (mode, s) => { const k = lineKey(mode, s); return k ? (mode === 'bus' ? '#b=' : '#s=') + k : null; };
+  function openLineLink(t, key) {
+    if (t === 'b') {
+      const st = T.stretches.find(x => lineKey('bus', x) === key);
+      if (st) { showTab(document.getElementById('tabbtn-traffic')); tmodeEl.value = 'bus'; renderTraffic(); selectTraffic(st); viewBefore = null; return true; }
+    } else {
+      for (const mode of ['missing', 'poor']) {
+        const s = (SW[mode] || []).find(x => lineKey(mode, x) === key);
+        if (s) { showTab(document.getElementById('tabbtn-walk')); document.getElementById('smode').value = mode; renderTraffic(); selectTraffic(s); viewBefore = null; return true; }
+      }
+    }
+    linkNote(`That link's ${t === 'b' ? 'bus stretch' : 'sidewalk block'} isn't in this week's lists (they're rebuilt from SDOT's and Metro's data every week). Here is the overview.`);
+    history.replaceState(null, '', location.pathname + location.search);
+    return false;
+  }
   function selectTraffic(s, fly) {
     rememberView();
     const M = curMode();
@@ -3109,6 +3228,12 @@
     document.getElementById('detailTitle').innerHTML = `<span class="drank">#${M.rank(s)}</span> ${esc(M.name(s))}`;
     docTitle(M.name(s));
     document.getElementById('detailBody').innerHTML = M.detail(s);
+    const lh = lineHash(V().modeEl.value, s);
+    if (lh) {
+      if (location.hash !== lh) history.pushState({ sfPlace: 1, prev: location.hash }, '', lh);
+      const w = document.querySelector('#detailBody .dhead .where');
+      if (w) w.insertAdjacentHTML('beforeend', ` · <button type="button" class="linkbtn" id="copyLink">${canShare() ? 'Share' : 'Copy link'}</button>`);
+    }
     const wasHidden = detailEl.hidden;
     detailEl.hidden = false; detailEl.classList.remove('home', 'place');
     phoneDetailShown(wasHidden);
@@ -3117,6 +3242,7 @@
     if (fly !== false) flyBounds(b, { paddingTopLeft: [leftPad() + 40, 40], paddingBottomRight: [!isNarrow() ? detailEl.offsetWidth + 40 : 40, isNarrow() ? cover + 30 : 40], maxZoom: 16 });
     document.getElementById('detailBody').scrollTop = 0;
     document.getElementById('detailBody').onclick = e => {
+      if (e.target.id === 'copyLink') { shareLink(e.target); return; }
       const o = e.target.closest('[data-open]'); if (!o) return;
       const p = byId.get(+o.dataset.open); if (!p) return;
       showTab(document.getElementById('tabbtn-priorities')); select(p, true, null);
@@ -3962,6 +4088,13 @@
   // With a district picked, a card for it in place of the city's: its share of the city's crashes that killed or seriously
   // hurt someone, its places in the citywide top 50, and its share of the City's recent fixes. Same numbers as the district
   // table on "Is it getting fixed?" (they arrive with data-late.js; until then the card waits).
+  // In a district's list: how many of the places shown WSDOT runs (each is tagged), so no one asks the City about them
+  function distState() {
+    const el = document.getElementById('distState'); if (!el) return;
+    const n = lastShown.filter(p => p.state_route).length;
+    el.innerHTML = n ? `<b>${n} of the ${lastShown.length} places in this list ${n === 1 ? 'is' : 'are'} run by WSDOT</b> (freeways, ramps, state bridges), not the City: each is tagged “run by WSDOT”. Questions about ${n === 1 ? 'it go' : 'them go'} to WSDOT.` : '';
+    el.hidden = !n;
+  }
   function distCard(dist) {
     const el = document.getElementById('distSummary'); if (!el) return;
     const P = D.progress, rows = P && P.need ? P.need.filter(r => r.dim === 'district') : [];
@@ -3977,10 +4110,11 @@
         <div><b>${fmt(r.top50)}</b><span>of the citywide top ${TOP} places${r.top50_state ? `: ${r.top50_state} run by WSDOT, ${r.top50 - r.top50_state} on city streets` : ''}</span></div>
         ${r.top50 ? `<div><b>${fmt(r.top50_nothing)}</b><span>of the ${r.top50_state ? `${r.top50 - r.top50_state} on city streets` : `citywide top ${TOP} here`} with no counted safety fix since ${esc(P.since_d)} or planned work*${r.top50_ends ? ` (${r.top50_ends} with work only at the corners at their ends)` : ''}</span></div>` : ''}
       </div>
+      <div class="cs-state" id="distState" hidden></div>
       <div class="cs-foot">Of the fixes SDOT dated since January ${esc(P.since)} at places with crashes, ${pct(r.lpi, tot('lpi'))}% of head-start walk signals and
         ${pct(r.other, tot('other'))}% of other fixes are in this district. *In the SDOT layers this site reads; planned work includes a budget line named for the street.
         ${D.fetchedAt ? `Data as of ${new Date(D.fetchedAt.slice(0, 10) + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}.` : ''} <a href="#progress=d${esc(r.g)}">Compare districts</a></div>`;
-    el.hidden = false;
+    el.hidden = false; distState();
   }
   document.getElementById('listCsv').onclick = () => {
     const { rows, extra } = currentRows(), all = [...rows, ...extra];
@@ -4025,6 +4159,8 @@
     if (progressLink(h)) return true;
     if (/^#budget/i.test(h)) { showTab(document.getElementById('tabbtn-spending')); return true; }
     if (/^#method/i.test(h)) { showTab(document.getElementById('tabbtn-about')); return true; }
+    const lk = h.match(/^#([bs])=([a-z0-9]+)/i);
+    if (lk) return openLineLink(lk[1].toLowerCase(), lk[2].toLowerCase());
     const k = h.match(/^#p=([a-z0-9]+)/i);
     if (k) {
       const key = k[1].toLowerCase();

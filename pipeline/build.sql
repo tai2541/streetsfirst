@@ -66,6 +66,7 @@ create or replace macro list_n() as 200;            -- places published with ful
 create or replace macro busy_min_crashes() as 10;   -- "busy" places, for the High Injury Network comparison
 create or replace macro near_ix_ft() as 100;        -- "nearby" an intersection: SDOT work, projects, crosswalks, curb ramps
 create or replace macro near_block_ft() as 40;      -- "nearby" a block: within this of its street line
+create or replace macro near_light_ft() as 75;      -- a streetlight along a block: poles stand at the curb, up to half a wide street from its center line
 create or replace macro school_ft() as 1000;        -- the nearest public school is shown within this
 create or replace macro merge_dlat() as 0.00055;    -- the two sides of a divided street merge within this (degrees of
 create or replace macro merge_dlon() as 0.0008;     --   latitude and longitude: about 60 m each way)
@@ -777,12 +778,12 @@ create or replace table spot_export as
          pb_crashes, ped_crashes, bike_crashes, speeding_crashes, ped_turn_after_lpi, left_turn_crashes, ped_turn_crashes, ped_right_crashes, typed_crashes, angle_crashes,
          wet_crashes, dark_crashes, unlit_crashes, road_known, light_known,
          first_crash, last_crash, requests, request_types,
-         fixes, end_fixes, vol_history, bus_trips, bus_routes, bus_stretch_id,
+         fixes, end_fixes, end_planned, vol_history, bus_trips, bus_routes, bus_stretch_id,
          sw_missing_tier, sw_poor_ft, sw_poor_assessed, proj_ids, proj_planned, cip, signal_installed,
-         crosswalks, crosswalks_midblock, crosswalk_school, crosswalk_controls, curb_ramps, curb_ramps_poor, bike_facilities,
+         crosswalks, crosswalks_midblock, crosswalk_school, crosswalk_controls, curb_ramps, curb_ramps_poor, bike_facilities, lights_out, lights_out_major,
          school, school_ft, walk_zones, rse_quintile, rse_year, council_district, council_district2, council_member, council_url, before_after,
          rank_years, rank_month_ago, rank_year_ago
-  from ranked left join place_history using (location) left join end_fixes using (location);
+  from ranked left join place_history using (location) left join end_fixes using (location) left join end_planned using (location);
 
 copy (
   select * from spot_export where location in (select location from export_set()) order by rank
@@ -1017,11 +1018,11 @@ copy (
     (select count(*) from collisions where date >= ws() and date < we() and speeding) as city_speeding,
     -- citywide shares, used to flag locations that are unusually wet/dark (Unknown/Other excluded)
     (select round(sum(wet_crashes)  / sum(road_known),  3) from locations) as city_wet_share,
-    (select round(sum(dark_crashes) / sum(light_known), 3) from locations) as city_dark_share,
+    (select round(sum(dark_crashes) / sum(light_known), 3) from locations) as city_dark_share, (select count(*) from lights_out) as city_lights_out,
     (select round(median(block_ft)) from loc_context where block_ft is not null) as median_block_ft,
     -- The settings at the top of this file, for the page's text: it reads them from here rather than typing them in.
     {'window_months': window_months(), 'window_years': window_years(), 'lag_months': lag_months(), 'top_n': top_n(),
-     'list_n': list_n(), 'busy_min_crashes': busy_min_crashes(), 'near_ix_ft': near_ix_ft(), 'near_block_ft': near_block_ft(),
+     'list_n': list_n(), 'busy_min_crashes': busy_min_crashes(), 'near_ix_ft': near_ix_ft(), 'near_block_ft': near_block_ft(), 'near_light_ft': near_light_ft(),
      'school_ft': school_ft(), 'merge_ft': round(merge_dlat() * 111320 / 0.3048, -1)::int, 'hist_from_year': hist_from_year(),
      'worst_n': worst_n(), 'worst_ref_to': worst_ref_to(), 'recent_fix_days': recent_fix_days(), 'ba_min_days': ba_min_days(),
      'ba_max_days': ba_max_days(), 'inc_min_crashes': inc_min_crashes(), 'inc_min_days': inc_min_days(), 'wide_n': wide_n(),

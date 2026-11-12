@@ -27,6 +27,13 @@ select case f.properties.CATEGORY when 'BKF-PBL' then 'Protected bike lane' when
 from (select unnest(features) f from read_json('data/raw/bikefac_*.json', maximum_object_size = 50000000))
 where f.geometry is not null and f.properties.CATEGORY like 'BKF-%';
 
+-- City Light's open streetlight repair tickets: lights reported out this week. Red needs major parts replaced (a
+-- capital work order), Yellow more crew or material, Green is a new report. Context only.
+create or replace table lights_out as
+select f.properties.TROUBLE_TICKET_NO::varchar as ticket, upper(trim(f.properties.TROUBLE_TICKET_COLOR)) as color, gj_geom(f.geometry) as geom
+from (select unnest(features) f from read_json('data/raw/lightsout_*.json', maximum_object_size = 50000000))
+where f.geometry is not null;
+
 create or replace table circles as
 select try_cast(make_timestamp(f.properties.INSTALL_DATE::bigint * 1000) as date) as d, gj_geom(f.geometry) as geom
 from (select unnest(features) f from read_json('data/raw/circles_*.json', maximum_object_size = 50000000))
@@ -49,6 +56,10 @@ bk as (
   from loc_shape s join bikefac b on ST_DWithin(s.geom, b.geom, case when s.r = 40 then 30 else 60 end)
   where s.r <> 40 or ST_Length(ST_Intersection(s.geom, ST_Buffer(b.geom, 30))) > 0.5 * greatest(ST_Length(s.geom), 1)
   group by s.location),
+lo as (   -- streetlights reported out: around an intersection, or along the block (its street line without the ends, like crosswalks)
+  select s.location, count(distinct o.ticket) as n, count(distinct o.ticket) filter (where o.color = 'RED') as major
+  from loc_inner s join lights_out o on ST_DWithin(s.geom, o.geom, case when s.r = 40 then near_light_ft() else near_ix_ft() end)
+  group by s.location),
 tc as (
   select p.location, min(c.d) as d from loc_pts p join circles c on ST_DWithin(p.geom, c.geom, near_ix_ft()) where p.r = 60 group by p.location)
 select l.location,
@@ -56,8 +67,8 @@ select l.location,
   coalesce(cw.controls, []) as crosswalk_controls,
   rp.n as curb_ramps, rp.poor as curb_ramps_poor,
   bk.kinds as bike_facilities,
-  tc.d as circle_d, tc.location is not null as circle
-from locations l left join cw using (location) left join rp using (location) left join bk using (location) left join tc using (location);
+  tc.d as circle_d, tc.location is not null as circle, coalesce(lo.n, 0) as lights_out, coalesce(lo.major, 0) as lights_out_major
+from locations l left join cw using (location) left join rp using (location) left join bk using (location) left join tc using (location) left join lo using (location);
 
 -- ---------------------------------------------------------------- schools, equity index, council district
 create or replace table schools as

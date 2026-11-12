@@ -178,6 +178,26 @@ foreach ($line in [IO.File]::ReadLines((Join-Path $PSScriptRoot 'data\addr.ndjso
 }
 Write-Host "Wrote $n address files to site\data\addr"
 
+# The picture shown when a link is shared (site\share.png, 1200 x 630): drawn from this week's data by
+# pipeline\share_image.js and photographed with a headless Edge or Chrome (the same browser check.ps1 uses).
+$shareHtml = Join-Path $PSScriptRoot 'data\share.html'
+& node (Join-Path $PSScriptRoot 'pipeline\share_image.js') (Join-Path $PSScriptRoot 'site') (Join-Path $PSScriptRoot 'data\raw\fetched_at.txt') $shareHtml
+if ($LASTEXITCODE -ne 0) { throw 'Share picture: drawing it failed' }
+$browser = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+  "$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") |
+  Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+$sharePng = Join-Path $PSScriptRoot 'site\share.png'
+if ($browser) {
+  $userDir = Join-Path ([IO.Path]::GetTempPath()) ('ipm-share-' + [guid]::NewGuid())
+  $ErrorActionPreference = 'Continue'   # the browser logs harmless noise to stderr
+  & $browser --headless=new --disable-gpu --no-first-run --hide-scrollbars --user-data-dir="$userDir" --window-size=1200,630 `
+    --screenshot="$sharePng" ([Uri]$shareHtml).AbsoluteUri 2>$null | Out-Null
+  $ErrorActionPreference = 'Stop'
+  Remove-Item $userDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+if (-not (Test-Path $sharePng)) { Write-Warning 'Share picture: no browser to photograph it, so shared links show no picture this week' }
+else { Write-Host "Share picture: site\share.png ($([int]((Get-Item $sharePng).Length / 1KB)) KB)" }
+
 # Publishable copy: dist/ is site/ plus versioned addresses. site/ stays the clean source (open site/index.html locally).
 # Cache-busting: each file's address in index.html carries a short fingerprint of its contents (data.js?v=3f9a...).
 # A changed file gets a new address, so a browser never mixes in an old copy of it. (GitHub Pages ignores the ?v= part

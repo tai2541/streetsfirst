@@ -218,6 +218,24 @@ from block_ends e join place_fixes f on f.location = e.ix
 where f.d >= ws() and f.k not in ('New sidewalk', 'Neighborhood safety project')
 group by e.block;
 
+-- Planned work at a block's end intersections (a planned head-start walk signal or no turn on red, or a planned SDOT
+-- project at the corner that isn't already listed for the block itself). Listed on the block's page; like end_fixes,
+-- not counted as the block's own work.
+create or replace table end_planned as
+with ix_plans as (
+  select location, 'Head-start walk signal' as k, null::varchar as id from ranked where lpi_status = 'Planned'
+  union all select location, 'No turn on red', null from ranked where ntor_status = 'Planned'
+  union all select r.location, null, j.id::varchar from (select location, unnest(proj_ids) as id from ranked) r
+            join proj j on j.id::varchar = r.id::varchar where j.stage <> 'done' and j.kind <> 'lpi'
+)
+select e.block as location,
+  list(distinct {'at': coalesce(list_filter(string_split(e.ix, ' AND '), lambda s: s <> split_part(e.block, ' BETWEEN ', 1))[1], e.ix),
+                 'k': x.k, 'id': x.id}) as end_planned
+from block_ends e join ix_plans x on x.location = e.ix
+left join ranked b on b.location = e.block
+where x.id is null or not list_contains(coalesce(b.proj_ids, [])::varchar[], x.id)
+group by e.block;
+
 create or replace table place_work as
 -- Fix counts are by calendar year (since January of the window's first year). "Work since" a place's crash window began
 -- is by date: a dated fix, or a dated bus lane (SDOT builds them as transit projects that change the street; not in the
