@@ -485,11 +485,12 @@
       ...(p.fixes || []).filter(f => f.s === 'Built' && !f.d).map(f => f.k.toLowerCase())])]
       .filter(k => !done.some(f => f.k === k) && !(k === 'bus lane' && bus.length));
     if (undated.length) parts.push(`In place with no install date in SDOT's data: ${undated.join(', ')}`);
-    const cls = recent.length || busNew.length ? 'done' : planned.length || cip.length ? 'planned' : 'none';
+    // a new bus lane alone is a transit project, not safety work: it doesn't make a place 'done' ("In short" names it instead)
+    const cls = recent.length ? 'done' : planned.length || cip.length ? 'planned' : 'none';
     // say so when nothing is planned, since "what's planned here?" is the first question people bring
     if (parts.length && !planned.length && !cip.length) parts.push(endsP.length ? "nothing else planned on SDOT's published project maps" : "nothing planned on SDOT's published project maps");
     const text = parts.length ? parts.join(' · ') : 'No work recorded here in the SDOT layers this site reads';
-    return { cls, text, short: parts[0] || text };
+    return { cls, text, short: parts[0] || text, busNew: !recent.length && busNew.length ? busNew[0].y : null };
   }
 
   // ---------- map ----------
@@ -1754,6 +1755,7 @@
       : endDone ? '; the corners at its ends have some' : endPlan ? '; work is planned at a corner at its end' : '';
     const s2 = p.state_route ? `WSDOT runs this place, so changes here are WSDOT's to make.`
       : w.cls === 'done' ? `SDOT has made safety changes here since ${since}${w.text.includes('Planned') || (p.cip || []).length ? ', and has more planned' : ''}.`
+      : w.busNew ? `SDOT added a bus lane here in ${w.busNew}, a transit project; no other safety work ${block ? 'on the block itself' : 'here'} since ${since}${w.cls === 'planned' ? ', but SDOT has work planned or budgeted' : ` and none planned, in the SDOT data this site reads${corner}`}.`
       : w.cls === 'planned' ? `Nothing built here since ${since}, but SDOT has work planned or budgeted.`
       : `No safety work ${block ? 'on the block itself' : 'here'} since ${since} and none planned, in the SDOT data this site reads${corner}.`;
     return `<p class="inshort"><b>In short:</b> ${esc(s1)} ${esc(s2)}</p>`;
