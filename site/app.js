@@ -3716,8 +3716,8 @@
     const tableWrap = (label, html) => `<div class="tablewrap" tabindex="0" role="region" aria-label="${esc(label)}">${html}</div>`;
 
     // ---- 1. the worst places of a past year, now
-    const years = P.years;
-    let pick = (years[0] || {}).yr, onlyNone = false;   // the earliest year: the longest look at what happened since
+    const years = [...P.years].sort((a, b) => b.yr - a.yr);   // newest first, in the menu too
+    let pick = (years[0] || {}).yr, onlyNone = false;   // opens on the newest year in the data: today's problems first
     function thenPart() {
       const Y = years.find(y => y.yr === pick);
       if (!Y) return '';
@@ -4076,7 +4076,7 @@
     function announceThen() {
       const Y = years.find(v => v.yr === pick); if (!Y) return;
       const L = onlyNone ? Y.places.filter(x => x.g === 'none') : Y.places;
-      say(`${pick}: ${Y.places.filter(fixedBy).length} of 50 got a fix before ${y0(C.d0)}. Showing ${L.length} places.`);
+      say(`${pick}: ${Y.places.filter(fixedBy).length} of ${Y.places.length} got a fix before ${y0(C.d0)}. Showing ${L.length} places.`);
     }
     draw();
     matchMedia('(max-width: 760px)').addEventListener('change', () => {
