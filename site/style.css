@@ -992,3 +992,22 @@ main { overflow: hidden; overflow: clip; }
 .leaflet-control-layers-expanded .leaflet-control-layers-toggle { display: none !important; }
 .leaflet-top:has(.leaflet-control-layers-expanded) { z-index: 1002; }
 .leaflet-control-layers-expanded .leaflet-control-layers-list { overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+/* above the list: the data date and a small download menu */
+.list-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 2px 0 6px; font-size: 13px; color: #555; }
+.dl-menu { position: relative; }
+.dl-menu summary { list-style: none; cursor: pointer; font-weight: 600; color: #24408f; padding: 6px 2px; min-height: 32px; display: flex; align-items: center; gap: 4px; }
+.dl-menu summary::-webkit-details-marker { display: none; }
+.dl-menu summary::after { content: '▾'; content: '▾' / ''; font-size: 11px; }
+.dl-menu summary:focus-visible { outline: 3px solid #2f55c7; outline-offset: 2px; border-radius: 4px; }
+.dl-pop { position: absolute; right: 0; top: 100%; z-index: 20; min-width: 230px; display: flex; flex-direction: column; gap: 2px; padding: 6px;
+  background: #fff; border-radius: 10px; box-shadow: var(--lift2); }
+.dl-pop a, .dl-pop button.linkbtn { display: block; width: 100%; text-align: left; padding: 9px 10px; margin: 0; border: 0; border-radius: 6px; background: none;
+  font: 500 14px/1.35 inherit; color: #24408f; text-decoration: none; cursor: pointer; }
+.dl-pop a:hover, .dl-pop button:hover { background: #eef1f5; }
+.pg-why { margin: 4px 0 8px; }
+/* "Is it getting fixed?": reported sidewalk damage by district */
+.pg-sw { list-style: none; padding: 0; margin: 8px 0; }
+.pg-sw li { padding: 7px 0; border-bottom: 1px solid #e3e7ee; font-size: 14px; line-height: 1.4; }
+.pg-sw small { color: #555; }
+.pg-sw-city { font-weight: 600; }
+.pg-swt td { text-align: right; }

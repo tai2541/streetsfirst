@@ -74,6 +74,8 @@ create or replace macro hist_from_year() as 2018;   -- past rankings: 1 January 
 create or replace macro worst_n() as 50;            -- "Did the worst places get fixed?": the worst of a year...
 create or replace macro worst_ref_to() as 150;      -- ...next to the places ranked just below them, down to this rank
 create or replace macro recent_fix_days() as 365;   -- "Fixes SDOT recorded in the last 12 months"
+create or replace macro sw_fast_days() as 30;       -- reported sidewalk damage: share with SDOT's first fix within this many days...
+create or replace macro sw_min_age_days() as 365;   -- ...counting only reports at least this old, so each had time for one
 create or replace macro ba_min_days() as 365;       -- before and after a fix: at least this long on each side...
 create or replace macro ba_max_days() as 1095;      -- ...and at most this long
 create or replace macro inc_min_crashes() as 2;     -- "Increases to look into": at least this many targeted crashes before and after...
@@ -1027,7 +1029,8 @@ copy (
      'worst_n': worst_n(), 'worst_ref_to': worst_ref_to(), 'recent_fix_days': recent_fix_days(), 'ba_min_days': ba_min_days(),
      'ba_max_days': ba_max_days(), 'inc_min_crashes': inc_min_crashes(), 'inc_min_days': inc_min_days(), 'wide_n': wide_n(),
      'cmp_lag_months': cmp_lag_months(), 'move_min': move_min(), 'ba_few_dates': ba_few_dates(), 'ba_cluster_dates': ba_cluster_dates(), 'bus_min_mi': bus_min_mi(),
-     'signal_from_year': year(signal_from()), 'deaths_min': deaths_min(), 'repeat_years': repeat_years()} as cfg,
+     'signal_from_year': year(signal_from()), 'deaths_min': deaths_min(), 'repeat_years': repeat_years(),
+     'sw_fast_days': sw_fast_days(), 'sw_min_age_days': sw_min_age_days()} as cfg,
     hist_start() as crash_hist_from,
     -- plain street names (addresses.sql): SDOT's names with a roadway code the page shows without it, and the names that keep
     -- SDOT's spelling because they'd match another; with how many places each way, reported by the weekly build

@@ -2829,7 +2829,7 @@
     if (tab === 'tab-traffic' || tab === 'tab-walk') {
       const tr = tab === 'tab-traffic', m = el(tr ? 'tmode' : 'smode').value;
       const n = el(tr ? 'tlist' : 'slist').querySelectorAll(':scope > li').length;
-      t = 'Top ' + n + ' ' + (tr ? (m === 'bus' ? 'slow bus streets' : 'busiest streets') : (m === 'missing' ? 'missing sidewalks' : 'sidewalks in poor condition'));
+      t = 'Top ' + n + ' ' + (tr ? (m === 'bus' ? 'slow bus streets' : 'streets with the most vehicle traffic') : (m === 'missing' ? 'missing sidewalks' : 'sidewalks in poor condition'));
     } else {
       const n = el('list').querySelectorAll('li[data-id]:not(.extra)').length, top = +el('topN').value;
       const ids = [...el('list').querySelectorAll('li[data-id]:not(.extra)')].map(li => +li.dataset.id);
@@ -2897,7 +2897,7 @@
     });
   });
 
-  // ---------- Traffic view: where buses lose time, and the busiest streets ----------
+  // ---------- Traffic view: where buses lose time, and the streets with the most vehicle traffic ----------
   // Shown on its own tab, with its own map lines. It doesn't change the safety ranking; each street lists the
   // safety spots along it, so people can see where the two overlap.
   const T = D.traffic || { stretches: [], segments: [] };
@@ -3017,7 +3017,7 @@
     },
     busy: {
       hint: 'Streets with the most vehicles on an average weekday, from SDOT traffic counts. ' + oneDir() +
-        'Busy isn\'t the same as slow or dangerous.',
+        'Heavy traffic isn\'t the same as slow or dangerous.',
       items: () => T.segments.slice().sort((a, b) => a.id - b.id),
       rank: s => s.id, name: s => niceName(s.street),
       sub: s => (s.hood ? s.hood + ' · ' : '') + (s.est || !s.yr ? `SDOT estimate${s.yr ? ' from ' + s.yr : ''}, not a measured count` : `SDOT count from ${s.yr}`),
@@ -3550,7 +3550,7 @@
         fix suits the place is an engineering call.</p>
       <p class="note">Encampment, parking, graffiti and similar report types are left out on purpose. This map is about
         fixing infrastructure, not policing.</p>
-      <h3>The Slow buses &amp; busy streets tab</h3>
+      <h3>The Slow buses &amp; heavy traffic tab</h3>
       <p>Shown next to the safety ranking so you can compare them, but it doesn't change the safety score.</p>
       <ul>
         <li><b>Where buses lose the most time</b>: from King County Metro's timetable for a typical weekday. Metro schedules each
@@ -3559,7 +3559,7 @@
           added up over every weekday bus. Busy hours include extra boarding time, not only traffic. These are scheduled times, not
           measured ones: Metro sets them from past trips, so they can lag behind recent changes. Short stretches downtown rank high
           partly because a minute of schedule rounding is a big share of a short trip.</li>
-        <li><b>Busiest streets</b>: SDOT's weekday traffic counts. ${countAge() ? countAge() + ', and s' : 'S'}ome numbers
+        <li><b>Most vehicle traffic</b>: SDOT's weekday counts of vehicles (cars, trucks and buses; not people walking or biking). ${countAge() ? countAge() + ', and s' : 'S'}ome numbers
           are SDOT estimates; both are labeled. Trends use real counts only: when a later year's layer repeats a street's earlier
           count (it wasn't recounted), the repeat is left out.</li>
         <li>Each street lists the safety spots along it, and each safety spot shows its buses, bus slowdown and traffic counts.</li>
@@ -3674,6 +3674,16 @@
     const all = sr.concat([...s].filter(x => /^I-\d+$/.test(x)).sort());
     return all.length > 1 ? all.slice(0, -1).join(', ') + ' and ' + all[all.length - 1] : all.join('');
   }
+  // Why the year menu starts where it does: each past ranking uses the window_years() full years before it, and the oldest
+  // years in SDOT's data list far fewer injury crashes. Years and counts from this week's data.
+  function whyFrom() {
+    const iy = (D.progress && D.progress.inj_years) || [], first = cfg('hist_from_year'), wy = cfg('window_years');
+    if (!iy.length || !first || !wy) return '';
+    const startY = first - wy, at = y => (iy.find(r => r.y === y) || {}).n, old = iy[0];
+    if (!old || old.y >= startY || !at(startY) || old.n >= at(startY) * 0.6) return '';
+    return `<p class="note pg-why">Rankings start in ${first}: each uses the ${wy} years of crashes before it, and SDOT's records
+      before ${startY} list far fewer injury crashes (${fmt(old.n)} in ${old.y}, ${fmt(at(startY))} in ${startY}).</p>`;
+  }
   function progressInit() {
     const P = D.progress, el = document.getElementById('progress');
     if (!P || !el) return;
@@ -3739,6 +3749,7 @@
         <h3>Did the worst places get fixed?</h3>
         <label class="pg-pick">The ${WN} places that ranked worst in
           <select id="pgYear">${years.map(y => `<option value="${y.yr}" ${y.yr === pick ? 'selected' : ''}>${y.yr}</option>`).join('')}</select></label>
+        ${whyFrom()}
         <p class="lead">Ranked on crashes from ${then}, by how likely each place was to keep hurting people (all crashes count, not
           only the worst ones). Compared here with ${cmpSpan}, the most recent full years with complete reports.</p>
         <div class="stat-grid pg-stats">
@@ -3902,6 +3913,43 @@
       </section>`;
     }
 
+    // ---- 3a. reported sidewalk damage: how long until SDOT's first fix, by council district (history.sql, sidewalk_wait)
+    function sidewalkPart() {
+      const W = P.sidewalk; if (!W || !(W.rows || []).length) return '';
+      const rows = W.rows.filter(r => r.g !== 'city'), city = W.rows.find(r => r.g === 'city');
+      if (!city || !rows.length) return '';
+      const fast = cfg('sw_fast_days'), age = cfg('sw_min_age_days');
+      const pc = (a, b) => b ? Math.round(100 * a / b) + '%' : '–';
+      const days = d => d == null ? '–' : plural(d, 'day', 'days');
+      const name = g => g === 'city' ? 'All Seattle' : 'District ' + esc(g);
+      const known = rows.filter(r => r.med != null).sort((a, b) => a.med - b.med), lo = known[0], hi = known[known.length - 1];
+      const range = known.length > 1 && hi.med > lo.med
+        ? ` Of the reports that were fixed, half were fixed within ${days(lo.med)} in District ${esc(lo.g)} and within ${days(hi.med)} in District ${esc(hi.g)}.` : '';
+      const all = [...rows, city];
+      const body = isNarrow()
+        ? `<ul class="pg-sw">${all.map(r => `<li class="${r.g === 'city' ? 'pg-sw-city' : ''}"><b>${name(r.g)}</b>: ${fmt(r.n)} reports · <b>${pc(r.fixed, r.n)} fixed</b>${r.med != null ? `, half of those within ${days(r.med)}` : ''}
+            <br><small>${pc(r.fast, r.n)} fixed within ${fast} days · ${pc(r.open, r.n)} still open · ${pc(r.nowork, r.n)} no work needed · ${pc(r.dup, r.n)} duplicates · ${pc(r.no_wo, r.n)} no work order</small></li>`).join('')}</ul>`
+        : tableWrap('Reported sidewalk damage by council district', `<table class="pg-table pg-swt">
+          <caption class="sr-only">Reports of damaged sidewalks and what happened to them, by council district</caption>
+          <tr><th scope="col"><span class="sr-only">District</span></th><th scope="col">Reports</th><th scope="col">Fixed</th><th scope="col">Of those, half within</th>
+            <th scope="col">Fixed within ${fast} days</th><th scope="col">Still open</th><th scope="col">Inspected, no work needed</th><th scope="col">Duplicate of another report</th>
+            <th scope="col">No work order</th></tr>
+          ${all.map(r => `<tr class="${r.g === 'city' ? 'pg-sw-city' : ''}"><th scope="row">${name(r.g)}</th><td>${fmt(r.n)}</td><td>${pc(r.fixed, r.n)}</td><td>${days(r.med)}</td>
+            <td>${pc(r.fast, r.n)}</td><td>${pc(r.open, r.n)}</td><td>${pc(r.nowork, r.n)}</td><td>${pc(r.dup, r.n)}</td><td>${pc(r.no_wo, r.n)}</td></tr>`).join('')}
+        </table>`);
+      return `<section class="pg-sec" id="pg-sidewalk">
+        <h3>Reported sidewalk damage: what happened to each report?</h3>
+        <p class="lead">Reports of damaged sidewalks made to the City's Find It Fix It, ${monthYear(W.d0)}–${monthYear(W.d1)}, matched by report number to
+          SDOT's work orders.${range}</p>
+        ${body}
+        <p class="note">Fixed: an SDOT work order for the report was closed as done. Most are what SDOT calls a "Sidewalk Preliminary Repair", a
+          first fix that isn't necessarily a rebuilt sidewalk. Each report is counted once, in the first of these that applies: fixed, still open, duplicate
+          (a work order closed as a duplicate, often because another report about the same spot was handled), inspected with no work needed, and no work order.
+          ${fmt(city.other)} reports whose work order was sent elsewhere or cancelled are counted only in the total. Only reports at least ${age} days old are
+          counted, so each had time for a fix. Districts are the ones Find It Fix It records. From ${fmt(W.wo)} SDOT work orders made from these reports.</p>
+      </section>`;
+    }
+
     // ---- 3b. whole streets: every intersection and stretch along a street, added up (from the build's street_totals)
     function streetsPart() {
       const S = P.streets || []; if (!S.length) return '';
@@ -3994,8 +4042,8 @@
       el.innerHTML = `<p class="note">${asOf && !isNaN(asOf) ? `Data as of <b>${asOf.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</b>. ` : ''}Worked
         out from SDOT's crash reports since ${cfg('hist_from_year') - WY} and SDOT's published records of what it built, recalculated every week. Pick a place to see it on the map.</p>`
         + `<nav class="pg-jump" aria-label="Sections"><span>Jump to:</span> <button type="button" class="linkbtn" data-jump="pg-need">Districts</button>
-            <button type="button" class="linkbtn" data-jump="pg-month">Since last month</button> ${(P.streets || []).length ? '<button type="button" class="linkbtn" data-jump="pg-streets">Whole streets</button> ' : ''}<button type="button" class="linkbtn" data-jump="pg-working">Is it working?</button></nav>`
-        + thenPart() + monthPart() + needPart() + streetsPart() + workingPart();
+            <button type="button" class="linkbtn" data-jump="pg-month">Since last month</button> ${(P.sidewalk || {}).rows ? '<button type="button" class="linkbtn" data-jump="pg-sidewalk">Sidewalk reports</button> ' : ''}${(P.streets || []).length ? '<button type="button" class="linkbtn" data-jump="pg-streets">Whole streets</button> ' : ''}<button type="button" class="linkbtn" data-jump="pg-working">Is it working?</button></nav>`
+        + thenPart() + monthPart() + needPart() + sidewalkPart() + streetsPart() + workingPart();
       el.querySelectorAll('[data-jump]').forEach(b => (b.onclick = () => { const t = el.querySelector('#' + b.dataset.jump);
         scrollSheetTo(t); const h = t && t.querySelector('h3'); if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }); } }));
       const y = el.querySelector('#pgYear');
@@ -4151,6 +4199,28 @@
     const a = Object.assign(document.createElement('a'), { href: url, download: `streets-first-seattle${dist ? '-district-' + dist : ''}.csv` });
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
+  // The line above the list: the data date and a small download menu (the same files as under the list).
+  {
+    const d = asOfShort(), s = document.getElementById('listAsOf');
+    if (s) s.textContent = d ? `Data as of ${d}` : '';
+    const top = document.getElementById('listCsvTop');
+    if (top) top.onclick = () => { document.getElementById('listCsv').click(); top.closest('details').open = false; };
+    document.addEventListener('click', e => {   // a tap outside closes the menu
+      const m = document.querySelector('.dl-menu[open]'); if (m && !m.contains(e.target)) m.open = false;
+    });
+    const dl = document.querySelector('.dl-menu');
+    // Opened near the bottom of a phone's panel (which runs past the screen): scroll the list up so the whole menu shows.
+    // Checked again once the panel has settled, since scrolling can also move the panel itself.
+    if (dl) dl.addEventListener('toggle', () => {
+      const pop = dl.querySelector('.dl-pop'), sc = dl.closest('#panelBody'); if (!dl.open || !sc) return;
+      const fit = () => { const o = pop.getBoundingClientRect().bottom - (window.innerHeight - 8); if (o > 0) sc.scrollBy({ top: o, behavior: 'instant' }); };
+      fit(); setTimeout(fit, 350);
+    });
+    document.addEventListener('keydown', e => {
+      const m = document.querySelector('.dl-menu[open]');
+      if (e.key === 'Escape' && m) { m.open = false; m.querySelector('summary').focus(); }
+    });
+  }
   // A shared link's district (?d=2), when it's one of the choices.
   { const d = new URLSearchParams(location.search).get('d'), sel = document.getElementById('distFilter');
     if (d && [...sel.options].some(o => o.value === d)) sel.value = d;
@@ -4267,7 +4337,7 @@
           <div class="note">A spot on the line between two areas counts in both.</div></section>`;
     } else {
       const M = curMode();
-      title = view === 'traffic' ? 'Slow buses & busy streets' : 'Missing & broken sidewalks';
+      title = view === 'traffic' ? 'Slow buses & heavy traffic' : 'Missing & broken sidewalks';
       lead = 'Nothing picked yet. Click a line on the map or a street in the list to see the details.';
       items = M.items().slice(0, 3).map(t => ({ rk: '#' + M.rank(t), t: tier(M.rank(t)), name: M.name(t), sub: M.sub(t), val: M.score(t), open: () => selectTraffic(t, true) }));
     }
@@ -4315,8 +4385,10 @@
       check(await wait(() => document.querySelectorAll('#crashTable tr').length > 1), '#1 did not show its crash list');
       check(!!document.querySelector('#detailBody .dsec-street'), '#1 has no street section');
       check(await wait(() => document.querySelectorAll('.rank-hist li').length >= 5), '#1 has no rank-over-the-years chart');
-      // "Is it getting fixed?": five sections (worst places of a past year, since last month, the need table, whole streets, is it working?)
-      check(document.querySelectorAll('#progress .pg-sec').length === 5, 'progress view did not draw');
+      // "Is it getting fixed?": six sections (worst places of a past year, since last month, the need table, reported sidewalk damage, whole streets, is it working?)
+      check(document.querySelectorAll('#progress .pg-sec').length === 6, 'progress view did not draw');
+      check(document.querySelectorAll('#pg-sidewalk tr, #pg-sidewalk .pg-sw li').length >= 8, 'progress: sidewalk report table is short');
+      check(!!document.getElementById('listAsOf') && /Data as of/.test(document.getElementById('listAsOf').textContent), 'no data date above the list');
       check(document.querySelectorAll('#pg-working .pg-working li').length >= 1, 'is it working? section has no fix kinds');
       check(document.querySelectorAll('#progress .pg-places tr').length >= 11, 'progress: past worst-places table is short');
       check(document.querySelectorAll('#progress .pg-need tr, #progress .pg-card').length >= 8, 'progress: district table is short');

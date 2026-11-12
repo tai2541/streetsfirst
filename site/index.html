@@ -42,7 +42,7 @@
     <a class="report-head" id="reportHead" href="https://www.seattle.gov/customer-service-bureau#popular" aria-haspopup="dialog">Report a problem to the City</a>
     <nav role="tablist" aria-label="Views">
       <button role="tab" id="tabbtn-priorities" data-tab="priorities" aria-controls="tab-priorities" aria-selected="true" class="active" title="Crash hot spots: where traffic crashes hurt people, from police crash reports"><span class="tab-long tab-wide">Crash hot spots</span><span class="tab-short tab-mid">Crashes</span></button>
-      <button role="tab" id="tabbtn-traffic" data-tab="traffic" aria-controls="tab-traffic" aria-selected="false" tabindex="-1" title="Slow buses &amp; busy streets: typical weekdays, not live traffic"><span class="tab-long tab-wide">Slow buses &amp; busy streets</span><span class="tab-short tab-mid">Slow buses</span></button>
+      <button role="tab" id="tabbtn-traffic" data-tab="traffic" aria-controls="tab-traffic" aria-selected="false" tabindex="-1" title="Slow buses &amp; heavy traffic: vehicles on typical weekdays, not live traffic"><span class="tab-long tab-wide">Slow buses &amp; heavy traffic</span><span class="tab-short tab-mid">Slow buses</span></button>
       <button role="tab" id="tabbtn-walk" data-tab="walk" aria-controls="tab-walk" aria-selected="false" tabindex="-1" title="Missing &amp; broken sidewalks, from SDOT records (not live)"><span class="tab-long tab-wide">Missing &amp; broken sidewalks</span><span class="tab-short tab-mid">Sidewalks</span></button>
       <button role="tab" id="tabbtn-progress" data-tab="progress" aria-controls="progressSheet" aria-selected="false" tabindex="-1" title="What changed since last month, whether the worst places got fixed, and where SDOT's work is"><span class="tab-long">Is it getting fixed?</span><span class="tab-short">Getting fixed?</span></button>
       <button role="tab" id="tabbtn-spending" data-tab="spending" aria-controls="budgetSheet" aria-selected="false" tabindex="-1"><span class="tab-long">SDOT capital budget</span><span class="tab-short">Budget</span></button>
@@ -100,6 +100,14 @@
           <label class="tag" title="Only spots where someone was killed or seriously injured in several different years"><input type="checkbox" id="onlyOngoing">Repeat serious crashes</label>
           <label class="tag" title="Hides spots with any project nearby on SDOT's published project maps (new sidewalks, neighborhood safety projects, head-start walk signals, no turn on red), planned or recently finished. SDOT may have other plans it doesn't publish on a map."><input type="checkbox" id="noPlan">No published SDOT project</label>
         </div>
+        <div class="list-top"><span id="listAsOf"></span>
+          <details class="dl-menu"><summary>Download</summary>
+            <div class="dl-pop">
+              <button type="button" class="linkbtn" id="listCsvTop">This list (spreadsheet)</button>
+              <a href="data/ranks.csv" download>Every place's rank this week</a>
+              <a href="https://github.com/tai2541/streetsfirst/releases" target="_blank" rel="noopener">Past weeks (each week's full list, with its date)</a>
+            </div>
+          </details></div>
         <ol id="list" aria-label="Ranked locations"></ol>
         <p class="list-csv"><button type="button" class="linkbtn" id="listCsv">Download this list (CSV)</button>
           · <a href="data/ranks.csv" download>Every place's rank this week</a>
@@ -113,7 +121,7 @@
           <label>Show
             <select id="tmode">
               <option value="bus">Where buses lose the most time</option>
-              <option value="busy">Busiest streets</option>
+              <option value="busy">Most vehicle traffic</option>
             </select>
           </label>
           <label>Top

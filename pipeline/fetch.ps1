@@ -178,6 +178,11 @@ Get-ArcGISLayer "$gis/Public_School/FeatureServer/0" 'NAME,SCHOOL,TYPE,GRADE' 's
 Get-ArcGISLayer "$gis/School_Walking_Boundaries/FeatureServer/4" 'Title,SCHOOL_NAM,Grades' 'walkzones'
 # City Light's open streetlight repair tickets (lights reported out), with how big a repair each needs
 Get-ArcGISLayer "$gis/Streetlight_Repair_Status/FeatureServer/0" 'TROUBLE_TICKET_NO,TROUBLE_TICKET_COLOR,TASK_STATUS' 'lightsout'
+# SDOT's work orders made from Find It Fix It reports (any asset: a sidewalk report's work order is often filed on the
+# street segment): when each was closed and how, to show how long a reported sidewalk problem waits for a fix.
+# Only these fields: no staff names.
+Get-ArcGISLayer "$gis/Work_Orders_View/FeatureServer/0" 'EXTREFNO,ADDDTTM,CLOSEDDT,PROBLEMDESC,RESULTDESC,CANCELLEDFLAG' 'reportwo' `
+  "EXTREFTYPECD = 'SR' AND ADDDTTM >= DATE '$Since'"
 # Seattle street addresses, for suggestions while someone types an address in the search box: King County's address
 # points (house number, street, ZIP, location only; no parcel fields). One point per address (PRIM_ADDR = 1), so the units
 # of a building aren't listed separately. If the county's server can't be reached, last week's copy is kept.
@@ -258,7 +263,7 @@ $minimum = @{ collisions = 20000; requests = 50000; budget_sdot_shown = 300; str
               hin = 50; hcl = 100; lpi = 500; ntor = 400; signals = 800; districts = 7; hoods_main = 15; hoods_sub = 80
               volhist_years = 8; humps = 50; cushions = 30; radar = 30; bikelanes = 200; buslanes = 500; gtfs_stops = 3000
               sw_missing = 8000; sw_poor = 1500; proj_sidewalk = 20; proj_nispp = 5
-              crashhist = 50000; crosswalks = 4000; curbramps = 25000; bikefac = 1500; circles = 500; schools = 70; walkzones = 50; lightsout = 100; rse = 150; council = 7
+              crashhist = 50000; crosswalks = 4000; curbramps = 25000; bikefac = 1500; circles = 500; schools = 70; walkzones = 50; lightsout = 100; reportwo = 30000; rse = 150; council = 7
               addresses = 150000; wsdot_rt_inc = 400; wsdot_rt_dec = 400; wsdot_ramps = 1500; wsdot_access = 1500; wsdot_bridges = 2500 }
 foreach ($t in $types) { $minimum['req: ' + $t] = 1 }   # every request type still exists (and the 25% rule applies to each)
 $volatile = @('proj_sidewalk', 'proj_nispp', 'req: Snow and Ice', 'lightsout')   # small project lists, storms, and streetlight outages: big swings are normal

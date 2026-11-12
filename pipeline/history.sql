@@ -357,6 +357,44 @@ copy (
   order by w.k, w.a - w.b desc, w.a desc, w.rank nulls last, w.location
 ) to 'data/increases_raw.csv' (header true);
 
+-- ---------------------------------------------------------------- reported sidewalk damage: what happened to each report
+-- SDOT's work orders made from Find It Fix It reports, matched to the "Damaged Sidewalk" reports by report number (a
+-- sidewalk report's work order is often filed on the street segment, so every asset type counts). Each report gets one
+-- outcome, in this order: fixed (a work order closed as done; most are what SDOT calls a "Sidewalk Preliminary Repair", a
+-- first fix that isn't necessarily a rebuilt sidewalk), still open, closed as a duplicate of another report, inspected and
+-- no work needed, sent elsewhere or cancelled, or no work order at all. Only reports at least sw_min_age_days() old count,
+-- so each had time for a fix.
+create or replace table report_wo as
+select f.properties.EXTREFNO::varchar as id, f.properties.PROBLEMDESC::varchar as problem, f.properties.RESULTDESC::varchar as result,
+       f.properties.CANCELLEDFLAG::varchar = 'Y' as cancelled,
+       make_timestamp(f.properties.ADDDTTM::bigint * 1000)::date as opened,
+       case when f.properties.CLOSEDDT is not null then make_timestamp(f.properties.CLOSEDDT::bigint * 1000)::date end as closed
+from (select unnest(features) f from read_json('data/raw/reportwo_*.json', maximum_object_size = 100000000))
+where f.properties.EXTREFNO is not null;
+
+create or replace table sidewalk_wait as
+with rep as (
+  select r.id, r.date, coalesce(r.council_district::varchar, 'none') as district, count(w.id) as n_wo,
+         min(w.closed) filter (where not w.cancelled and w.closed is not null
+                               and w.result in ('Completed as specified', 'Temporary repair completed', 'Different work completed')) as fixed,
+         coalesce(bool_or(w.closed is null and not w.cancelled), false) as open,
+         coalesce(bool_or(w.result like 'Duplicate%'), false) as dup,
+         coalesce(bool_or(w.result like 'No work%' or w.result like 'Field Check%'), false) as nowork
+  from requests r left join report_wo w on w.id = r.id
+  where r.type = 'Damaged Sidewalk' and r.date <= current_date - sw_min_age_days()
+  group by all),
+d as (select *, case when fixed is not null then greatest(0, fixed - date) end as days,
+             case when fixed is not null then 'fixed' when open then 'open' when dup then 'dup' when nowork then 'nowork'
+                  when n_wo > 0 then 'other' else 'none' end as k from rep),
+g as (select district, * exclude (district) from d union all select 'city', * exclude (district) from d)
+select district as g, count(*) as n, count(*) filter (where k = 'fixed') as fixed,
+       count(*) filter (where days <= sw_fast_days()) as fast,
+       quantile_disc(days, 0.5) as med,                    -- of the reports fixed: half within this many days
+       count(*) filter (where k = 'open') as open, count(*) filter (where k = 'dup') as dup,
+       count(*) filter (where k = 'nowork') as nowork, count(*) filter (where k = 'other') as other,
+       count(*) filter (where k = 'none') as no_wo
+from g where district <> 'none' group by district;
+
 -- ---------------------------------------------------------------- export: site/data/progress.json
 copy (
   select {
@@ -400,7 +438,15 @@ copy (
                               't50': top50, 't100': top100, 't100_state': top100_state, 't100_none': top100_nothing,
                               'dist': districts, 'worst': worst, 'wr': worst_rank} order by ksi desc, crashes desc, street)
                  from (select * from street_totals order by ksi desc, crashes desc, street limit 30)),
+    'sidewalk': {
+      'rows': (select list({'g': g, 'n': n, 'fixed': fixed, 'fast': fast, 'med': med, 'open': open, 'dup': dup, 'nowork': nowork, 'other': other, 'no_wo': no_wo} order by g) from sidewalk_wait),
+      'd0': (select min(date) from requests where type = 'Damaged Sidewalk'), 'd1': current_date - sw_min_age_days(),
+      'wo': (select count(*) from report_wo w where exists (select 1 from requests r where r.id = w.id and r.type = 'Damaged Sidewalk'))
+    },
     'since': year(ws()),
+    -- injury crashes (fatal, serious and other injury) on hand each calendar year: why past rankings start where they do
+    'inj_years': (select list({'y': y, 'n': n} order by y) from (select year(date) as y, count(*) as n from crash_full
+                  where severity in ('Fatal Collision', 'Serious Injury Collision', 'Injury Collision') group by 1)),
     -- the kinds of work counted as a fix, and the share of those fixes at intersections (not along blocks)
     'fix_kinds': (select list(distinct k order by k) from place_fixes),
     'fix_ix_share': (select round(avg((l.addr_type = 'I')::int), 3) from place_fixes f join locations_all l using (location)),
