@@ -3753,12 +3753,15 @@
           <select id="pgYear">${years.map(y => `<option value="${y.yr}" ${y.yr === pick ? 'selected' : ''}>${y.yr}</option>`).join('')}</select></label>
         ${whyFrom()}
         <p class="lead">Ranked on crashes from ${then}, by how likely each place was to keep hurting people (all crashes count, not
-          only the worst ones). Compared here with ${cmpSpan}, the most recent full years with complete reports.</p>
+          only the worst ones). Compared here with ${cmpSpan}, the most recent full years with complete reports. This list is this site's
+          method run on that year's crashes: SDOT didn't have it, and chooses its work in its own ways.${
+          y0(C.d0) - yEnd(Y.d1) - 1 <= 0 ? ` This year's list has had the least time: the years compared start right after the years it was
+          ranked on, so its "fix before ${y0(C.d0)}" group holds fixes made during ${then} itself, and projects take years to plan and build.` : ''}</p>
         <div class="stat-grid pg-stats">
           <div class="stat"><b>${G.fixed.a.length}</b><span>got a fix before ${y0(C.d0)}</span></div>
           <div class="stat"><b>${G.during.a.length}</b><span>got their first fix in ${cmpSpan}</span></div>
           <div class="stat"><b>${G.none.a.length}</b><span>had no fix before ${cmpEnd + 1} in SDOT's published data</span></div>
-          <div class="stat"><b>${still}</b><span>are in today's top ${TOP} (ranked on crashes alone, without repair reports)</span></div>
+          <div class="stat"><b>${still}</b><span>are in today's top ${TOP}</span></div>
         </div>
         ${(() => {
           const isI = x => x.t === 'I', all = [...G.fixed.a, ...G.during.a, ...G.none.a];
@@ -3778,8 +3781,9 @@
           ${row('Citywide', '', Y.ksi_city, C.ksi_city, 'total')}
         </table>`)}
         <p class="note">Counts are crashes where someone was killed or seriously hurt (not people), at places with a known location.
-          Places at the top of a list usually have fewer crashes later even with no changes, so compare the groups with each other
-          and with the places ranked ${WN + 1}–${cfg('worst_ref_to')}, not with their own past. Small numbers can swing a lot. Citywide, these crashes went
+          Places at the top of a list usually have fewer crashes later even with no changes (the places ranked ${WN + 1}–${cfg('worst_ref_to')}
+          show how much), so a group's drop isn't the effect of its fixes. The groups also differ in the kind of place and in why work
+          went there, so this can't show whether fixes worked; it shows where work went. Small numbers can swing a lot. Citywide, these crashes went
           ${change(Y.ksi_city, C.ksi_city)} while all crashes went ${change(Y.crashes_city, C.crashes_city)}; SDOT's data doesn't say
           how much of that is a real rise and how much is a change in how injuries are recorded.</p>
         <div class="pg-tools">
@@ -3790,14 +3794,14 @@
           <caption class="sr-only">The ${WN} places ranked worst in ${pick}, their fixes since, and how they're doing now</caption>
           <tr><th scope="col">Rank in ${pick}</th><th scope="col">Place</th><th scope="col">All crashes ${then}</th>
             <th scope="col">Killed or seriously hurt<br><span class="muted">${then} → ${cmpSpan}</span></th>
-            <th scope="col">Fixes since ${y0(Y.d0)}</th><th scope="col">Rank today (crashes alone)</th></tr>
+            <th scope="col">Fixes since ${y0(Y.d0)}</th><th scope="col">Rank today</th></tr>
           ${more('places', shown, 10, x => `<tr><td>${rankTxt(x.r)}</td><th scope="row">${placeBtn(x.loc)}${x.d ? `<br><small class="muted">District ${x.d}</small>` : ''}${x.state
               ? `<br><small class="pg-state">${esc(x.state)}: run by WSDOT</small>` : ''}</th>
             <td>${x.c}</td><td>${x.ksi} → ${x.ksi_cmp}</td><td>${fixCell(x)}</td>
             <td>${x.now ? rankTxt(x.now) : '<span class="muted">no crashes</span>'}</td></tr>`).replace(/<li class="pg-more">([\s\S]*?)<\/li>/, '<tr class="pg-more"><td colspan="6">$1</td></tr>')}
         </table>`)}
         <p class="note">"Fix" means one of these, with a date, in SDOT's published data: ${FIX_KINDS} (a head-start walk signal turns
-          the walk light on a few seconds before the green). "—": none of these in SDOT's published data. Repaving, signal timing, signs, paint,
+          the walk light on a few seconds before the green). "—": none of these in SDOT's published data. Speed-limit changes, lane changes (rechannelizations), repaving, signal timing, signs, paint,
           speed humps${meta.humps && meta.humps.n && !meta.humps.dated ? ` (SDOT's layer gives none of its ${fmt(meta.humps.n)} an install date)` : ''} and bus lanes aren't counted, so a place can have had work that doesn't show here.${staleFixDates()}</p>
       </section>`;
     }
@@ -3886,7 +3890,7 @@
       };
       const narrow = isNarrow();
       return `<section class="pg-sec" id="pg-need">
-        <h3>Where serious crashes happen, and where SDOT's work is</h3>
+        <h3>Where serious crashes happen, and where SDOT's mapped work is</h3>
         <div class="pg-dim" role="group" aria-label="Group by">
           <button type="button" class="seg-btn ${dim === 'district' ? 'on' : ''}" data-dim="district" aria-pressed="${dim === 'district'}">By council district</button>
           <button type="button" class="seg-btn ${dim === 'rse' ? 'on' : ''}" data-dim="rse" aria-pressed="${dim === 'rse'}">By the City's equity index</button>
@@ -3997,9 +4001,9 @@
         const result = few ? `only ${plural(w.n_dates, 'project date')}, so this mostly shows one or two projects; too few to tell`
           : !vs.length ? ''
           : vs.every(x => x < 1) ? how('fewer than the city', vs.length > 1 ? ' both ways' : '') || (ch ? `fewer than the city${vs.length > 1 ? ' both ways' : ''}, but the gap is small enough to be chance`
-                                       : `fewer than the city${vs.length > 1 ? ' both ways' : ''}, by more than chance: it looks like it helped`)
+                                       : `fewer than the city${vs.length > 1 ? ' both ways' : ''}, by more than chance alone: consistent with it helping`)
           : vs.every(x => x >= 1) ? how('no better than the city', vs.length > 1 ? ' either way' : '') || (ch ? `no better than the city${vs.length > 1 ? ' either way' : ''}, but the gap could be chance`
-                                        : `worse than the city${vs.length > 1 ? ' both ways' : ''}, by more than chance`)
+                                        : `worse than the city${vs.length > 1 ? ' both ways' : ''}, by more than chance alone (more people using the street can also do this)`)
           : 'mixed: better than the city one way, not the other';
         return `<li><span class="pg-l1"><b>${esc(w.k)}</b> · ${plural(w.n_places || w.n, 'place')}${w.n_dates && w.n_dates < cfg('ba_cluster_dates') ? `, ${plural(w.n_dates, 'install date')}` : ''}</span>
           <span class="pg-l2">${clustered && result ? `<b>Result:</b> ${result}.<br>` : ''}${(what[w.m] || 'targeted crashes').replace(/^./, c => c.toUpperCase())}: ${fmt(w.b)} before, ${fmt(w.a)} after${clustered ? '' : ` (${chg(here)}). Citywide over the same days: ${chg(city)}`}.
@@ -4020,8 +4024,8 @@
         <p class="lead">For each fix SDOT's records date, the crashes that fix is meant to reduce, counted for the same length of time
           before and after (${Math.round(cfg('ba_min_days') / 365.25)} to ${Math.round(cfg('ba_max_days') / 365.25)} years each, skipping the first month after it went in, or the whole year when SDOT gives only the year). Next to it, how the same kind of
           crash changed across the whole city over the same days. The "before" years can be high just because that got the place
-          picked, so each fix is also set against an earlier period of the same length, before that. A fix looks like it helped when
-          its places did better than the city both ways, by more than chance. Places where another dated fix went in over these years
+          picked, so each fix is also set against an earlier period of the same length, before that. A result is called consistent with
+          helping when its places did better than the city both ways, by more than chance alone; nothing here counts how many people use a street. Places where another dated fix went in over these years
           are left out, since the two can't be told apart.</p>
         <ul class="pg-list pg-working">${W.kinds.filter(w => w.n && (w.b || w.a)).map(kindRow).join('')}</ul>
         <p class="note">${(() => { const h = W.kinds.reduce((s, w) => s + (w.p_had || 0), 0), f = W.kinds.reduce((s, w) => s + (w.p_fewer || 0), 0);
@@ -4042,7 +4046,7 @@
     function draw(focusSel) {
       const asOf = D.fetchedAt ? new Date(D.fetchedAt.replace(' ', 'T')) : null;
       el.innerHTML = `<p class="note">${asOf && !isNaN(asOf) ? `Data as of <b>${asOf.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</b>. ` : ''}Worked
-        out from SDOT's crash reports since ${cfg('hist_from_year') - WY} and SDOT's published records of what it built, recalculated every week. Pick a place to see it on the map.</p>`
+        out from police crash reports (published by SDOT) since ${cfg('hist_from_year') - WY} and SDOT's published records of what it built, recalculated every week. Pick a place to see it on the map.</p>`
         + `<nav class="pg-jump" aria-label="Sections"><span>Jump to:</span> <button type="button" class="linkbtn" data-jump="pg-need">Districts</button>
             <button type="button" class="linkbtn" data-jump="pg-month">Since last month</button> ${(P.sidewalk || {}).rows ? '<button type="button" class="linkbtn" data-jump="pg-sidewalk">Sidewalk reports</button> ' : ''}${(P.streets || []).length ? '<button type="button" class="linkbtn" data-jump="pg-streets">Whole streets</button> ' : ''}<button type="button" class="linkbtn" data-jump="pg-working">Is it working?</button></nav>`
         + thenPart() + monthPart() + needPart() + sidewalkPart() + streetsPart() + workingPart();
