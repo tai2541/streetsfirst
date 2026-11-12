@@ -210,7 +210,7 @@
       <div><b>Bigger fixes</b> (redesigns, signals, sidewalks) are paid for through the City budget, which the City Council
         votes on. The council member for this district: <b>${esc(c.member || '—')}</b> (District ${c.d})${c.url
           ? (/^https:\/\//.test(c.url) ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">Their page ↗</a>` : '') : ''}.${(CTX.citywide || []).length ? ` Citywide council member${CTX.citywide.length === 1 ? '' : 's'} (elected by the whole city): ${CTX.citywide.map(esc).join(' and ')}.` : ''}${c.d2 ? ` This place is on the line between District ${c.d} and District ${c.d2}
-        (the boundary runs down the street), so it's listed in both districts; the district totals count it in District ${c.d}.` : ''}
+        (the boundary runs down the street), so it's listed and counted in both districts: added up, the district totals come to more than the citywide total.` : ''}
         <a href="#progress=d${c.d}">Is it getting fixed in District ${c.d}?</a></div>
       ${rse && rse.q ? `<div class="note">How the City ranks this neighborhood for investment (its Race and Social Equity Index, by census tract): <b>${esc(({ 'Highest Equity Priority': 'highest equity priority',
           'Second Highest': 'second-highest equity priority', 'Middle': 'middle', 'Second Lowest': 'second-lowest equity priority',
