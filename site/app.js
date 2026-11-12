@@ -646,6 +646,23 @@
       btn.title = 'Map layers'; btn.setAttribute('aria-label', `Map layers: background map and ${n ? `${n} layer${n > 1 ? 's' : ''} on` : 'no layers on'}`);
     };
     label(); map.on('overlayadd overlayremove layeradd layerremove', () => setTimeout(label));
+    // On a phone the bottom panel covers the lower part of the map: when the menu opens, fit it into what's left
+    // showing and let it scroll there, so no layer is hidden behind the panel.
+    const list2 = box.querySelector('.leaflet-control-layers-list');
+    const fit = () => {
+      if (!list2 || !box.classList.contains('leaflet-control-layers-expanded')) return;
+      const mapR = map.getContainer().getBoundingClientRect();
+      let bottom = mapR.bottom;
+      for (const el of [document.getElementById('panel'), document.getElementById('detail')]) {
+        if (!el || el.hidden || getComputedStyle(el).visibility === 'hidden' || getComputedStyle(el).position !== 'absolute') continue;
+        const r = el.getBoundingClientRect();
+        if (r.height && r.left <= mapR.left + 1 && r.right >= mapR.right - 1 && r.top > mapR.top) bottom = Math.min(bottom, r.top);
+      }
+      list2.style.maxHeight = Math.max(140, Math.floor(bottom - list2.getBoundingClientRect().top - 12)) + 'px';
+      list2.style.height = '';
+    };
+    new MutationObserver(() => requestAnimationFrame(fit)).observe(box, { attributes: true, attributeFilter: ['class'] });
+    window.addEventListener('resize', () => requestAnimationFrame(fit));
   }
   // School walk zones (SDOT and Seattle Public Schools' School Walking Maps), from the late data: a map layer that's off until
   // switched on (in the layer menu or from a place inside one). Context only, never in a score.
