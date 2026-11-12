@@ -3934,25 +3934,33 @@
       const all = [...rows, city];
       const body = isNarrow()
         ? `<ul class="pg-sw">${all.map(r => `<li class="${r.g === 'city' ? 'pg-sw-city' : ''}"><b>${name(r.g)}</b>: ${fmt(r.n)} reports · <b>${pc(r.fixed, r.n)} fixed</b>${r.med != null ? `, half of those within ${days(r.med)}` : ''}
-            <br><small>${pc(r.fast, r.n)} fixed within ${fast} days · ${pc(r.open, r.n)} still open · ${pc(r.nowork, r.n)} no work needed · ${pc(r.dup, r.n)} duplicates · ${pc(r.no_wo, r.n)} no work order</small></li>`).join('')}</ul>`
+            <br><small>${pc(r.fast, r.n)} fixed within ${fast} days · ${pc(r.open, r.n)} still open · ${pc(r.owner || 0, r.n)} assigned to the property owner · ${pc(r.nowork, r.n)} no work done (none needed, or couldn't find it) · ${pc(r.dup, r.n)} duplicates · ${pc(r.no_wo, r.n)} no work order</small></li>`).join('')}</ul>`
         : tableWrap('Reported sidewalk damage by council district', `<table class="pg-table pg-swt">
           <caption class="sr-only">Reports of damaged sidewalks and what happened to them, by council district</caption>
           <tr><th scope="col"><span class="sr-only">District</span></th><th scope="col">Reports</th><th scope="col">Fixed</th><th scope="col">Of those, half within</th>
-            <th scope="col">Fixed within ${fast} days</th><th scope="col">Still open</th><th scope="col">Inspected, no work needed</th><th scope="col">Duplicate of another report</th>
+            <th scope="col">Fixed within ${fast} days</th><th scope="col">Still open</th><th scope="col">Assigned to the property owner</th>
+            <th scope="col">No work done (none needed, or couldn't find it)</th><th scope="col">Duplicate of another report</th>
             <th scope="col">No work order</th></tr>
           ${all.map(r => `<tr class="${r.g === 'city' ? 'pg-sw-city' : ''}"><th scope="row">${name(r.g)}</th><td>${fmt(r.n)}</td><td>${pc(r.fixed, r.n)}</td><td>${days(r.med)}</td>
-            <td>${pc(r.fast, r.n)}</td><td>${pc(r.open, r.n)}</td><td>${pc(r.nowork, r.n)}</td><td>${pc(r.dup, r.n)}</td><td>${pc(r.no_wo, r.n)}</td></tr>`).join('')}
+            <td>${pc(r.fast, r.n)}</td><td>${pc(r.open, r.n)}</td><td>${pc(r.owner || 0, r.n)}</td><td>${pc(r.nowork, r.n)}</td><td>${pc(r.dup, r.n)}</td><td>${pc(r.no_wo, r.n)}</td></tr>`).join('')}
         </table>`);
       return `<section class="pg-sec" id="pg-sidewalk">
         <h3>Reported sidewalk damage: what happened to each report?</h3>
         <p class="lead">Reports of damaged sidewalks made to the City's Find It Fix It, ${monthYear(W.d0)}–${monthYear(W.d1)}, matched by report number to
           SDOT's work orders.${range}</p>
         ${body}
-        <p class="note">Fixed: an SDOT work order for the report was closed as done. Most are what SDOT calls a "Sidewalk Preliminary Repair", a
-          first fix that isn't necessarily a rebuilt sidewalk. Each report is counted once, in the first of these that applies: fixed, still open, duplicate
-          (a work order closed as a duplicate, often because another report about the same spot was handled), inspected with no work needed, and no work order.
-          ${fmt(city.other)} reports whose work order was sent elsewhere or cancelled are counted only in the total. Only reports at least ${age} days old are
-          counted, so each had time for a fix. Districts are the ones Find It Fix It records. From ${fmt(W.wo)} SDOT work orders made from these reports.</p>
+        <p class="note">In Seattle, the owner of the adjacent property is often responsible for sidewalk repair; SDOT's work orders show it
+          inspecting reports, making first fixes, and assigning some repairs to the owner. Fixed: an SDOT work order on the sidewalk, curb or wheelchair ramp was closed as done. Most are
+          what SDOT calls a "Sidewalk Preliminary Repair", a first fix that isn't necessarily a rebuilt sidewalk.${W.wo_not_sw ? ` Work orders closed for
+          something else${(W.wo_not_sw_top || []).length ? `, most often ${W.wo_not_sw_top.map(t => `“${esc(t.trim())}”`).join(' and ')}` : ''} (${fmt(W.wo_not_sw)} of them),
+          don't count as fixing the sidewalk.` : ''} Each report is counted once,
+          in the first of these that applies: fixed, still open, assigned to the property owner, duplicate (a work order closed as a duplicate, often because
+          another report about the same spot was handled), no work done, and no work order.
+          ${fmt(city.other)} reports with only other work, or sent elsewhere or cancelled${city.transferred ? ` (${fmt(city.transferred)} of them passed to another City department)` : ''},
+          are counted only in the total. Reports are matched to work orders by report number only, so "no work order" doesn't mean nothing was done.
+          Only reports at least ${age} days old on the data date are counted, so each had time for a fix. Districts are the ones Find It Fix It records.
+          This doesn't show why one district's reports wait longer: the kind of damage reported can differ. From ${fmt(W.wo)} SDOT work orders
+          made from these reports.</p>
       </section>`;
     }
 

@@ -358,12 +358,15 @@ copy (
 ) to 'data/increases_raw.csv' (header true);
 
 -- ---------------------------------------------------------------- reported sidewalk damage: what happened to each report
--- SDOT's work orders made from Find It Fix It reports, matched to the "Damaged Sidewalk" reports by report number (a
--- sidewalk report's work order is often filed on the street segment, so every asset type counts). Each report gets one
--- outcome, in this order: fixed (a work order closed as done; most are what SDOT calls a "Sidewalk Preliminary Repair", a
--- first fix that isn't necessarily a rebuilt sidewalk), still open, closed as a duplicate of another report, inspected and
--- no work needed, sent elsewhere or cancelled, or no work order at all. Only reports at least sw_min_age_days() old count,
--- so each had time for a fix.
+-- SDOT's work orders made from Find It Fix It reports, matched to the "Damaged Sidewalk" reports by report number. Each
+-- report gets one outcome, in this order: fixed (a sidewalk work order closed as done: SDOT's problem type names a
+-- sidewalk, curb or wheelchair ramp; most are a "Sidewalk Preliminary Repair", a first fix that isn't necessarily a rebuilt
+-- sidewalk; work on something else, like a pothole, isn't a sidewalk fix), still open, assigned to the property owner,
+-- closed as a duplicate of another report, no work done (SDOT's result: none needed, or couldn't find it), other (other
+-- work, sent elsewhere, cancelled, or the report was transferred to another department), or no work order at all. Only
+-- reports at least sw_min_age_days() old on the data date count, so each had time for a fix.
+create or replace macro sw_work(problem) as
+  regexp_matches(problem, '(?i)sidewalk|curb|wheel ?chair ramp') and not regexp_matches(problem, '(?i)non-s/w|owner');
 create or replace table report_wo as
 select f.properties.EXTREFNO::varchar as id, f.properties.PROBLEMDESC::varchar as problem, f.properties.RESULTDESC::varchar as result,
        f.properties.CANCELLEDFLAG::varchar = 'Y' as cancelled,
@@ -375,22 +378,25 @@ where f.properties.EXTREFNO is not null;
 create or replace table sidewalk_wait as
 with rep as (
   select r.id, r.date, coalesce(r.council_district::varchar, 'none') as district, count(w.id) as n_wo,
-         min(w.closed) filter (where not w.cancelled and w.closed is not null
+         coalesce(any_value(r.status) like 'Transferred%', false) as transferred,
+         min(w.closed) filter (where not w.cancelled and w.closed is not null and sw_work(w.problem)
                                and w.result in ('Completed as specified', 'Temporary repair completed', 'Different work completed')) as fixed,
          coalesce(bool_or(w.closed is null and not w.cancelled), false) as open,
+         coalesce(bool_or(w.result like '%property owner%' or w.problem like '%property owner%'), false) as owner,
          coalesce(bool_or(w.result like 'Duplicate%'), false) as dup,
          coalesce(bool_or(w.result like 'No work%' or w.result like 'Field Check%'), false) as nowork
   from requests r left join report_wo w on w.id = r.id
-  where r.type = 'Damaged Sidewalk' and r.date <= current_date - sw_min_age_days()
+  where r.type = 'Damaged Sidewalk' and r.date <= fetched() - sw_min_age_days()
   group by all),
 d as (select *, case when fixed is not null then greatest(0, fixed - date) end as days,
-             case when fixed is not null then 'fixed' when open then 'open' when dup then 'dup' when nowork then 'nowork'
-                  when n_wo > 0 then 'other' else 'none' end as k from rep),
+             case when fixed is not null then 'fixed' when open then 'open' when owner then 'owner' when dup then 'dup'
+                  when nowork then 'nowork' when n_wo > 0 or transferred then 'other' else 'none' end as k from rep),
 g as (select district, * exclude (district) from d union all select 'city', * exclude (district) from d)
 select district as g, count(*) as n, count(*) filter (where k = 'fixed') as fixed,
        count(*) filter (where days <= sw_fast_days()) as fast,
        quantile_disc(days, 0.5) as med,                    -- of the reports fixed: half within this many days
-       count(*) filter (where k = 'open') as open, count(*) filter (where k = 'dup') as dup,
+       count(*) filter (where k = 'open') as open, count(*) filter (where k = 'owner') as owner, count(*) filter (where k = 'dup') as dup,
+       count(*) filter (where k = 'other' and transferred) as transferred,
        count(*) filter (where k = 'nowork') as nowork, count(*) filter (where k = 'other') as other,
        count(*) filter (where k = 'none') as no_wo
 from g where district <> 'none' group by district;
@@ -439,9 +445,20 @@ copy (
                               'dist': districts, 'worst': worst, 'wr': worst_rank} order by ksi desc, crashes desc, street)
                  from (select * from street_totals order by ksi desc, crashes desc, street limit 30)),
     'sidewalk': {
-      'rows': (select list({'g': g, 'n': n, 'fixed': fixed, 'fast': fast, 'med': med, 'open': open, 'dup': dup, 'nowork': nowork, 'other': other, 'no_wo': no_wo} order by g) from sidewalk_wait),
-      'd0': (select min(date) from requests where type = 'Damaged Sidewalk'), 'd1': current_date - sw_min_age_days(),
-      'wo': (select count(*) from report_wo w where exists (select 1 from requests r where r.id = w.id and r.type = 'Damaged Sidewalk'))
+      'rows': (select list({'g': g, 'n': n, 'fixed': fixed, 'fast': fast, 'med': med, 'open': open, 'owner': owner, 'dup': dup, 'nowork': nowork,
+                            'other': other, 'transferred': transferred, 'no_wo': no_wo} order by g) from sidewalk_wait),
+      'd0': (select min(date) from requests where type = 'Damaged Sidewalk'), 'd1': fetched() - sw_min_age_days(),
+      -- work orders on the reports counted above, and how many of them were closed as done on something other than a sidewalk
+      'wo': (select count(*) from report_wo w join requests r on r.id = w.id
+             where r.type = 'Damaged Sidewalk' and r.date <= fetched() - sw_min_age_days()),
+      'wo_not_sw': (select count(*) from report_wo w join requests r on r.id = w.id
+                    where r.type = 'Damaged Sidewalk' and r.date <= fetched() - sw_min_age_days() and not w.cancelled
+                      and w.result in ('Completed as specified', 'Temporary repair completed', 'Different work completed') and not sw_work(w.problem)),
+      'wo_not_sw_top': (select list(problem order by n desc, problem) from (
+                          select w.problem, count(*) as n from report_wo w join requests r on r.id = w.id
+                          where r.type = 'Damaged Sidewalk' and r.date <= fetched() - sw_min_age_days() and not w.cancelled and w.problem <> 'Other'
+                            and w.result in ('Completed as specified', 'Temporary repair completed', 'Different work completed') and not sw_work(w.problem)
+                          group by 1 order by n desc, problem limit 2))
     },
     'since': year(ws()),
     -- injury crashes (fatal, serious and other injury) on hand each calendar year: why past rankings start where they do
