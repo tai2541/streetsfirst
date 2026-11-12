@@ -65,6 +65,17 @@ select coalesce(nullif(trim(f.properties.NAME), ''), nullif(trim(f.properties.SC
 from (select unnest(features) f from read_json('data/raw/schools_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
+-- School walk zones: the area each school's walking map covers (SDOT and Seattle Public Schools' School Walking Maps).
+-- Context only, never in a score. Only zones with a school's published title: the layer also holds a few untitled shapes
+-- (program sites, closed or leased buildings) that aren't a school's walk zone. lvl orders a place's zones youngest
+-- grades first (elementary, then middle, then high school), from the grades the layer gives.
+create or replace table walk_zones as
+select trim(f.properties.Title) as name, nullif(trim(f.properties.Grades), '') as grades,
+       coalesce(try_cast(nullif(regexp_extract(trim(f.properties.Grades), '^(K|\d+)'), 'K') as int), 0) as lvl,
+       gj_geom(f.geometry) as geom
+from (select unnest(features) f from read_json('data/raw/walkzones_*.json', maximum_object_size = 50000000))
+where f.geometry is not null and nullif(trim(f.properties.Title), '') is not null;
+
 create or replace table rse as
 select f.properties.COMPOSITE_QUINTILE as quintile, f.properties.INDEX_YEAR as yr, gj_geom(f.geometry) as geom
 from (select unnest(features) f from read_json('data/raw/rse_*.json', maximum_object_size = 50000000))
@@ -91,7 +102,11 @@ from (select unnest(features) f from read_json('data/raw/council_*.json', maximu
 where f.geometry is not null;
 
 create or replace table loc_area_ctx as
-with sch as (   -- nearest public school within 1,000 ft
+with wz as (   -- the school walk zones a place is inside (zones can overlap: an elementary and a middle school's)
+  select location, list(name order by lvl, name) as walk_zones
+  from (select distinct p.location, z.name, z.lvl from loc_pts p join walk_zones z on ST_Intersects(p.geom, z.geom))
+  group by location),
+sch as (   -- nearest public school within 1,000 ft
   select p.location, arg_min(s.name, {'d': ST_Distance(p.geom, s.geom), 'n': s.name}) as school, min(ST_Distance(p.geom, s.geom)) as school_ft
   from loc_pts p join schools s on ST_DWithin(p.geom, s.geom, school_ft()) group by p.location),
 -- A place just outside every district (streets on the city limit, e.g. N 145th St) takes the nearest one within
@@ -112,8 +127,8 @@ cd as (select location, arg_min({'d': district, 'm': member, 'u': url}, {'x': d,
        from (select *, min(d) over (partition by location) as d0 from cdd) group by location)
 select l.location, sch.school, round(sch.school_ft) as school_ft, eq.e.q as rse_quintile, eq.e.y as rse_year,
        cd.c.d as council_district, cd.c.m as council_member, cd.c.u as council_url,
-       list_min(list_filter(cd.near, lambda x: x <> cd.c.d)) as council_district2
-from locations l left join sch using (location) left join eq using (location) left join cd using (location);
+       list_min(list_filter(cd.near, lambda x: x <> cd.c.d)) as council_district2, wz.walk_zones
+from locations l left join wz using (location) left join sch using (location) left join eq using (location) left join cd using (location);
 
 -- ---------------------------------------------------------------- before and after
 -- Older crashes (from the first one fetched, up to the scored years) plus the current ones, with the current place names: intersections by

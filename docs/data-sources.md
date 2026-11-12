@@ -147,8 +147,8 @@ All read by `pipeline/fetch.ps1`, joined in `pipeline/traffic.sql`. Context only
 | Sidewalks_(Active)/FeatureServer/0, `CONDITION IN ('POOR','VERY-POOR')` | Blocks with the most sidewalk rated poor | Most poor ratings are from 2017 surveys; some may be fixed. Ranked by length, so long blocks rank high. |
 
 Never fetched: owner or parcel fields (PROPERTY_OWNER_RESPONSIBILITY, NEAREST_PARCEL_ID_NUMBER and similar). The map is about
-streets, not singling out homes. Candidates for later: Substandard Sidewalks (layer 19), Enhanced Street Crossings (layer 17),
-School_Walking_Boundaries. (Curb ramps and marked crosswalks are now used; see below.)
+streets, not singling out homes. Candidates for later: Substandard Sidewalks (layer 19), Enhanced Street Crossings (layer 17).
+(Curb ramps, marked crosswalks and school walk zones are now used; see below.)
 
 ## Added for SDOT's planned projects (2026-11)
 Shown on the map (layer "SDOT planned & recent projects"), in each crash spot's "What SDOT has done" section, on the
@@ -181,6 +181,8 @@ Context only, never scored. Built in `pipeline/context.sql`; fetched in `pipelin
 | Bike facilities (all types) | `SDOT_Bike_Facilities/FeatureServer/2`, in service | "The street": protected, buffered, painted, uphill lane, greenway, sharrows, trail | Intersections: any within 60 ft. Blocks: only a facility running along at least half the block. |
 | Traffic circles | `Traffic_Circles_view/FeatureServer/0`, in service | "What SDOT has done here" (with install date) and before/after | Within 100 ft of an intersection. |
 | Public schools | `Public_School/FeatureServer/0` (school types only; admin and closed sites dropped) | Nearest school within 1,000 ft, for spots and pins | Building point, not the school grounds. |
+| School walk zones | `School_Walking_Boundaries/FeatureServer/4` (SDOT and Seattle Public Schools' School Walking Maps) | A map layer (off until switched on), and "Inside the walk zone of X" on places within one | Context only, never scored. Zones can overlap; a place lists every zone it's in. SDOT updates the layer by hand about once a year. |
+| King County street names (from the address points above) | Same layer | Plain street names: a SDOT name with a roadway code ("N 107TH S ST") is shown without it only when King County has addresses on the plain street, and no other place would get the same name (`pipeline/addresses.sql`) | SDOT's spelling is kept in search, downloads and on each place's page. |
 | Street addresses | King County `Address/KingCo_AddressPoints/MapServer/0`, `CTYNAME = 'SEATTLE'`, primary addresses only | Address suggestions in search (house number + street); picking one pins it | Only number, street parts and ZIP are fetched (no parcel or owner fields). Built in `pipeline/addresses.sql`. If the county's server is down and no earlier copy exists, suggestions pause for a week; "Find this address" still works through the geocoder. |
 | Race and Social Equity Index | `Race_and_Social_Equity_Composite_Index_Current/FeatureServer/0` | The census tract's composite level (of five), shown for context | The City's own index for prioritizing investment. Not part of the score. |
 | WSDOT state routes, access control, state bridges | data.wsdot.wa.gov `Shared/LRSData/FeatureServer/0,1,2` (route lines and ramps), `Shared/RoadwayCharacteristicData/FeatureServer/1` (access control), `Shared/BridgeData/FeatureServer/0` (state bridges) | Which places are on a state highway, and who runs them | A place is on a route when most of its own street (a block, or a street piece at a corner) is within 50 ft of the route line. WSDOT runs it when it is a bridge, ramp, tunnel or highway piece that is mostly limited access or a state bridge; a state highway on a plain city street is run by the City (RCW 47.24) and counted as a city street. Streets passing under bridges or over the tunnel are left out. |

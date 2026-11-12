@@ -177,7 +177,7 @@ where r.rank <= list_n() or m1.rk <= top_n();
 
 -- Newest crash records, not in the ranking yet: the months after the scored window.
 create or replace table recent_ksi as
-select c.location, count(*) filter (where c.severity = 'Fatal Collision') as fatal,
+select c.location, count(*) filter (where c.severity = 'Fatal Collision') as fatal, sum(c.fatalities) as killed,
        count(*) filter (where c.severity = 'Serious Injury Collision') as serious,
        max(c.date) as last_date, any_value(r.rank) as rank, any_value(r.lat) as lat, any_value(r.lon) as lon
 from collisions c left join ranked r using (location)
@@ -232,7 +232,7 @@ recent as (
 ),
 places as (
   select r.location, coalesce(r.council_district::varchar, 'none') as district, coalesce(r.rse_quintile, 'none') as rse,
-    r.ksi, r.killed, r.seriously_injured, r.rank, r.addr_type, r.lat, r.lon, r.rank <= top_n() as top50, coalesce(fx.lpi, 0) as lpi, coalesce(fx.other, 0) as other,
+    r.ksi, r.killed, r.fatal, r.seriously_injured, r.rank, r.addr_type, r.lat, r.lon, r.rank <= top_n() as top50, coalesce(fx.lpi, 0) as lpi, coalesce(fx.other, 0) as other,
     r.location in (select location from recent) as fixed_recently,
     r.location in (select location from end_fixes) as ends_fixed,
     coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned' or len(r.cip) > 0, false) as proj_planned,
@@ -244,18 +244,21 @@ select * from places;
 -- Need and work by council district and by the City's equity index.
 create or replace table need_work as
 with places as (select * exclude (crashes, ped_crashes, bike_crashes) from place_work),
+-- A place on a district line (the boundary runs down its street) counts in both districts, as on the map's district lists,
+-- so each office sees it; district totals then add up to more than the city's (the page says by how many places).
 long as (
-  select 'district' as dim, district as grp, * exclude (district, rse) from places
-  union all select 'rse', rse, * exclude (district, rse) from places
+  select 'district' as dim, district as grp, council_district2::varchar as line, * exclude (district, rse) from places
+  union all select 'district', council_district2::varchar, district, * exclude (district, rse) from places where council_district2 is not null
+  union all select 'rse', rse, null, * exclude (district, rse) from places
 ),
 by_g as (
-  select dim, grp, sum(ksi) as ksi, sum(killed) as killed, sum(seriously_injured) as hurt, sum(lpi) as fixes_lpi, sum(other) as fixes_other,
+  select dim, grp, sum(ksi) as ksi, sum(killed) as killed, sum(fatal) as fatal, sum(seriously_injured) as hurt, sum(lpi) as fixes_lpi, sum(other) as fixes_other,
     count(*) filter (where top50) as top50,
     count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null) as top50_nothing,
     count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null and ends_fixed) as top50_ends,
     count(*) filter (where top50 and state_route is not null) as top50_state,
     list({'loc': location, 'r': rank, 't': addr_type, 'fixed': fixed_recently, 'ends': ends_fixed, 'planned': proj_planned, 'state': state_route, 'k': ksi,
-          'line': case when dim = 'district' then council_district2 end}
+          'line': line}
          order by rank) filter (where top50) as top50_list
   from long group by dim, grp
 ),
@@ -278,7 +281,7 @@ with sp as (
                      else list_distinct(string_split(location, ' AND ')) end) as street, *
   from place_work
 )
-select street, count(*) as places, sum(crashes) as crashes, sum(ksi) as ksi, sum(killed) as killed,
+select street, count(*) as places, sum(crashes) as crashes, sum(ksi) as ksi, sum(killed) as killed, sum(fatal) as fatal,
   sum(seriously_injured) as hurt, sum(ped_crashes) as ped, sum(bike_crashes) as bike,
   count(*) filter (where rank <= top_n()) as top50, count(*) filter (where rank <= wide_n()) as top100,
   count(*) filter (where rank <= wide_n() and state_route is not null) as top100_state,
@@ -318,6 +321,24 @@ select * from working_fix where a >= inc_min_crashes() and a >= b and b >= inc_m
   and days >= inc_min_days()
 qualify row_number() over (partition by k order by a - b desc, a desc, rank nulls last, location) <= 40;
 
+-- The same list as a spreadsheet (site/data/increases.csv, finished by run.ps1 with the data date and each place's link):
+-- the rows the page shows (kinds of fix with too few separate install dates are left off there, so here too), with SDOT's
+-- own location text and intersection key, so a row can be checked against SDOT's records.
+copy (
+  with sdot as (select location, string_agg(distinct sdot_location, ' / ' order by sdot_location) as sdot_names
+                from collisions where sdot_location is not null group by location)
+  select w.k as fix, case when w.yo then year(w.d)::varchar || ' (year only)' else w.d::varchar end as fix_date,
+         case w.m when 'ped' then 'Crashes involving someone walking' when 'turnped' then 'People walking hit by turning drivers'
+                  when 'rightped' then 'People walking hit by right-turning drivers' when 'bike' then 'Crashes involving someone on a bike'
+                  when 'left' then 'Left-turn crashes' when 'all' then 'Crashes of any kind' else w.m end as targets,
+         w.location, s.sdot_names, l.intkey, w.district, w.rank, w.b as before, w.a as after,
+         round(w.days / 365.25, 1) as years_each_side, w.pb as earlier
+  from working_places w
+  join working_kind k on k.k = w.k and k.m = w.m and coalesce(k.n_dates, 0) >= ba_cluster_dates()
+  left join sdot s using (location) left join locations_all l using (location)
+  order by w.k, w.a - w.b desc, w.a desc, w.rank nulls last, w.location
+) to 'data/increases_raw.csv' (header true);
+
 -- ---------------------------------------------------------------- export: site/data/progress.json
 copy (
   select {
@@ -340,12 +361,13 @@ copy (
       'moves': (select list({'loc': location, 'now': rank_now, 'was': rank_before, 'in50': top50} order by rank_now)
                 from month_change where top50 is not null or (rank_now <= top_n() and rank_before - rank_now >= move_min())
                   or (rank_before <= top_n() and rank_now - rank_before >= move_min())),
-      'recent_ksi': (select list({'loc': location, 'f': fatal, 's': serious, 'last': last_date, 'rank': rank}
+      'recent_ksi': (select list({'loc': location, 'f': fatal, 'kd': killed, 's': serious, 'last': last_date, 'rank': rank}
                                  order by fatal desc, serious desc, last_date desc, location) from recent_ksi),
-      'recent_ksi_total': (select {'f': sum(fatal), 's': sum(serious), 'from': we(), 'to': max(last_date)} from recent_ksi),
+      'recent_ksi_total': (select {'f': sum(fatal), 'kd': sum(killed), 's': sum(serious), 'from': we(), 'to': max(last_date)} from recent_ksi),
       'recent_fixes': (select list({'loc': location, 'k': k, 'd': d, 'rank': rank} order by d desc, rank) from recent_fixes)
     },
-    'need': (select list({'dim': dim, 'g': grp, 'ksi': ksi, 'killed': killed, 'hurt': hurt, 'top50': top50, 'top50_nothing': top50_nothing, 'top50_state': top50_state,
+    'district_line': (select {'n': count(*), 'ksi': coalesce(sum(ksi), 0), 'top': count(*) filter (where top50)} from place_work where council_district2 is not null),
+    'need': (select list({'dim': dim, 'g': grp, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'top50': top50, 'top50_nothing': top50_nothing, 'top50_state': top50_state,
                           'lpi': fixes_lpi, 'other': fixes_other, 'proj_planned': proj_planned, 'list': top50_list}
                          order by dim, grp) from need_work),
     'working': {
@@ -356,7 +378,7 @@ copy (
       'places': (select list({'loc': location, 'k': k, 'm': m, 'd': d, 'yo': yo, 'days': days, 'b': b, 'a': a, 'pb': pb, 'rank': rank, 'dist': district}
                              order by k, a - b desc, a desc, rank nulls last, location) from working_places)
     },
-    'streets': (select list({'s': street, 'n': places, 'c': crashes, 'ksi': ksi, 'killed': killed, 'hurt': hurt, 'ped': ped, 'bike': bike,
+    'streets': (select list({'s': street, 'n': places, 'c': crashes, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'ped': ped, 'bike': bike,
                               't50': top50, 't100': top100, 't100_state': top100_state, 't100_none': top100_nothing,
                               'dist': districts, 'worst': worst, 'wr': worst_rank} order by ksi desc, crashes desc, street)
                  from (select * from street_totals order by ksi desc, crashes desc, street limit 30)),

@@ -79,9 +79,11 @@ create or replace macro inc_min_crashes() as 2;     -- "Increases to look into":
 create or replace macro inc_min_days() as 730;      -- ...over at least this long on each side
 create or replace macro wide_n() as 100;            -- "Whole streets": places in the citywide top 100 (and top_n)
 create or replace macro cmp_lag_months() as 6;      -- past rankings are compared with the last full years ending this long ago (severity fills in late)
-create or replace macro move_min() as 5;
+create or replace macro move_min() as 5;             -- "what changed since last month": top places that moved at least this many ranks
 create or replace macro deaths_min() as 2;          -- places where at least this many people died are always listed
-create or replace macro repeat_years() as 3;        -- "repeat serious crashes": someone killed or seriously hurt in this many different years            -- "what changed since last month": top places that moved at least this many ranks
+create or replace macro repeat_years() as 3;        -- "repeat serious crashes": someone killed or seriously hurt in this many different years
+create or replace macro ba_few_dates() as 5;         -- "Is it working?": a kind of fix with fewer separate install dates than this is too few to tell...
+create or replace macro ba_cluster_dates() as 30;     -- ...and under this many, no claim about chance (blocks done in one project rise and fall together)
 create or replace macro bus_min_mi() as 0.25;       -- bus stretches shorter than this aren't ranked (whole-minute timetables)
 -- Interstate numbers are federal names (I-5 rather than SR 5); they don't change. Which routes are freeways comes from
 -- WSDOT's access-control data instead (state_routes.sql).
@@ -778,7 +780,7 @@ create or replace table spot_export as
          fixes, end_fixes, vol_history, bus_trips, bus_routes, bus_stretch_id,
          sw_missing_tier, sw_poor_ft, sw_poor_assessed, proj_ids, proj_planned, cip, signal_installed,
          crosswalks, crosswalks_midblock, crosswalk_school, crosswalk_controls, curb_ramps, curb_ramps_poor, bike_facilities,
-         school, school_ft, rse_quintile, rse_year, council_district, council_district2, council_member, council_url, before_after,
+         school, school_ft, walk_zones, rse_quintile, rse_year, council_district, council_district2, council_member, council_url, before_after,
          rank_years, rank_month_ago, rank_year_ago
   from ranked left join place_history using (location) left join end_fixes using (location);
 
@@ -854,7 +856,7 @@ copy (
 -- Places keep SDOT's own names; counts only, no costs.
 copy (
   select rank, case addr_type when 'I' then 'Intersection' when 'B' then 'Stretch' else 'Alley' end as type,
-         location, council_district, council_district2, area, crashes, ksi, killed, seriously_injured,
+         location, council_district, council_district2, area, crashes, ksi, fatal, killed, seriously_injured,
          ped_crashes, bike_crashes, state_route, round(score_ksi, 1) as score,
          ws() as crashes_from, (we() - interval 1 day)::date as crashes_to
   from ranked order by rank
@@ -969,6 +971,8 @@ copy (
     -- citywide totals for the summary at the top of the list (people, not crashes)
     (select sum(fatalities) from collisions where date >= ws() and date < we())
       + (select coalesce(sum(fatalities), 0) from collisions_unlocated where date >= ws() and date < we()) as city_killed,
+    (select count(*) filter (where severity = 'Fatal Collision') from collisions where date >= ws() and date < we())
+      + (select count(*) filter (where severity = 'Fatal Collision') from collisions_unlocated where date >= ws() and date < we()) as city_fatal,
     (select sum(serious_injuries) from collisions where date >= ws() and date < we())
       + (select coalesce(sum(serious_injuries), 0) from collisions_unlocated where date >= ws() and date < we()) as city_serious,
     (select count(*) from collisions_unlocated where date >= ws() and date < we()
@@ -1021,9 +1025,15 @@ copy (
      'school_ft': school_ft(), 'merge_ft': round(merge_dlat() * 111320 / 0.3048, -1)::int, 'hist_from_year': hist_from_year(),
      'worst_n': worst_n(), 'worst_ref_to': worst_ref_to(), 'recent_fix_days': recent_fix_days(), 'ba_min_days': ba_min_days(),
      'ba_max_days': ba_max_days(), 'inc_min_crashes': inc_min_crashes(), 'inc_min_days': inc_min_days(), 'wide_n': wide_n(),
-     'cmp_lag_months': cmp_lag_months(), 'move_min': move_min(), 'bus_min_mi': bus_min_mi(),
+     'cmp_lag_months': cmp_lag_months(), 'move_min': move_min(), 'ba_few_dates': ba_few_dates(), 'ba_cluster_dates': ba_cluster_dates(), 'bus_min_mi': bus_min_mi(),
      'signal_from_year': year(signal_from()), 'deaths_min': deaths_min(), 'repeat_years': repeat_years()} as cfg,
     hist_start() as crash_hist_from,
+    -- plain street names (addresses.sql): SDOT's names with a roadway code the page shows without it, and the names that keep
+    -- SDOT's spelling because they'd match another; with how many places each way, reported by the weekly build
+    {'parts': map_from_entries(coalesce((select list({'k': p, 'v': plain} order by p) from plain_parts), [])),
+     'keep': coalesce((select list(x order by x) from plain_keep), []),
+     'places_plain': (select count(*) from (select distinct location from collisions) where plain_name(location) <> location and location not in (select x from plain_keep)),
+     'places_kept': (select count(*) from (select distinct location from collisions) where location in (select x from plain_keep))} as plain_names,
     -- Facts the page states about the data, measured each week (so a sentence like "has no locations" can't go stale):
     -- the divided street with the most crashes whose two sides were merged into one place (the page's example)
     (select arg_max(location, n) from (select location, count(*) as n from collisions
@@ -1063,6 +1073,12 @@ copy (
                              round(ST_X(ST_Transform(geom, 'EPSG:2926', 'EPSG:4326')), 5)::varchar, type] order by name) from schools)
   } as ctx
 ) to 'site/data/context.json' (format json, array false);
+
+-- School walk zones' outlines for the map layer (simplified to ~20 ft), with each school's name and grades.
+copy (
+  select {'zones': coalesce((select list({'n': name, 'g': grades,
+          'geom': ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(geom, 20), 'EPSG:2926', 'EPSG:4326'))::json} order by name) from walk_zones), [])} as wz
+) to 'site/data/walk_zones.json' (format json, array false);
 
 -- City outline (council districts merged), simplified to ~40 ft, so the map shows exactly the area covered.
 copy (
