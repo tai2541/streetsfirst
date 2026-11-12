@@ -58,9 +58,7 @@ re-numbers the places within that choice; the citywide number is shown beside it
 directions as separate lines (e.g. "M L KING JR ER WAY S" and "... WR ..."), crashes on two lines that close
 together count as one place.
 
-The site also offers "Risk for its traffic" (the same expected harm per vehicle) and "Most likely to hurt people walking
-or biking" (the same expected harm from only the crashes involving someone walking or biking, blended with what's typical
-for those crashes on similar streets; tested out of sample the same way, results on the site). The original
+The site also offers "Risk for its traffic" (the same expected harm per vehicle). The original
 fatal-weighted ranking was retired from the site. All weights are in the
 `weights` table at the top of `pipeline/build.sql`.
 
