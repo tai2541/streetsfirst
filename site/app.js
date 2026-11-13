@@ -705,6 +705,7 @@
     polys.forEach(p => L.polygon(toLL(p[0]), { pane: 'boundary', color: '#3a4456', weight: 3, opacity: 0.85, fill: false, interactive: false }).addTo(map));
   }
   const layer = L.featureGroup().addTo(map);
+  let distLine = null;   // the picked council district's outline (distOutline)
   const isNarrow = () => window.innerWidth <= 760;
   // Desktop: the list floats over the map's left side, so map fitting keeps clear of it (panel + its 16px margin).
   const leftPad = () => (isNarrow() ? 0 : document.getElementById('panel').offsetWidth + 16);
@@ -4241,7 +4242,21 @@
     el.innerHTML = n ? `<b>${n} of the ${lastShown.length} places in this list ${n === 1 ? 'is' : 'are'} run by WSDOT</b> (freeways, ramps, state bridges), not the City: each is tagged “run by WSDOT”. Questions about ${n === 1 ? 'it go' : 'them go'} to WSDOT.` : '';
     el.hidden = !n;
   }
+  // The picked council district's outline (the City's district map), so it's clear which streets the list covers.
+  function distOutline(dist) {
+    if (distLine) { map.removeLayer(distLine); distLine = null; }
+    const c = dist && (CTX.council || []).find(x => +x.d === +dist);
+    if (!c || !c.geom || !map.getPane('boundary')) return;
+    // outside the district dimmed, the edge drawn solid (dashed blue lines on this map are SDOT projects)
+    const polys = c.geom.type === 'MultiPolygon' ? c.geom.coordinates : [c.geom.coordinates];
+    const toLL = ring => ring.map(([x, y]) => [y, x]), world = [[85, -180], [85, 180], [-85, 180], [-85, -180]];
+    distLine = L.featureGroup([
+      L.polygon([world, ...polys.map(p => toLL(p[0]))], { pane: 'boundary', stroke: false, fillColor: '#1d2430', fillOpacity: 0.22, interactive: false }),
+      ...polys.map(p => L.polygon(toLL(p[0]), { pane: 'boundary', color: '#fff', weight: 8, opacity: 0.9, fill: false, interactive: false })),
+      ...polys.map(p => L.polygon(toLL(p[0]), { pane: 'boundary', color: '#111827', weight: 4, opacity: 1, fill: false, interactive: false }))]).addTo(map);
+  }
   function distCard(dist) {
+    distOutline(dist);
     const el = document.getElementById('distSummary'); if (!el) return;
     const P = D.progress, rows = P && P.need ? P.need.filter(r => r.dim === 'district') : [];
     const r = rows.find(x => x.g === String(dist));
@@ -4253,7 +4268,8 @@
     el.innerHTML = `<div class="cs-head">District ${esc(r.g)}${c && c.member ? ' · Councilmember ' + esc(c.member) + sinceTxt(c.since) : ''} · ${windowTxt()}</div>
       <div class="cs-nums">
         <div><b>${fmt(r.ksi)}</b><span>crashes that killed or seriously hurt someone (${pct(r.ksi, tot('ksi'))}% of the city's)${r.killed != null ? `: ${r.killed ? killedTxt(r.killed, r.fatal) : 'no one killed'}, ${fmt(r.hurt)} seriously injured` : ''}</span></div>
-        <div><b>${fmt(r.top50)}</b><span>of the citywide top ${TOP} places${r.top50_state ? `: ${r.top50_state} run by WSDOT, ${r.top50 - r.top50_state} on city streets` : ''}</span></div>
+        <div><b>${fmt(r.top50)}</b><span>of the citywide top ${TOP} places${r.top50_state ? `: ${r.top50_state} run by WSDOT, ${r.top50 - r.top50_state} on city streets` : ''}${(n => n
+          ? `. ${n} of these ${n === 1 ? 'is' : 'are'} shared with a neighbouring district (on the line between them, counted in both), so district counts add up to more than ${TOP}` : '')((r.list || []).filter(x => x.line).length)}</span></div>
         ${r.top50 ? `<div><b>${fmt(r.top50_nothing)}</b><span>of the ${r.top50_state ? `${r.top50 - r.top50_state} on city streets` : `citywide top ${TOP} here`} with no work counted since ${esc(P.since_d)} or planned* (work before then isn't counted${r.top50_ends ? `; ${r.top50_ends} had work at the corners at their ends` : ''}; see each place)</span></div>` : ''}
       </div>
       <div class="cs-state" id="distState" hidden></div>
