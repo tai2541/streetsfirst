@@ -47,8 +47,8 @@ before the newest crash (recent police reports arrive late):
 2. **Repeated deaths compound:** the nth fatal crash at a spot counts 30 x 1.5^(n-1).
 3. **Expected harm (empirical Bayes):** the fatal/serious part is blended with the typical
    rate for similar spots (same location type and street class), weighted crashes / (crashes + 20).
-   Chosen because it best predicted later fatal/serious crashes in an out-of-sample test
-   (rank on the first 3 years, count KSI crashes in the last 2). Results are on the site.
+   In out-of-sample tests (rank on earlier years, count KSI crashes in the later ones) it does about as well
+   as ranking by crash counts. Results are on the site, updated each week.
 4. **Repair requests don't change the score.** They are listed on each place's page, but how often people
    report problems depends on who lives and travels there as much as on danger. (A capped +25% boost was dropped in 2026.)
 

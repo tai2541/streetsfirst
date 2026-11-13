@@ -45,7 +45,7 @@ const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
   <div class="txt">
     <div class="brand">${icon.replace(/<svg /, '<svg width="64" height="64" ')}Streets First · Seattle</div>
     <h1>Where streets hurt people most</h1>
-    <p>And whether it's getting fixed. Red dots: the ${top} places where people are most likely to be killed or seriously hurt.</p>
+    <p>And whether it's getting fixed. Red dots: the ${top} places with the highest expected harm, estimated from past crashes that killed or hurt people.</p>
   </div>
   <div class="date">Data as of ${asOf} · rebuilt every week</div>
 </body></html>`;

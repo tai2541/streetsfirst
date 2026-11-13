@@ -288,7 +288,7 @@
 
   // ---------- ranking modes ----------
   const MODES = {
-    ksi: { label: 'Most likely to hurt people', hint: `Where crashes are most likely to kill or seriously hurt someone next, estimated from ${WY} years of every crash, not only the worst. The score adds up every crash here, weighted by how badly people were hurt; ▲ and ▼ show places that moved up or down the ranking since last month. Start here.`, unit: 'score' },
+    ksi: { label: 'Most likely to hurt people', hint: `The places with the highest expected harm: an estimate, from ${WY} years of every crash (not only the worst), of where people are likeliest to be killed or seriously hurt next. The score adds up every crash here, weighted by how badly people were hurt; ▲ and ▼ show places that moved up or down the ranking since last month. Start here.`, unit: 'score' },
     risk: { label: 'Most dangerous for how busy it is', hint: 'Crash harm for every million vehicles that pass through. Often quieter streets.', unit: 'per million vehicles' }
   };
   let mode = (() => { try { return JSON.parse(localStorage.getItem('ipm.mode')) || 'ksi'; } catch { return 'ksi'; } })();
@@ -427,6 +427,14 @@
       `<div class="workrow w-${w.cls}">${esc(w.short)}</div>`;
   }
 
+  // In short: next to a place on the list where more people were killed: say why, when the crash counts show it (the score weighs every crash).
+  function nextToDeath(p) {
+    const r = p.rank_ksi, lo = r != null && byId.get(r + 1), hi = r != null && byId.get(r - 1), k = x => x.killed || 0;
+    const at = q => `${rankTxt(q.rank_ksi)} ${esc(niceName(q.location))}`;
+    if (lo && k(lo) > k(p) && p.crashes > lo.crashes) return ` It ranks just above ${at(lo)}, which had ${killedTxt(lo.killed, lo.fatal)}: the score weighs every crash, not only the worst (${plural(p.crashes, 'crash', 'crashes')} here, ${fmt(lo.crashes)} there).`;
+    if (hi && k(hi) < k(p) && hi.crashes > p.crashes) return ` It ranks just below ${at(hi)}, where ${k(hi) ? 'fewer people were' : 'no one was'} killed: the score weighs every crash, not only the worst (${plural(hi.crashes, 'crash', 'crashes')} there, ${fmt(p.crashes)} here).`;
+    return '';
+  }
   // What has been done here, in one line, from the layers this site reads (SDOT's data has gaps, so "nothing" is
   // always worded as "nothing recorded in these layers"). Budget projects are shown, never counted as fixes; a bus lane since then is listed, but isn't safety work (In short names it as a transit project).
   const projKind = j => (j.kind === 'lpi' ? 'head-start walk signal' : j.kind === 'sidewalk' ? 'new sidewalk' : (j.scope || 'safety project').toLowerCase().split(',')[0]);
@@ -1757,7 +1765,7 @@
       : p.killed ? `${killedTxt(p.killed, p.fatal)} here`
       : p.seriously_injured ? `${plural(p.seriously_injured, 'person', 'people')} seriously injured here`
       : `${plural(p.crashes, 'crash', 'crashes')} here, none of them killing or seriously hurting anyone`;
-    const s1 = `${rk <= TOP ? `One of the ${TOP} places in Seattle` : `Ranks #${fmt(rk)} of Seattle's ${fmt(kindCount(rk))} places with crashes`}${rk <= TOP ? ` most likely to see someone killed or seriously hurt (#${fmt(rk)})` : ' for how likely someone is to be killed or seriously hurt there'}: ${hurt} since ${since}.`;
+    const s1 = `${rk <= TOP ? `#${fmt(rk)} of the ${TOP} places in Seattle with the highest expected harm (an estimate, from past crashes, of where someone is likeliest to be killed or seriously hurt)` : `Ranks #${fmt(rk)} of Seattle's ${fmt(kindCount(rk))} places with crashes for expected harm (an estimate, from past crashes, of how likely someone is to be killed or seriously hurt there)`}: ${hurt} since ${since}.${nextToDeath(p)}`;
     // a stretch: work at the corners at its ends doesn't count as its own, but say it's there
     const block = p.addr_type !== 'I', endDone = block && (p.end_fixes || []).some(f => f.d >= meta.window_from), endPlan = block && endPlanned(p).length > 0;
     const corner = endDone && endPlan ? '; the corners at its ends have some, with more planned there'
@@ -1832,7 +1840,7 @@
       ? `<p><b>Risk ${p.score_risk.toFixed(1)} per million vehicles</b> = expected harm ${fmt(Math.round(p.expected_harm))} ÷
           (${fmt(Math.max(p.volume, weight('risk_vol_floor')))} vehicles a weekday × 365 × ${WY} years ÷ 1 million).</p>`
       : `<p class="note">Not ranked for risk: ${p.volume ? `fewer than ${weight('risk_min_crashes')} crashes` : 'no SDOT traffic count'}.</p>`;
-    const ranks = `<p class="note">Ranks${asOfShort() ? ` as of ${asOfShort()}` : ''}: ${rankTxt(p.rank_ksi)} most likely to hurt people · ${p.rank_risk ? '#' + p.rank_risk : 'unranked'} for how busy it is.
+    const ranks = `<p class="note">Ranks${asOfShort() ? ` as of ${asOfShort()}` : ''}: ${rankTxt(p.rank_ksi)} for expected harm · ${p.rank_risk ? '#' + p.rank_risk : 'unranked'} for how busy it is.
         Ranks change weekly, so quote one with its date${asOfShort() && p.rank_ksi ? ` (“${rankTxt(p.rank_ksi)} as of ${asOfShort()}”)` : ''}; <a href="https://github.com/tai2541/streetsfirst/releases" target="_blank" rel="noopener">each week's list is saved</a>.</p>`;
     return (mode === 'risk' ? riskLine + ksiLine : ksiLine + riskLine) + ranks;
   }
@@ -3509,7 +3517,7 @@
             (meta.unknown_from && meta.unknown_recent && meta.unknown_recent.n ? ` Test 1's later years include ${fmt(meta.unknown_recent.n)} crash reports from ${monthYear(meta.unknown_from)} on that don't list a severity.` : '');
         })()}</p>
       ${V.expected_split && V.expected ? `<p class="note">Intersections and stretches are ranked together in one list, so the top of the list
-        is whichever places are most likely to hurt people. Ranking them apart and alternating (the way SDOT lists its High Collision
+        is whichever places have the highest expected harm. Ranking them apart and alternating (the way SDOT lists its High Collision
         Locations, and this site's rule until November 2026) caught ${one.k50}${two ? ' and ' + one.b50 : ''} in the top ${TOP}, against
         ${ex2.k50}${two ? ' and ' + ex2.b50 : ''} for one list, and ${one.k200}${two ? ' and ' + one.b200 : ''} in the top ${LIST}, against
         ${ex2.k200}${two ? ' and ' + ex2.b200 : ''}. Use "Show" to see intersections or stretches on their own, ranked again within that kind.</p>` : ''}
