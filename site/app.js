@@ -291,7 +291,7 @@
 
   // ---------- ranking modes ----------
   const MODES = {
-    ksi: { label: 'Most likely to hurt people', hint: `The places with the highest expected harm: an estimate, from ${WY} years of every crash (not only the worst), of where people are likeliest to be killed or seriously hurt next. The score adds up every crash here, weighted by how badly people were hurt; ▲ and ▼ show places that moved up or down the ranking since last month. Start here.`, unit: 'score' },
+    ksi: { label: 'Most likely to hurt people', hint: `The places with the highest expected harm: an estimate, from ${WY} years of every crash (not only the worst), of where people are likeliest to be killed or seriously hurt next. The score adds up every crash here, weighted by how badly people were hurt; the list is rebuilt every week (late crash reports can move it), and ▲ and ▼ show places that moved since last month's list. Start here.`, unit: 'score' },
     risk: { label: 'Most dangerous for how busy it is', hint: 'Crash harm for every million vehicles that pass through. Often quieter streets.', unit: 'per million vehicles' }
   };
   let mode = (() => { try { return JSON.parse(localStorage.getItem('ipm.mode')) || 'ksi'; } catch { return 'ksi'; } })();
@@ -455,17 +455,21 @@
   }
   function workSummary(p) {
     const d0 = meta.window_from, since = monthYear(d0);
-    const done = [], bus = [], at = (d, k) => ({ d, y: +d.slice(0, 4), k });
+    const done = [], bus = [], at = (d, k, yo) => ({ d, y: +d.slice(0, 4), k, yo });
+    // In the crash window's first year a year alone can't say which side of the start a fix is on: give the month too
+    // (a date SDOT gives as a year only stays a year, marked so).
+    const Y0 = +d0.slice(0, 4);
+    const when = f => f.y !== Y0 ? String(f.y) : f.yo || /-12-3[01]/.test(f.d) ? `${f.y}, month not given` : monthYear(f.d);
     if (p.lpi_status === 'Existing' && p.lpi_installed) done.push(at(p.lpi_installed, 'head-start walk signal'));
     if (p.lt_protected && p.lt_installed) done.push(at(p.lt_installed, 'protected left turn'));
     if (p.ntor_status === 'Existing' && p.ntor_installed) done.push(at(p.ntor_installed, 'no turn on red'));
     if (p.signalized && p.signal_installed && +p.signal_installed.slice(0, 4) >= cfg('signal_from_year')) done.push(at(p.signal_installed, 'signal installed or rebuilt'));
     (p.fixes || []).filter(f => f.s === 'Built' && f.d).forEach(f => (f.k === 'Bus lane' ? bus : done).push(at(f.d, f.k.toLowerCase())));
     // a finished project has a year only: counted as 1 July, as on "Is it getting fixed?"
-    projectsAt(p).filter(j => j.stage === 'done' && j.year).forEach(j => done.push(at(j.year + '-07-01', projKind(j))));
+    projectsAt(p).filter(j => j.stage === 'done' && j.year).forEach(j => done.push(at(j.year + '-07-01', projKind(j), true)));
     done.sort((a, b) => b.d.localeCompare(a.d) || a.k.localeCompare(b.k));
     const uniq = a => [...new Map(a.map(f => [f.k, f])).values()];
-    const list = a => uniq(a).slice(0, 3).map(f => `${f.k} (${f.y})`).join(', ') + (uniq(a).length > 3 ? ', more' : '');
+    const list = a => uniq(a).slice(0, 3).map(f => `${f.k} (${when(f)})`).join(', ') + (uniq(a).length > 3 ? ', more' : '');
     const recent = done.filter(f => f.d >= d0), older = done.filter(f => f.d < d0);
     const planned = [...new Set(projectsAt(p).filter(j => j.stage !== 'done').map(projKind))];
     if (p.lpi_status === 'Planned' && !planned.includes('head-start walk signal')) planned.push('head-start walk signal');
@@ -477,7 +481,7 @@
     const ends = (p.end_fixes || []).filter(f => f.d >= d0);
     if (ends.length) {
       const atC = [...new Set(ends.map(f => f.at))].map(a => `at ${niceName(a)}: ` + uniq(ends.filter(f => f.at === a)
-        .sort((a, b) => b.y - a.y || a.k.localeCompare(b.k)).map(f => ({ k: f.k.toLowerCase(), y: f.y }))).map(f => `${f.k} (${f.y})`).join(', '));
+        .sort((a, b) => b.y - a.y || a.k.localeCompare(b.k)).map(f => ({ k: f.k.toLowerCase(), y: f.y, d: f.d }))).map(f => `${f.k} (${when(f)})`).join(', '));
       parts.push(`${recent.length ? 'At' : 'Only at'} the corners at its ends since ${since} (they don't reach crashes along the block): ${atC.join('; ')}`);
     }
     if (planned.length) parts.push(`Planned here or nearby: ${planned.join(', ')}`);
@@ -486,8 +490,8 @@
     if (cip.length) parts.push(`Money budgeted ${cip[0].y0 === cip[0].y1 ? 'in ' + cip[0].y0 : cip[0].y0 + '–' + cip[0].y1} for a project named for this street, “${cip[0].t}” (it may not reach this spot)`);
     if (older.length) parts.push(`${recent.length ? 'Earlier' : 'Older work only'}: ${list(older)}`);
     const busNew = bus.filter(f => f.d >= d0);
-    if (busNew.length) parts.push(`Bus lane (${busNew[0].y}), a transit project that changes the street`);
-    else if (!recent.length && bus.length) parts.push(`Older bus lane (${bus[0].y})`);
+    if (busNew.length) parts.push(`Bus lane (${when(busNew[0])}), a transit project that changes the street`);
+    else if (!recent.length && bus.length) parts.push(`Older bus lane (${when(bus[0])})`);
     // in place, but SDOT's data gives no date: never "no work recorded"
     const undated = [...new Set([
       ...(p.lpi_status === 'Existing' && !p.lpi_installed ? ['head-start walk signal'] : []),
@@ -3968,7 +3972,7 @@
         <p class="note" id="pgNoneNote">* No work since ${P.since_d} or planned: no dated safety fix since ${P.since_d}, when these crash counts start (a new bus lane alone isn't counted: SDOT builds them as transit projects; older work isn't counted, though each place's page shows it; for a stretch of street, a fix at the corners at its ends isn't counted, since it doesn't reach crashes along the block, but the count of those is given), no planned SDOT project, head-start walk signal or no turn on red nearby, and no budget project named for the street, in the layers this site reads (the same test as each place's own page). Places WSDOT runs (freeways, ramps, state bridges) are counted in their own column; state highways on city streets, which the City runs, count as city streets. The fix types counted: ${FIX_KINDS}${ixMostly ? ` (${ixPct}% of them at intersections, so stretches of street rarely have one)` : ''}.</p>
         ${(() => { const ms = (CTX.council || []).filter(c => c.member && c.since), late = ms.filter(c => c.since.slice(0, 10) > P.window.d0);
           return dim === 'district' && late.length ? `<p class="note">${late.length} of the ${ms.length} district council members took office after ${monthYear(P.window.d0)}, when these crash counts start (each start date is shown by the name), so part of these years came before them.</p>` : ''; })()}
-        <p class="note">Crashes: ${monthYear(P.window.d0)}–${throughMonth(P.window.d1)}. Fixes: dated fixes since January ${P.since} at places with
+        <p class="note">Crashes: ${monthYear(P.window.d0)}–${throughMonth(P.window.d1)}. Fixes: dated fixes since ${P.since_d} (when the crash counts start) at places with
           crashes, counted once per place they reach (one long bike lane can reach many places); head-start walk signals are shown on their own: ${fmt(T.lpi)} of them, against ${fmt(T.other)} other fixes${(() => {
             const d = P.need.filter(r => r.dim === 'district'), t = T.lpi, top = d.slice().sort((a, b) => b.lpi - a.lpi)[0];
             return t && top ? `, ${Math.round(100 * top.lpi / t)}% of them in District ${esc(top.g)}` : ''; })()}.
@@ -4253,7 +4257,7 @@
         ${r.top50 ? `<div><b>${fmt(r.top50_nothing)}</b><span>of the ${r.top50_state ? `${r.top50 - r.top50_state} on city streets` : `citywide top ${TOP} here`} with no work counted since ${esc(P.since_d)} or planned* (work before then isn't counted${r.top50_ends ? `; ${r.top50_ends} had work at the corners at their ends` : ''}; see each place)</span></div>` : ''}
       </div>
       <div class="cs-state" id="distState" hidden></div>
-      <div class="cs-foot">Of the fixes SDOT dated since January ${esc(P.since)} at places with crashes, ${pct(r.lpi, tot('lpi'))}% of head-start walk signals and
+      <div class="cs-foot">Of the fixes SDOT dated since ${esc(P.since_d)} at places with crashes, ${pct(r.lpi, tot('lpi'))}% of head-start walk signals and
         ${pct(r.other, tot('other'))}% of other fixes are in this district. *In the SDOT layers this site reads; planned work includes a budget line named for the street.
         ${D.fetchedAt ? `Data as of ${new Date(D.fetchedAt.slice(0, 10) + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}.` : ''} <a href="#progress=d${esc(r.g)}">Compare districts</a></div>`;
     el.hidden = false; distState();
@@ -4352,7 +4356,7 @@
       return false;
     }
     const id = +m[1];
-    const old = () => linkNote(`This older link pointed at a rank, not a place: this is today's #${fmt(id)}. Ranks change every month.`);
+    const old = () => linkNote(`This older link pointed at a rank, not a place: this is today's #${fmt(id)}. Ranks can change every week.`);
     const p = byId.get(id);
     if (p) { select(p, true, null); viewBefore = null; old(); return true; }
     const s = searchIdx.find(x => x.rank === id);

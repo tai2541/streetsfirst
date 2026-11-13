@@ -237,12 +237,12 @@ where x.id is null or not list_contains(coalesce(b.proj_ids, [])::varchar[], x.i
 group by e.block;
 
 create or replace table place_work as
--- Fix counts are by calendar year (since January of the window's first year). "Work since" a place's crash window began
+-- Fix counts start on the same day as the crash counts (the window's first day). "Work since" a place's crash window began
 -- is by date: a dated fix on or after the window's first day. A new bus lane alone isn't counted as work: SDOT builds
 -- them as transit projects (place pages say so in "In short"), so this matches what each place's page says.
 with fx as (
   select location, count(*) filter (where k = 'Head-start walk signal') as lpi, count(*) filter (where k <> 'Head-start walk signal') as other
-  from place_fixes where y >= year(ws()) group by location
+  from place_fixes where d >= ws() group by location
 ),
 recent as (select distinct location from place_fixes where d >= ws()),
 places as (
