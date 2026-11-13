@@ -114,7 +114,7 @@ select distinct location, k, d, year(d) as y from (
   select l.location, case j.kind when 'sidewalk' then 'New sidewalk' when 'safety' then 'Neighborhood safety project'
                                  else 'Head-start walk signal' end, make_date(j.year, 7, 1)
   from (select location, unnest(proj_ids) as id from locations) l join proj j using (id)
-  where j.stage = 'done' and j.year is not null
+  where j.stage = 'done' and j.year is not null and j.work
 ) where d <= current_date   -- a finished project's assumed mid-year date can't be in the future
      or (month(d) = 12 and day(d) >= 30 and year(d) = year(current_date));   -- SDOT's year-only date for something built this year
 
@@ -195,7 +195,7 @@ where f.d >= (select max(date) from collisions) - to_days(recent_fix_days())
 -- ---------------------------------------------------------------- (3) need and published work, by district and equity index
 -- SDOT's projects, plus planned no turn on red signs (published in their own layer; each place's page counts them as planned)
 create or replace table proj_area as
-with j as (select id::varchar as id, kind, stage, year, geom from proj
+with j as (select id::varchar as id, kind, stage, year, geom from proj where work
            union all select null, 'ntor', 'planned', try_cast(planned_year as int), geom from ntor where status = 'Planned' and geom is not null)
 select j.id, j.kind, j.stage, j.year,
   (select min(c.district) from council c where ST_Within(ST_Centroid(j.geom), c.geom)) as district,
@@ -226,7 +226,7 @@ with ix_plans as (
   select location, 'Head-start walk signal' as k, null::varchar as id from ranked where lpi_status = 'Planned'
   union all select location, 'No turn on red', null from ranked where ntor_status = 'Planned'
   union all select r.location, null, j.id::varchar from (select location, unnest(proj_ids) as id from ranked) r
-            join proj j on j.id::varchar = r.id::varchar where j.stage <> 'done' and j.kind <> 'lpi'
+            join proj j on j.id::varchar = r.id::varchar where j.stage <> 'done' and j.kind <> 'lpi' and j.work
 )
 select e.block as location,
   list(distinct {'at': coalesce(list_filter(string_split(e.ix, ' AND '), lambda s: s <> split_part(e.block, ' BETWEEN ', 1))[1], e.ix),

@@ -27,7 +27,10 @@ where f.geometry is not null;
 -- One row per project. Sidewalk projects are listed per side of a block; both sides of one block become one row.
 create or replace table proj as
 -- (many planned walk signals share a name and year: their place breaks the tie, so ids match from build to build)
-select row_number() over (order by kind, stage, year nulls last, name, scope, ST_AsText(geom)) as id, *
+-- work: whether it counts as safety work (done or planned) anywhere on the site. Pavement art is listed among a place's
+-- projects but isn't counted. The one place this rule lives: the page reads 'work' from the projects file.
+select row_number() over (order by kind, stage, year nulls last, name, scope, ST_AsText(geom)) as id, *,
+       coalesce(scope, '') not ilike '%pavement art%' as work
 from (
   select 'sidewalk' as kind,
          case when planning = 'Y' then 'design' else 'done' end as stage,
@@ -56,8 +59,7 @@ from (
 
 create or replace table loc_proj as
 select p.location, list(j.id order by j.stage = 'done', j.year nulls last, j.id) as proj_ids,
-       -- (pavement art is listed among the place's projects but isn't counted as planned safety work)
-       coalesce(bool_or(j.stage <> 'done' and coalesce(j.scope, '') not ilike '%pavement art%'), false) as proj_planned
+       coalesce(bool_or(j.stage <> 'done' and j.work), false) as proj_planned
 from loc_inner p join proj j on ST_DWithin(p.geom, j.geom, case when p.r = 40 then near_block_ft() else near_ix_ft() end)
   and not on_structure(p.location)
 group by p.location;
@@ -154,7 +156,7 @@ group by b.id;
 -- ---------------------------------------------------------------- export for the map
 copy (
   select {
-    'list': (select list({'id': id, 'kind': kind, 'stage': stage, 'name': name, 'scope': scope, 'year': year,
+    'list': (select list({'id': id, 'kind': kind, 'stage': stage, 'name': name, 'scope': scope, 'year': year, 'work': work,
                           'program': program, 'link': link, 'hood': sw_hood(geom),
                           'pt': case when ST_GeometryType(geom)::varchar ilike '%POINT%'
                                      then [round(ST_Y(ST_Transform(ST_Centroid(geom), 'EPSG:2926', 'EPSG:4326')), 5),

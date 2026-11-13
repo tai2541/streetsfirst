@@ -455,6 +455,7 @@
     const by = new Map();
     for (const e of p.end_planned || []) {
       const j = e.id != null ? projById.get(+e.id) || projById.get(e.id) : null;
+      if (j && j.work === false) continue;
       const k = e.k ? e.k.toLowerCase() : j ? projKind(j) : null;
       if (!k) continue;
       if (!by.has(e.at)) by.set(e.at, new Set());
@@ -475,12 +476,13 @@
     if (p.signalized && p.signal_installed && +p.signal_installed.slice(0, 4) >= cfg('signal_from_year')) done.push(at(p.signal_installed, 'signal installed or rebuilt'));
     (p.fixes || []).filter(f => f.s === 'Built' && f.d).forEach(f => (f.k === 'Bus lane' ? bus : done).push(at(f.d, f.k.toLowerCase())));
     // a finished project has a year only: counted as 1 July, as on "Is it getting fixed?"
-    projectsAt(p).filter(j => j.stage === 'done' && j.year).forEach(j => done.push(at(j.year + '-07-01', projKind(j), true)));
+    projectsAt(p).filter(j => j.stage === 'done' && j.year && j.work !== false).forEach(j => done.push(at(j.year + '-07-01', projKind(j), true)));
     done.sort((a, b) => b.d.localeCompare(a.d) || a.k.localeCompare(b.k));
     const uniq = a => [...new Map(a.map(f => [f.k, f])).values()];
     const list = a => uniq(a).slice(0, 3).map(f => `${f.k} (${when(f)})`).join(', ') + (uniq(a).length > 3 ? ', more' : '');
     const recent = done.filter(f => f.d >= d0), older = done.filter(f => f.d < d0);
-    const planned = [...new Set(projectsAt(p).filter(j => j.stage !== 'done').map(projKind))];
+    // (a project the build doesn't count as safety work, such as pavement art, is listed on the page but not counted here)
+    const planned = [...new Set(projectsAt(p).filter(j => j.stage !== 'done' && j.work !== false).map(projKind))];
     if (p.lpi_status === 'Planned' && !planned.includes('head-start walk signal')) planned.push('head-start walk signal');
     if (p.ntor_status === 'Planned') planned.push('no turn on red');
     const cip = p.cip || [];
@@ -832,7 +834,7 @@
     distCard(dist);
     const inDist = p => !dist || p.council_district === dist || p.council_district2 === dist;   // on the line: in both
     const keep = p => inDist(p) && (!type || p.addr_type === type || (type === 'B' && p.addr_type === 'A'))
-        && (!ongoing || p.ksi_years >= REPEAT_YEARS) && (!noPlan || !((p.proj_ids && p.proj_ids.length) || p.lpi_status === 'Planned' || p.ntor_status === 'Planned'));
+        && (!ongoing || p.ksi_years >= REPEAT_YEARS) && (!noPlan || workSummary(p).cls === 'none');   // the same test as the district counts and the place's page
     // With a district or one kind picked, places are ranked again within that list (#1, #2, ...), with the citywide rank
     // beside each. The data file carries each kind's top list_n citywide and each district's top top_n of each kind.
     D.priorities.forEach(p => { p.dr = null; });
@@ -2873,7 +2875,7 @@
       // in a district the numbers are ranks within it (#1 is the district's worst), the citywide rank beside each
       if (el('distFilter').value) parts.push(el('distFilter').selectedOptions[0].text + ', ranked within it');
       if (el('addrFilter').value) parts.push(el('addrFilter').selectedOptions[0].text);
-      [['onlyOngoing', 'Repeat serious crashes'], ['noPlan', 'No published SDOT project']]
+      [['onlyOngoing', 'Repeat serious crashes'], ['noPlan', 'No work counted or planned']]
         .forEach(([id, l]) => el(id).checked && parts.push(l));
       t = parts.join(' · ');
     }
@@ -4341,7 +4343,7 @@
     const dist = +document.getElementById('distFilter').value || 0, sel = id => document.getElementById(id);
     const what = [dist ? `District ${dist}` : 'All Seattle', sel('addrFilter').selectedOptions[0] && sel('addrFilter').value ? sel('addrFilter').selectedOptions[0].text : '',
       sel('onlyOngoing').checked ? 'only repeat serious crashes' : '',
-      sel('noPlan').checked ? 'only with no published SDOT project' : ''].filter(Boolean).join(', ');
+      sel('noPlan').checked ? 'only with no work counted or planned' : ''].filter(Boolean).join(', ');
     const q = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
     const lines = [[`Streets First (Seattle), from SDOT's police-reported crash data and SDOT's published records; data as of ${(D.fetchedAt || '').slice(0, 10)}`],
       [`Crashes ${windowTxt()}. List: ${what}.`],
@@ -4530,6 +4532,58 @@
   // ---------- self-test (index.html#selftest): used by pipeline/check.ps1 before publishing ----------
   // Checks the page draws, a ranked spot opens with its crash list (from its area file), a place outside the ranked list
   // opens in full, and the address lookup data is present. The result goes in the page title for a headless browser.
+  // The same fact shown in two places must agree: the weekly build's district and city counts against the places they
+  // count, and the page's own "what SDOT has done" wording against the build's. One message per kind of disagreement.
+  function numbersAgree() {
+    const out = [], P = D.progress || {}, top = D.priorities.filter(p => p.rank_ksi != null && p.rank_ksi <= TOP);
+    const bad = (what, list) => { if (list.length) out.push(`${what}: ${list.slice(0, 4).join(', ')}${list.length > 4 ? ` (+${list.length - 4} more)` : ''}`); };
+    const byLoc = new Map(D.priorities.map(p => [p.location, p]));
+    const dRows = (P.need || []).filter(r => r.dim === 'district' && r.g !== 'none');
+    if (dRows.length < 7) out.push(`only ${dRows.length} districts in the district table`);
+    const cnt = [], set = [], st = [], ln = [], cls = [], nothing = [], ends = [];
+    for (const r of dRows) {
+      const d = +r.g, mine = top.filter(p => +p.council_district === d || +p.council_district2 === d), list = r.list || [];
+      if (r.top50 !== mine.length) cnt.push(`D${d} card ${r.top50} vs list ${mine.length}`);
+      const a = new Set(list.map(x => x.loc)), miss = mine.filter(p => !a.has(p.location));
+      if (miss.length || list.length !== mine.length) set.push(`D${d}`);
+      if (r.top50_state !== mine.filter(p => p.state_route).length) st.push(`D${d} ${r.top50_state} vs ${mine.filter(p => p.state_route).length}`);
+      const lineN = mine.filter(p => p.council_district2).length;
+      if (list.filter(x => x.line).length !== lineN) ln.push(`D${d}`);
+      let none = 0, endsN = 0;
+      for (const x of list) {
+        const p = byLoc.get(x.loc); if (!p) continue;
+        const c = workSummary(p).cls, b = x.fixed ? 'done' : x.planned ? 'planned' : 'none';
+        if (c !== b) cls.push(`#${p.rank_ksi} build ${b}, page ${c}`);
+        if (!x.state && c === 'none') { none++; if ((p.end_fixes || []).some(f => f.d >= meta.window_from)) endsN++; }
+      }
+      if (r.top50_nothing !== none) nothing.push(`D${d} ${r.top50_nothing} vs ${none}`);
+      if ((r.top50_ends || 0) !== endsN) ends.push(`D${d} ${r.top50_ends} vs ${endsN}`);
+    }
+    bad('district top-' + TOP + ' count differs from the places in it', cnt);
+    bad('district top-' + TOP + ' places differ from the list', set);
+    bad('district WSDOT count differs', st);
+    bad('district line-sharing count differs', ln);
+    bad('"what SDOT has done" differs between a place page and the district table', [...new Set(cls)]);
+    bad('district "no work counted or planned" differs from its places', nothing);
+    bad('district "work only at the corners" differs from its places', ends);
+    // citywide: the summary box against the places it describes
+    const k = top.reduce((t, p) => t + p.ksi, 0);
+    if (meta.top50_ksi != null && meta.top50_ksi !== k) out.push(`city box top-${TOP} crashes ${meta.top50_ksi} vs places ${k}`);
+    const ix = top.filter(p => p.addr_type === 'I').length;
+    if (meta.top50_intersections != null && meta.top50_intersections !== ix) out.push(`city box intersections ${meta.top50_intersections} vs places ${ix}`);
+    // the equity-index groups hold each place once, so they add up to the city's located totals
+    const rse = (P.need || []).filter(r => r.dim === 'rse'), sum = f => rse.reduce((t, r) => t + (r[f] || 0), 0);
+    if (meta.city_ksi_located != null && sum('ksi') !== meta.city_ksi_located) out.push(`equity groups' crashes ${sum('ksi')} vs city ${meta.city_ksi_located}`);
+    if (sum('top50') !== top.length) out.push(`equity groups' top-${TOP} ${sum('top50')} vs ${top.length}`);
+    // search (place pages, links) and the ranked list give each place the same rank and counts
+    const sx = new Map(searchIdx.map(s => [s.name, s])), sbad = [];
+    for (const p of D.priorities) { const s = sx.get(p.location); if (!s || s.rank !== p.rank_ksi || s.ksi !== p.ksi || s.crashes !== p.crashes) sbad.push(`#${p.rank_ksi}`); }
+    bad('search gives a different rank than the list', sbad);
+    // budget by district: every line is in the budget
+    const codes = new Set((D.budget || []).map(b => b.code));
+    bad('district budget line not in the budget', [...new Set((P.cip_district || []).filter(x => !codes.has(x.c)).map(x => x.c))]);
+    return out;
+  }
   async function selfTest() {
     const fails = [], wait = async (ok, ms = 8000) => { for (let t = 0; t < ms && !ok(); t += 100) await new Promise(r => setTimeout(r, 100)); return ok(); };
     const check = (ok, what) => { if (!ok) fails.push(what); };
@@ -4556,6 +4610,7 @@
       check(keyIdx().size === searchIdx.length, 'place link keys are not unique');
       check(schools().length >= 70 && schools().every(s => s.label && isFinite(s.lat)), 'school search list is short or broken');
       check(D.priorities.filter(p => p.rank_month_ago).length >= 150, 'few places have last month\'s rank');
+      numbersAgree().forEach(m => fails.push(m));
       const far = searchIdx[searchIdx.length - 1];
       selectLite(far);
       check(await wait(() => current && current.rank_ksi === far.rank && document.querySelectorAll('#crashTable tr').length > 1),
