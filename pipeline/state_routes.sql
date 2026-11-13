@@ -23,12 +23,16 @@ select * from (
                        maximum_object_size = 50000000, filename = true))
   where f.geometry is not null)
 where ST_Intersects(geom, (select b from sr_box));
-create or replace table wsdot_limited as
+-- WSDOT's access control by route: each piece's route number (RouteIdentifier "099i" -> 99) and whether it's limited access.
+create or replace table wsdot_access as
 select * from (
-  select gj_geom(f.geometry) as geom
+  select ltrim(regexp_extract(f.properties.RouteIdentifier::varchar, '^(\d+)', 1), '0') as rn,
+         f.properties.RouteIdentifier::varchar as rid,
+         f.properties.AccessControlTypeDescription::varchar like 'Limited%' as limited, gj_geom(f.geometry) as geom
   from (select unnest(features) as f from read_json('data/raw/wsdot_access_*.json', maximum_object_size = 50000000))
-  where f.geometry is not null and f.properties.AccessControlTypeDescription::varchar like 'Limited%')
+  where f.geometry is not null)
 where ST_Intersects(geom, (select b from sr_box));
+create or replace table wsdot_limited as select geom from wsdot_access where limited;
 create or replace table wsdot_bridges as
 select * from (
   select f.properties.StructureName::varchar as name, gj_geom(f.geometry) as geom
@@ -40,13 +44,15 @@ where ST_Intersects(geom, (select b from sr_box));
 -- meeting at an intersection, within 50 ft of the route line. (Distance alone would also catch streets passing under a
 -- bridge or over a tunnel.)
 create or replace temp table sr_cand as
+-- (art: SDOT's own class for the street piece, 4 = state route, 5 = freeway)
 select s.location, r.srn, bool_or(r.ramp) as ramp, s.geom as part,
-  sum(ST_Length(ST_Intersection(s.geom, ST_Buffer(r.geom, 50)))) / nullif(ST_Length(s.geom), 0) as share
+  sum(ST_Length(ST_Intersection(s.geom, ST_Buffer(r.geom, 50)))) / nullif(ST_Length(s.geom), 0) as share,
+  (select max(artclass) from streets x where x.loc_name = s.location) as art
 from loc_shape s join wsdot_routes r on s.r = 40 and ST_DWithin(s.geom, r.geom, 50)
 group by s.location, r.srn, s.geom
 union all
 select p.location, r.srn, r.ramp, st.geom,
-  ST_Length(ST_Intersection(st.geom, ST_Buffer(r.geom, 50))) / nullif(ST_Length(st.geom), 0)
+  ST_Length(ST_Intersection(st.geom, ST_Buffer(r.geom, 50))) / nullif(ST_Length(st.geom), 0), st.artclass
 from loc_pts p join streets st on p.r <> 40 and ST_DWithin(p.geom, st.geom, 15)
 join wsdot_routes r on ST_DWithin(st.geom, r.geom, 50);
 
@@ -55,8 +61,8 @@ create or replace table place_state as
 -- beside it, or a street over the SR 99 tunnel and the cross street that is the route) are broken the same way every
 -- build: a street before a ramp, then the shorter piece (the one that is most nearly the route itself), then the route.
 with m as (
-  select location, b.srn, b.ramp, b.part from (
-    select location, arg_max({'srn': srn, 'ramp': ramp, 'part': part},
+  select location, b.srn, b.ramp, b.part, b.art from (
+    select location, arg_max({'srn': srn, 'ramp': ramp, 'part': part, 'art': art},
                              {'share': share, 'street': not ramp, 'short': -ST_Length(part), 'srn': srn}) as b
     from sr_cand where share > 0.5 group by location)
 ),
@@ -73,12 +79,25 @@ c as (
     (select arg_max(b.name, ST_Length(ST_Intersection(m.part, ST_Buffer(b.geom, 30)))) from wsdot_bridges b
       where ST_DWithin(m.part, b.geom, 30) and ST_Length(ST_Intersection(m.part, ST_Buffer(b.geom, 30))) > 0.5 * ST_Length(m.part)) as bridge,
     -- SDOT names its bridges, ramps, tunnels and highway pieces; a plain street can't be part of a freeway or state bridge
-    on_structure(m.location) or regexp_matches(m.location, '\b(SR ?\d+|I ?5|I ?90|RP|BR|TUNNEL|VI)\b') as struct
+    -- (a block by its own street: "Cherry St between 6th Ave and Cherry St on RP" is Cherry St, not the ramp)
+    on_structure(m.location) or regexp_matches(regexp_replace(m.location, ' BETWEEN .*', ''), '\b(SR ?\d+|I ?5|I ?90|RP|BR|TUNNEL|VI)\b') as struct,
+    -- a street with a City name is WSDOT's only where both agencies say so: SDOT's street data classes it as a state route
+    -- or freeway, and it runs along a limited-access section of its own route in WSDOT's access-control data (West Marginal
+    -- Way S where it is SR 99's freeway; not 1st Ave over the SR 99 tunnel, or Lake City Way). "Along": the route's line inside the street's
+    -- 50 ft band is at least half as long as the street plus that band (a route crossing a short block isn't along it).
+    coalesce((select max(x) from (select ST_Length(ST_Intersection(ST_Union_Agg(a.geom), ST_Buffer(m.part, 50))) / (ST_Length(m.part) + 100) as x
+      from wsdot_access a where a.limited and a.rn = ltrim(m.srn, '0') and ST_DWithin(a.geom, m.part, 50) group by a.rid)), 0) > 0.5
+      and coalesce(m.art, 0) in (4, 5) and m.location like '% BETWEEN %' as along_lim,   -- (blocks only: a freeway section has no street-level intersections)
+    -- and a piece named for the route itself (SR99 SB ...) on a section WSDOT lists as not limited access is a state
+    -- highway the City runs, like any other (RCW 47.24)
+    coalesce((select max(x) from (select ST_Length(ST_Intersection(ST_Union_Agg(a.geom), ST_Buffer(m.part, 50))) / (ST_Length(m.part) + 100) as x
+      from wsdot_access a where not a.limited and a.rn = ltrim(m.srn, '0') and ST_DWithin(a.geom, m.part, 50) group by a.rid)), 0) > 0.5 as along_open
   from m
 )
 select location, route,
-  case when struct and (lim or bridge is not null) then 'wsdot'
-       when not struct and not lim_near and bridge is null then 'city' end as runs,
+  case when (struct and (lim or bridge is not null)) or (not struct and along_lim) then 'wsdot'
+       when (not struct and not lim_near and bridge is null) or (struct and not lim and bridge is null and along_open) then 'city' end as runs,
   bridge
 from c
-where (struct and (lim or bridge is not null)) or (not struct and not lim_near and bridge is null);
+where (struct and (lim or bridge is not null)) or (not struct and along_lim)
+   or (not struct and not lim_near and bridge is null) or (struct and not lim and bridge is null and along_open);
