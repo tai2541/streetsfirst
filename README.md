@@ -44,7 +44,8 @@ reduced when repair work is already scheduled.
 before the newest crash (recent police reports arrive late):
 1. **Crash harm:** fatal or serious injury 30 (KSI), injury 5, property damage 1, unknown 0,
    x1.5 when a pedestrian or cyclist was hurt.
-2. **Repeated deaths compound:** the nth fatal crash at a spot counts 30 x 1.5^(n-1).
+2. **More than one death at a place adds weight:** one death is weighed like a serious injury (chance often decides
+   which a crash becomes); a second at the same place is treated as a pattern, so the nth fatal crash counts 30 x 1.5^(n-1).
 3. **Expected harm (empirical Bayes):** the fatal/serious part is blended with the typical
    rate for similar spots (same location type and street class), weighted crashes / (crashes + 20).
    In out-of-sample tests (rank on earlier years, count KSI crashes in the later ones) it does about as well

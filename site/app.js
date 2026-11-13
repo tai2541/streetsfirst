@@ -3442,12 +3442,13 @@
       <ol>
         <li><b>Crash harm.</b> Points per crash: killed or seriously injured ${k}, other injury ${weight('injury')},
           property damage only ${weight('pdo')}, × ${weight('ped_bike_mult')} when someone walking or biking was involved and someone was hurt.
-          Fatal and serious count alike because whether a serious crash turns fatal often depends on things beyond the street
-          itself, like the person's age, the vehicle, or how quickly help arrives. ${meta.unknown_from && meta.unknown_recent && meta.unknown_recent.share
+          One death is weighed like a serious injury: whether a serious crash turns fatal often depends on chance and on things
+          beyond the street itself, like the person's age, the vehicle, or how quickly help arrives. ${meta.unknown_from && meta.unknown_recent && meta.unknown_recent.share
           ? `Since ${monthYear(meta.unknown_from)} about 1 in ${Math.round(1 / meta.unknown_recent.share)} reports has no severity`
           : 'Some reports have no severity'}; those
           aren't treated as harmless: each gets the typical non-fatal/serious harm for similar streets.</li>
-        <li><b>Repeated deaths compound.</b> The 1st fatal crash at a spot counts ${k}, the 2nd ${(k * g).toFixed(1)},
+        <li><b>More than one death at the same place adds weight.</b> One death can be chance; another at the same place is
+          less likely to be, so it's treated as a pattern. The 1st fatal crash at a spot counts ${k} (like a serious injury), the 2nd ${(k * g).toFixed(1)},
           the 3rd ${(k * g * g).toFixed(1)} (each × ${g} the last). This extra weight then goes through step 3 like all fatal/serious
           harm: at a spot with few crashes, most of it is replaced by the typical rate. That's why places where ${DEATHS} or more people
           died are also listed separately, whatever their rank.</li>
