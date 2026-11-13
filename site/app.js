@@ -428,7 +428,7 @@
   }
 
   // What has been done here, in one line, from the layers this site reads (SDOT's data has gaps, so "nothing" is
-  // always worded as "nothing recorded in these layers"). Budget projects are shown, never counted as fixes; a bus lane since then counts as work, but not as a safety fix.
+  // always worded as "nothing recorded in these layers"). Budget projects are shown, never counted as fixes; a bus lane since then is listed, but isn't safety work (In short names it as a transit project).
   const projKind = j => (j.kind === 'lpi' ? 'head-start walk signal' : j.kind === 'sidewalk' ? 'new sidewalk' : (j.scope || 'safety project').toLowerCase().split(',')[0]);
   // A block: planned work at the intersections at its two ends, grouped by corner: [{ at, ks: ['no turn on red', ...] }]
   function endPlanned(p) {
@@ -723,6 +723,9 @@
   const tierK = r => tier(r);
   // A place as shown in the list: its citywide rank, or with a district or one kind picked, its rank within that list.
   const shownN = p => p.dr ?? p.rank;
+  // Numbered markers' layer: Leaflet adds this to their screen position (further south on top). A step of 100 a rank is
+  // more than two overlapping 40px badges can differ by, so the better rank is on top; hovered and picked ones go above all.
+  const baseZ = p => (1000 - p.rank) * 100, Z_SEL = 150000, Z_HOVER = 200000;
   const pTier = p => (p.rank == null ? 3 : tier(shownN(p)));
   const pRank = p => (p.rank == null ? '—' : `#${fmt(shownN(p))}`);
   const kindCount = () => meta.locations_scored || N;
@@ -843,7 +846,7 @@
         ? L.marker([p.lat, p.lon], {
             // Leaflet stacks markers by screen position (further south on top) plus this offset: a step of 100 a rank is
             // more than two overlapping 40px badges can differ by, so the better rank is always the one on top
-            zIndexOffset: (1000 - p.rank) * 100, riseOnHover: true, keyboard: true, title: `${pRank(p)} ${p.name}`, alt: `${pRank(p)} ${p.name}`,
+            zIndexOffset: baseZ(p), riseOnHover: true, keyboard: true, title: `${pRank(p)} ${p.name}`, alt: `${pRank(p)} ${p.name}`,
             icon: L.divIcon({
               className: 'top-mark' + (p.addr_type !== 'I' ? ' stretch' : ''), iconSize: [40, 40], iconAnchor: [20, 20],
               html: `<span class="pulse" style="animation-delay:-${(p.rank * 0.37).toFixed(2)}s"></span>
@@ -918,7 +921,7 @@
     const m = markers[p.rank_ksi]; if (!m) return;
     const base = isExtraMarker(m) ? EXTRA_STYLE : TIERS[pTier(p)];
     if (m.setStyle) { m.setStyle({ weight: on ? 4 : (base.weight || EXTRA_STYLE.weight), color: on ? '#1d2430' : (base.stroke || base.color) }); if (on) m.bringToFront(); }
-    else { m.setZIndexOffset(on ? 6000 : (current && current.rank_ksi === p.rank_ksi ? 5000 : 1000 - p.rank)); const el = m.getElement(); if (el) el.classList.toggle('hl', on); }
+    else { m.setZIndexOffset(on ? Z_HOVER : (current && current.rank_ksi === p.rank_ksi ? Z_SEL : baseZ(p))); const el = m.getElement(); if (el) el.classList.toggle('hl', on); }
     if (on) m.openTooltip(); else m.closeTooltip();
   }
 
@@ -1715,7 +1718,7 @@
     Object.entries(markers).forEach(([id, m]) => dim(m, +id !== p.rank_ksi));
     const sel = markers[p.rank_ksi];
     if (sel && sel.bringToFront) sel.bringToFront();
-    if (sel && sel.setZIndexOffset) sel.setZIndexOffset(5000);   // top-10 markers share the request markers' layer
+    if (sel && sel.setZIndexOffset) sel.setZIndexOffset(Z_SEL);   // top-10 markers share the request markers' layer
     // The picked spot drawn again above the request squares, so it can always be clicked to zoom back out.
     // (A ranked dot is redrawn as itself; a spot not drawn in this view gets a white ring.)
     if (!sel || sel.getRadius) {
@@ -1730,7 +1733,7 @@
     focus.clearLayers();
     Object.values(markers).forEach(m => dim(m, false));
     Object.values(markers).sort((a, b) => (b._p.rank ?? 1e9) - (a._p.rank ?? 1e9)).forEach(m => {
-      if (m.bringToFront) m.bringToFront(); else m.setZIndexOffset(1000 - m._p.rank);
+      if (m.bringToFront) m.bringToFront(); else m.setZIndexOffset(baseZ(m._p));
     });
     current = null; markCurrent();
   }
@@ -1904,7 +1907,7 @@
       <div class="dhead">
         ${p.neighborhood ? `<div class="where">${esc(p.neighborhood)}${p.area && p.area !== p.neighborhood ? ` <span class="muted">· ${esc(p.area)}</span>` : ''}</div>` : ''}
         <div class="note">${kind} · <a href="${sv}" target="_blank" rel="noopener">Street View ↗</a> ·
-          <button type="button" class="linkbtn" id="copyLink">${canShare() ? 'Share' : 'Copy link'}</button> <span class="nowrap">· ${copyLoc(p.name)}</span></div>
+          <span class="nowrap"><button type="button" class="linkbtn" id="copyLink">${canShare() ? 'Share' : 'Copy link'}</button> · ${copyLoc(p.name)}</span></div>
         ${sdotSpelling(p.location) ? `<div class="note">SDOT's name: ${esc(p.location)} (it names each side of a divided street separately)</div>` : ''}
         ${verdict(p)}
         ${p.crashes < 5 ? `<p class="note few">With only ${plural(p.crashes, 'crash', 'crashes')} here, this is a record of what happened,
