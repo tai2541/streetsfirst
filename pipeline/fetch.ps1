@@ -160,6 +160,8 @@ Get-ArcGISLayer "$gis/Vision_Zero_-_Leading_Pedestrian_Intervals_ACTIVE/FeatureS
 Get-ArcGISLayer "$gis/Vision_Zero_-_No_Turns_on_Red_ACTIVE/FeatureServer/8" 'LOCATION,NTOR_Status,NTOR_Install_Date,NTOR_Planned_Year,Approaches' 'ntor'
 Get-ArcGISLayer "$gis/nma_nhoods_main/FeatureServer/0" 'L_HOOD' 'hoods_main'          # 20 areas (Ballard, West Seattle...)
 Get-ArcGISLayer "$gis/nma_nhoods_sub/FeatureServer/0" 'L_HOOD,S_HOOD' 'hoods_sub'        # 94 neighborhoods
+# Sound Transit light-rail stations, built and planned (the City's copy): a budget title naming a station is about its area
+Get-ArcGISLayer "$gis/sound_transit_stations/FeatureServer/0" 'NAME,STATION,STATUS' 'stations'
 Get-ArcGISLayer "$gis/Seattle_City_Council_Districts/FeatureServer/0" 'C_DISTRICT,DISPLAY_NAME' 'districts'   # city outline + districts
 Get-ArcGISLayer "$gis/Traffic_Signal_Assemblies_(Active)/FeatureServer/0" `
   'INTKEY,UNITDESC,INSTALL_DATE,PEDSIGNALYN,PEDAUDIODEVICEYN,LTPROTECTEDYN,LTFIRSTINSTALLDT,LASTSIGNALOPTDT' 'signals'
@@ -263,7 +265,7 @@ $minimum = @{ collisions = 20000; requests = 50000; budget_sdot_shown = 300; str
               hin = 50; hcl = 100; lpi = 500; ntor = 400; signals = 800; districts = 7; hoods_main = 15; hoods_sub = 80
               volhist_years = 8; humps = 50; cushions = 30; radar = 30; bikelanes = 200; buslanes = 500; gtfs_stops = 3000
               sw_missing = 8000; sw_poor = 1500; proj_sidewalk = 20; proj_nispp = 5
-              crashhist = 50000; crosswalks = 4000; curbramps = 25000; bikefac = 1500; circles = 500; schools = 70; walkzones = 50; lightsout = 100; reportwo = 30000; rse = 150; council = 7
+              crashhist = 50000; crosswalks = 4000; curbramps = 25000; bikefac = 1500; circles = 500; schools = 70; walkzones = 50; lightsout = 100; reportwo = 30000; rse = 150; council = 7; stations = 20
               addresses = 150000; wsdot_rt_inc = 400; wsdot_rt_dec = 400; wsdot_ramps = 1500; wsdot_access = 1500; wsdot_bridges = 2500 }
 foreach ($t in $types) { $minimum['req: ' + $t] = 1 }   # every request type still exists (and the 25% rule applies to each)
 $volatile = @('proj_sidewalk', 'proj_nispp', 'req: Snow and Ice', 'lightsout')   # small project lists, storms, and streetlight outages: big swings are normal

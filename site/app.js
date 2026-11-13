@@ -1611,7 +1611,8 @@
       ${projToggleBtn()}
       ${(p.cip || []).length ? `<h4 class="proj-h">In SDOT's capital budget</h4>
         <ul class="proj-list">${p.cip.map(c => `<li><b>${esc(c.t)}</b> <span class="muted">· ${esc(c.c)}</span> — money budgeted ${c.y0 === c.y1 ? 'in ' + c.y0 : `${c.y0}–${c.y1}`}.</li>`).join('')}</ul>
-        <div class="note">Matched by the street named in the project's title, in the City's adopted budget. The budget doesn't say
+        <div class="note">Matched by the street named in the project's title, in the City's adopted budget (a title naming a light-rail
+          station, built or planned, matches only places within ${fmt(cfg('station_area_ft'))} ft of it, from the City's station map). The budget doesn't say
           which blocks a project covers, so it may or may not reach this spot, and it isn't counted as a fix here.</div>` : ''}
       <div class="note">From SDOT signal, Vision Zero, traffic-calming, bike-lane, bus-lane and project-map data, and the City's capital
         budget. Repaving isn't linked: SDOT doesn't publish a current map of it.</div>`;

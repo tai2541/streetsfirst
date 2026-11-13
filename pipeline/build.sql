@@ -1024,7 +1024,7 @@ copy (
     (select round(median(block_ft)) from loc_context where block_ft is not null) as median_block_ft,
     -- The settings at the top of this file, for the page's text: it reads them from here rather than typing them in.
     {'window_months': window_months(), 'window_years': window_years(), 'lag_months': lag_months(), 'top_n': top_n(),
-     'list_n': list_n(), 'busy_min_crashes': busy_min_crashes(), 'near_ix_ft': near_ix_ft(), 'near_block_ft': near_block_ft(), 'near_light_ft': near_light_ft(),
+     'list_n': list_n(), 'busy_min_crashes': busy_min_crashes(), 'near_ix_ft': near_ix_ft(), 'near_block_ft': near_block_ft(), 'near_light_ft': near_light_ft(), 'station_area_ft': station_area_ft(),
      'school_ft': school_ft(), 'merge_ft': round(merge_dlat() * 111320 / 0.3048, -1)::int, 'hist_from_year': hist_from_year(),
      'worst_n': worst_n(), 'worst_ref_to': worst_ref_to(), 'recent_fix_days': recent_fix_days(), 'ba_min_days': ba_min_days(),
      'ba_max_days': ba_max_days(), 'inc_min_crashes': inc_min_crashes(), 'inc_min_days': inc_min_days(), 'wide_n': wide_n(),

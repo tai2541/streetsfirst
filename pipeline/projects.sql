@@ -72,9 +72,18 @@ from locations l left join loc_proj j using (location);
 -- list kept by hand. The project's exact limits aren't published, so the site shows it as "a budget project named for
 -- this street", never as a fix at the place. Rules: street names are compared in one spelling (Avenue = Ave,
 -- North = N, ...); a direction written after the name must match exactly (1st Ave NE is not 1st Ave S); a direction
--- written before a named street may be left out (Madison St covers E Madison St); and when a title names a
--- neighborhood ("Northgate ..."), only places in that neighborhood match. Projects with money in the last two budget
--- years or later.
+-- written before a named street may be left out (Madison St covers E Madison St); when a title names a
+-- neighborhood ("Northgate ..."), only places in that neighborhood match; when it names a light-rail station, built or
+-- planned ("Graham Street Station ..."), only places within station_area_ft of it. A name used with more than one
+-- leading direction (S Graham St, SW Graham St) links only when those place rules leave places on just one of them.
+-- Projects with money in the last two budget years or later.
+create or replace macro station_area_ft() as 2640;   -- a station's area: half a mile, the usual walk to a station
+
+create or replace table stations as
+select f.properties.NAME as name, f.properties.STATUS as status, gj_geom(f.geometry) as geom
+from (select unnest(features) f from read_json('data/raw/stations_*.json'))
+where f.geometry is not null and f.properties.NAME ilike '% station';
+
 create or replace macro street_norm(s) as
   trim(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(replace(regexp_replace(' ' || upper(s) || ' ', '[^A-Z0-9]+', ' ', 'g'), ' ', '  '), ' AVENUE | AV ', ' AVE ', 'g'), ' STREET ', ' ST ', 'g'), ' BOULEVARD ', ' BLVD ', 'g'), ' PLACE ', ' PL ', 'g'), ' DRIVE ', ' DR ', 'g'), ' ROAD ', ' RD ', 'g'), ' NORTHEAST ', ' NE ', 'g'), ' NORTHWEST ', ' NW ', 'g'), ' SOUTHEAST ', ' SE ', 'g'), ' SOUTHWEST ', ' SW ', 'g'), ' NORTH ', ' N ', 'g'), ' SOUTH ', ' S ', 'g'), ' EAST ', ' E ', 'g'), ' WEST ', ' W ', 'g'), ' MARTIN +LUTHER +KING ', ' M L KING ', 'g'), ' +', ' ', 'g'));
 
@@ -90,6 +99,7 @@ with cip as (
 cipn as (select *, ' ' || street_norm(title) || ' ' as tn from cip),
 hood_names as (select distinct upper(n) as hn from (select area as n from hoods union select neighborhood from hoods) where length(n) >= 5),
 cip_hoods as (select c.pid, list(street_norm(h.hn)) as hns from cipn c join hood_names h on c.tn like '% ' || street_norm(h.hn) || ' %' group by c.pid),
+cip_station as (select c.pid, s.geom from cipn c join stations s on c.tn like '% ' || street_norm(s.name) || ' %'),
 streets_at as (   -- the streets a place is on: a block's own street, or both streets of an intersection
   select distinct location, street_norm(s) as s
   from (select location, unnest(string_split(regexp_replace(location, ' BETWEEN .*$', ''), ' AND ')) as s from locations)
@@ -100,21 +110,29 @@ cand0 as (        -- each street, and for a named street with a leading directio
   select location, s, regexp_replace(s, '^(N|S|E|W|NE|NW|SE|SW) ', ''), true from streets_at
   where regexp_matches(s, '^(N|S|E|W|NE|NW|SE|SW) [A-Z]') and regexp_replace(s, '^(N|S|E|W|NE|NW|SE|SW) ', '') like '% %'
 ),
-ambiguous as (    -- a name used with more than one leading direction (E Harrison St, W Harrison St) can't drop it
+ambiguous as (    -- a name used with more than one leading direction (E Harrison St, W Harrison St)
   select m from cand0 where dropped group by m having count(distinct full_s) > 1
 ),
-cand as (select * from cand0 where not dropped or m not in (select m from ambiguous)),
-hits as (
-  select distinct k.location, c.pid, c.title, c.y0, c.y1
-  from cand k join cipn c on c.tn like '% ' || k.m || ' %'
+hits0 as (
+  select distinct k.location, k.full_s, k.m, k.dropped and k.m in (select m from ambiguous) as amb, c.pid, c.title, c.y0, c.y1
+  from cand0 k join cipn c on c.tn like '% ' || k.m || ' %'
   join locations l using (location)
   left join cip_hoods h on h.pid = c.pid
   where (h.hns is null or list_has_any(h.hns, [street_norm(coalesce(l.area, '')), street_norm(coalesce(l.neighborhood, ''))]))
+    and (c.pid not in (select pid from cip_station)
+         or exists (select 1 from cip_station st join loc_pts lp on lp.location = l.location where st.pid = c.pid and ST_DWithin(st.geom, lp.geom, station_area_ft())))
     -- a direction written after the street in the title must be the place's own (1st Ave S is not 1st Ave)
     and not regexp_matches(c.tn, ' ' || k.m || ' (N|S|E|W|NE|NW|SE|SW) ')
     -- a bridge, viaduct or tunnel project is about that structure, so only places on a structure match it
     --   (on the structure itself: a ramp leading to a bridge isn't the bridge)
     and (not regexp_matches(c.tn, ' (BRIDGE|VIADUCT|TUNNEL|SPAN) ') or (l.structure and regexp_matches(' ' || l.location || ' ', ' (BR|BRIDGE|VI|VIADUCT|TUNNEL|TUN|SPAN) ')))
+),
+settled as (      -- an ambiguous name counts only when the rules above left places on one of its streets
+  select pid, m from hits0 where amb group by pid, m having count(distinct full_s) = 1
+),
+hits as (
+  select distinct location, pid, title, y0, y1 from hits0 h
+  where not amb or exists (select 1 from settled s where s.pid = h.pid and s.m = h.m)
 )
 select location, list({'c': pid, 't': title, 'y0': y0, 'y1': y1} order by y1 desc, pid) as cip
 from hits group by location;
