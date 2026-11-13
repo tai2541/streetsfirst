@@ -841,7 +841,9 @@
       // numbered: circles for intersections, rounded bars for stretches (the two lists share numbers)
       const m = pTier(p) === 0
         ? L.marker([p.lat, p.lon], {
-            zIndexOffset: 1000 - p.rank, riseOnHover: true, keyboard: true, title: `${pRank(p)} ${p.name}`, alt: `${pRank(p)} ${p.name}`,
+            // Leaflet stacks markers by screen position (further south on top) plus this offset: a step of 100 a rank is
+            // more than two overlapping 40px badges can differ by, so the better rank is always the one on top
+            zIndexOffset: (1000 - p.rank) * 100, riseOnHover: true, keyboard: true, title: `${pRank(p)} ${p.name}`, alt: `${pRank(p)} ${p.name}`,
             icon: L.divIcon({
               className: 'top-mark' + (p.addr_type !== 'I' ? ' stretch' : ''), iconSize: [40, 40], iconAnchor: [20, 20],
               html: `<span class="pulse" style="animation-delay:-${(p.rank * 0.37).toFixed(2)}s"></span>
