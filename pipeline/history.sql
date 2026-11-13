@@ -465,6 +465,14 @@ copy (
     'fix_kinds': (select list(distinct k order by k) from place_fixes),
     'fix_ix_share': (select round(avg((l.addr_type = 'I')::int), 3) from place_fixes f join locations_all l using (location)),
     'since_d': strftime(ws(), '%B %Y'),
+    -- budget lines named for a street in each council district (the same street-name matching as each place's page; a place on a
+    -- district line counts in both), with how many places with crashes there are on those streets
+    'cip_district': (select list({'g': g, 'c': c, 't': t, 'y0': y0, 'y1': y1, 'n': n} order by g, y1 desc, n desc, c) from (
+      select g, x.c, x.t, x.y0, x.y1, count(distinct location) as n from (
+        select council_district::varchar as g, location, unnest(cip) as x from ranked r where r.cip is not null and council_district is not null
+        union all
+        select council_district2::varchar, location, unnest(cip) from ranked r where r.cip is not null and council_district2 is not null)
+      group by all)),
     'window': {'d0': ws(), 'd1': we()}
   } as progress
 ) to 'site/data/progress.json' (format json, array false);

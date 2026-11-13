@@ -767,6 +767,15 @@ body.sheet-open #expandPanel, body.sheet-open #expandDetail, body.sheet-open #pa
   .dsec h3 { break-after: avoid; }
 }
 .print-head { display: none; }
+#distPrint { display: none; }
+@media print {
+  /* the district one-pager (distPrint): only it, on one page */
+  body.print-dist main { display: none !important; }
+  body.print-dist > #distPrint { display: block !important; font-size: 12px; color: #111; }
+  body.print-dist #distPrint, body.print-dist #distPrint * { visibility: visible !important; }
+  #distPrint h2 { font-size: 17px; margin: 6px 0; } #distPrint h3 { font-size: 14px; margin: 10px 0 4px; }
+  #distPrint .dp-t { border-collapse: collapse; width: 100%; } #distPrint .dp-t th, #distPrint .dp-t td { border-bottom: 1px solid #ccc; padding: 3px 4px; text-align: left; vertical-align: top; }
+}
 
 /* ---------- since last month (list), rank over the years (details), "Is it getting fixed?" sheet ---------- */
 .score .mv { display: block; text-align: right; margin-top: 2px; }

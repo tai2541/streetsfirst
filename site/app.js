@@ -225,6 +225,9 @@
   document.addEventListener('click', e => { if (e.target.closest && e.target.closest('.print-btn')) window.print(); });
   // One question a printed sheet suggests asking, picked by rules from the place's own data (the first that fits). Asked
   // of whoever runs the street: WSDOT for freeways, ramps and state bridges, SDOT everywhere else.
+  // the kinds of crash a fix targets, as "Before and after" names them
+  const BA_WHAT = { ped: 'crashes involving people walking', turnped: 'crashes where a turning driver hit someone walking', rightped: 'crashes where a right-turning driver hit someone walking',
+    bike: 'crashes involving people biking', left: 'left-turn crashes', all: 'crashes' };
   function askFor(p) {
     const who = p.state_route ? 'WSDOT' : 'SDOT', y = d => (d ? d.slice(0, 4) : '');
     const since = p.lpi_installed && p.lpi_installed > meta.window_from ? monthYear(p.lpi_installed) : monthYear(meta.window_from);
@@ -234,6 +237,12 @@
       return p.ntor_status === 'Existing'
         ? `This place has a head-start walk signal${p.lpi_installed ? ` (${y(p.lpi_installed)})` : ''} and no turn on red, yet ${plural(p.ped_turn_after_lpi, 'crash', 'crashes')} since ${since} involved someone walking and a turning driver. Is ${who} considering turn restrictions here?`
         : `Since ${since}, ${plural(p.ped_turn_after_lpi, 'crash', 'crashes')} here involved someone walking and a turning driver, despite the head-start walk signal${p.lpi_installed ? ` (${y(p.lpi_installed)})` : ''}. Has ${who} looked at no turn on red or a turn restriction here?`;
+    // the kind of crash a fix here targets went up in the same length of time after it (the place's "Before and after")
+    const up = (p.before_after || []).filter(x => x.a > x.b && x.a >= 2 && !x.other).sort((a, b) => (b.a - b.b) - (a.a - a.b) || b.a - a.a)[0];
+    if (up) {
+      const mo = Math.round(up.days / 30.44), span = mo >= 12 && mo % 12 === 0 ? plural(mo / 12, 'year', 'years') : plural(mo, 'month', 'months');
+      return `In the ${span} after the ${up.k.toLowerCase()} went in here (${fixDate(up.d, up.yo)}), there were ${up.a} ${BA_WHAT[up.m] || 'crashes'} here, against ${up.b} in the same time before. Has ${who} looked at why, and what else would help?`;
+    }
     if (p.lpi_status === 'Planned' || p.ntor_status === 'Planned')
       return `${who}'s data lists ${[p.lpi_status === 'Planned' ? 'a head-start walk signal' : '', p.ntor_status === 'Planned' ? 'no turn on red' : ''].filter(Boolean).join(' and ')} as planned here. When is it expected?`;
     if (p.addr_type === 'I' && p.signalized && !p.lt_protected && p.left_turn_crashes >= 5)
@@ -2176,7 +2185,7 @@
     else closeDetail(true);
   };
   // picking a district (or going back to all of Seattle) frames its places
-  document.getElementById('distFilter').addEventListener('change', () => setTimeout(showAll, 0));
+  document.getElementById('distFilter').addEventListener('change', () => setTimeout(() => { showAll(); if (D.progress) budgetDist(); }, 0));
   // The district picked goes in the address (?d=2), so a link to the list, or to a place opened from it, keeps it.
   const distToUrl = () => {
     const d = document.getElementById('distFilter').value, u = new URLSearchParams(location.search);
@@ -3350,6 +3359,26 @@
     return ` SDOT's data has no dates ${items.length > 1 ? items.slice(0, -1).join(', ') + ' or ' + items[items.length - 1] : items[0]}, so newer ones may not be counted.`;
   }
   // ---------- capital budget tab ----------
+  // Budget lines named for streets in the council district picked (?d=N or the list's District menu): the same street-name
+  // matching as each place's page (pipeline/projects.sql), counted per district in pipeline/history.sql.
+  function districtCip(d) {
+    const rows = ((D.progress || {}).cip_district || []).filter(x => x.g === String(d));
+    const tot = c => (D.budget || []).filter(b => b.code === c).reduce((t, b) => t + (b.amount || 0), 0);
+    return rows.map(r => ({ ...r, total: tot(r.c) })).sort((a, b) => b.total - a.total || b.n - a.n);
+  }
+  function budgetDist() {
+    const el = document.getElementById('budgetDist'); if (!el) return;
+    const d = +document.getElementById('distFilter').value || 0;
+    if (!d) { el.innerHTML = `<p class="note">Pick a council district in the list's District menu to see the budget lines named for its streets here.</p>`; return; }
+    const rows = districtCip(d), ys = [...new Set((D.budget || []).map(b => b.year))].sort();
+    el.innerHTML = `<h3>District ${d}: budget lines named for its streets</h3>
+      ${rows.length ? `<div class="tablewrap"><table><tr><th scope="col">Project (the City's title)</th><th scope="col">Money budgeted</th><th scope="col">${ys[0]}–${ys[ys.length - 1]} in all</th><th scope="col">Places with crashes on that street here</th></tr>
+        ${rows.map(r => `<tr><td>${esc(r.t)} <small class="muted">· ${esc(r.c)}</small></td><td>${r.y0 === r.y1 ? r.y0 : r.y0 + '–' + r.y1}</td><td>${r.total ? money(r.total) : '–'}</td><td>${fmt(r.n)}</td></tr>`).join('')}
+        </table></div>` : `<p class="note">No budget line in this year's data is named for a street with crashes in District ${d}.</p>`}
+      <p class="note">Matched by the street named in each project's title, the same way as each place's page. The budget doesn't say
+        which blocks a project covers, and a project named for a street that runs through several districts is listed in each with its
+        whole amount, so these amounts can't be added up into a district total. Projects not named for a street (citywide programs) aren't listed.</p>`;
+  }
   function budgetInit() {
     const years = [...new Set(D.budget.map(b => b.year))].sort();
     const thisYear = new Date().getFullYear();
@@ -3411,6 +3440,7 @@
         the work" below for the projects SDOT does map.</p>
       <div class="tablewrap"><table>${head}<tr class="total"><td class="nowrap">All SDOT capital</td>${cells(grand)}</tr></table></div>
       <p class="note">† current year's budget. * planned future years. Click a program for its projects.</p>
+      <div id="budgetDist"></div>
       ${mappedPrograms()}
       ${html}
       <p class="note">Abbreviations: ST3 = Sound Transit 3; BUD = a budget-level entry in the city's data. Projects are matched
@@ -3418,6 +3448,7 @@
       ${(meta.levy_funds || []).length ? `<p class="note">Voter-approved levy money in this data: ${meta.levy_funds.map(f =>
         `${esc(f.fund)} (${f.from === f.to ? f.from : f.from + '–' + f.to})`).join(', ')}. A year when one levy winds down and the
         next starts can look lower or higher than its neighbors.</p>` : ''}`;
+    budgetDist();
     function sum(o) { return Object.values(o).reduce((a, b) => a + b, 0); }
     // "12 projects; the largest over these years: A, B and C" (from the budget data itself)
     function progSummary(g) {
@@ -4255,6 +4286,33 @@
       ...polys.map(p => L.polygon(toLL(p[0]), { pane: 'boundary', color: '#fff', weight: 8, opacity: 0.9, fill: false, interactive: false })),
       ...polys.map(p => L.polygon(toLL(p[0]), { pane: 'boundary', color: '#111827', weight: 4, opacity: 1, fill: false, interactive: false }))]).addTo(map);
   }
+  // One page for a council office: the district's numbers, its worst places with what SDOT has done or planned, and the
+  // budget lines named for its streets. Built from the same data as the screen, printed on its own.
+  function distPrint(d) {
+    const P = D.progress, r = P && (P.need || []).find(x => x.dim === 'district' && x.g === String(d));
+    if (!r) return;
+    let el = document.getElementById('distPrint');
+    if (!el) { el = document.createElement('div'); el.id = 'distPrint'; document.body.appendChild(el); }
+    const c = (CTX.council || []).find(x => String(x.d) === String(d));
+    const places = D.priorities.filter(p => +p.council_district === +d || +p.council_district2 === +d).sort((a, b) => a.rank_ksi - b.rank_ksi).slice(0, 10);
+    const cip = districtCip(d).slice(0, 6);
+    const asOf = asOfShort();
+    const link = location.origin + location.pathname + '?d=' + d;
+    el.innerHTML = `<div class="print-head" style="display:block"><div>Streets First · Seattle — District ${d}${c && c.member ? ` (Councilmember ${esc(c.member)}${sinceTxt(c.since)})` : ''}${asOf ? ' — data as of ' + asOf : ''} — ${esc(link)}</div>
+        <div>From SDOT's police-reported crash data and SDOT's published records. Made by Dara Try, a Seattle resident · contact@streetsfirst.org · independent; the City and SDOT haven't reviewed or endorsed it.</div></div>
+      <h2>District ${d}: where crashes hurt people, and what SDOT has done</h2>
+      <p>Crashes ${windowTxt()}: <b>${fmt(r.ksi)}</b> killed or seriously hurt someone${r.killed != null ? ` (${r.killed ? killedTxt(r.killed, r.fatal) : 'no one killed'}, ${fmt(r.hurt)} seriously injured)` : ''}.
+        <b>${fmt(r.top50)}</b> of the citywide top ${TOP} places are here${r.top50_state ? ` (${r.top50_state} run by WSDOT)` : ''}; <b>${fmt(r.top50_nothing)}</b> of those on city streets have no safety work counted since ${esc(P.since_d)} or planned in SDOT's published data.</p>
+      <table class="dp-t"><tr><th>In district</th><th>Citywide</th><th>Place</th><th>Killed or seriously hurt (crashes)</th><th>SDOT work</th></tr>
+        ${places.map((p, i) => `<tr><td>#${i + 1}</td><td>${rankTxt(p.rank_ksi)}</td><td>${esc(niceName(p.location))}${p.state_route ? ' <small>(run by WSDOT)</small>' : ''}</td><td>${p.ksi}${p.killed ? ` <small>(${killedTxt(p.killed, p.fatal)})</small>` : ''}</td><td><small>${esc(workSummary(p).short)}</small></td></tr>`).join('')}</table>
+      ${cip.length ? `<h3>Budget lines named for its streets</h3><ul>${cip.map(x => `<li>${esc(x.t)} (${esc(x.c)}): money budgeted ${x.y0 === x.y1 ? x.y0 : x.y0 + '–' + x.y1}${x.total ? `, ${money(x.total)} in all` : ''}</li>`).join('')}</ul>
+        <p class="note">Matched by street name; the budget doesn't say which blocks a project covers, so it may not reach these places.</p>` : ''}
+      <p class="note">Ranks as of ${asOf || 'the data date'}; they can change every week. Each place's page (on the link above) has its crashes, what SDOT has done and a question to ask.</p>`;
+    document.body.classList.add('print-dist');
+    window.print();
+  }
+  window.addEventListener('afterprint', () => document.body.classList.remove('print-dist'));
+  document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('.dist-print'); if (b) distPrint(+b.dataset.d); });
   function distCard(dist) {
     distOutline(dist);
     const el = document.getElementById('distSummary'); if (!el) return;
@@ -4275,7 +4333,7 @@
       <div class="cs-state" id="distState" hidden></div>
       <div class="cs-foot">Of the fixes SDOT dated since ${esc(P.since_d)} at places with crashes, ${pct(r.lpi, tot('lpi'))}% of head-start walk signals and
         ${pct(r.other, tot('other'))}% of other fixes are in this district. *In the SDOT layers this site reads; planned work includes a budget line named for the street.
-        ${D.fetchedAt ? `Data as of ${new Date(D.fetchedAt.slice(0, 10) + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}.` : ''} <a href="#progress=d${esc(r.g)}">Compare districts</a></div>`;
+        ${D.fetchedAt ? `Data as of ${new Date(D.fetchedAt.slice(0, 10) + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}.` : ''} <a href="#progress=d${esc(r.g)}">Compare districts</a> · <button type="button" class="linkbtn dist-print" data-d="${esc(r.g)}">Print a one-page summary</button></div>`;
     el.hidden = false; distState();
   }
   document.getElementById('listCsv').onclick = () => {
