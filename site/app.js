@@ -1536,7 +1536,7 @@
   function streetInfo(p) {
     const pci = p.pavement_min;
     const pciLabel = pci == null ? 'not rated' : `${pci}/100 (${pci >= PCI.good ? 'good' : pci >= PCI.fair ? 'fair' : 'poor'})`;
-    const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
+    const row = (k, v) => `<tr><th scope="row">${k}</th><td>${v}</td></tr>`;
     return `<table class="kv">
       ${row('Street type', esc(p.street_type || '—') + (p.state_route || p.state_hwy ? ` · <b>${esc(p.state_route || p.state_hwy)}</b>` : ''))}
       ${p.block_ft ? row('Block length', `${fmt(p.block_ft)} ft <span class="muted">(typical block ${fmt(meta.median_block_ft)} ft; longer blocks collect more crashes)</span>`) : ''}
@@ -2540,10 +2540,10 @@
     detailEl.hidden = false; detailEl.classList.add('home', 'place'); applyLayout();
     phoneDetailShown(wasHidden);
     renderGraphs = () => {};
-    document.getElementById('detailTitle').textContent = '📍 ' + pinTitle(g) + (g.preview ? ' (not saved yet)' : '');
+    document.getElementById('detailTitle').innerHTML = '<span aria-hidden="true">📍</span> ' + esc(pinTitle(g) + (g.preview ? ' (not saved yet)' : ''));
     const body = document.getElementById('detailBody'), list = nb.all.slice(0, 10), mine = onMyStreet(g);
     const card = (n, attr) => `<li><button type="button" class="home-card" ${attr}>
-            <span class="hc-rank" style="background:${TIERS[tierK(n.x.rank)].color}" title="${rankTxt(n.x.rank)}">${rankTxt(n.x.rank, false)}</span>
+            <span class="hc-rank t${tierK(n.x.rank)}" title="${rankTxt(n.x.rank)}">${rankTxt(n.x.rank, false)}</span>
             <span class="hc-main"><span class="hc-name">${esc(niceName(n.x.name))}</span>
               <span class="hc-sub">${plural(n.x.crashes, 'crash', 'crashes')}${n.x.ksi ? ` · ${n.x.ksi} killed or seriously hurt someone` : ''}</span></span>
             <span class="hc-val">${distText(n.m)}</span></button></li>`;
@@ -2896,8 +2896,10 @@
         const t = document.getElementById('panelTitle'); t.tabIndex = -1; t.focus({ preventScroll: true }); }
     });
     b.addEventListener('keydown', e => {
-      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-      const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]; n.focus();
+      const n = e.key === 'ArrowRight' ? tabs[(i + 1) % tabs.length] : e.key === 'ArrowLeft' ? tabs[(i + tabs.length - 1) % tabs.length]
+        : e.key === 'Home' ? tabs[0] : e.key === 'End' ? tabs[tabs.length - 1] : null;
+      if (!n) return;
+      e.preventDefault(); n.focus();
     });
   });
 
@@ -4075,7 +4077,7 @@
       if (n) n.onchange = () => { onlyNone = n.checked; draw('#pgNone'); announceThen(); };
       el.querySelectorAll('[data-dim]').forEach(b => (b.onclick = () => { dim = b.dataset.dim; open = null; draw(`[data-dim="${dim}"]`); }));
       el.querySelectorAll('.pg-grp').forEach(b => (b.onclick = () => { open = open === b.dataset.grp ? null : b.dataset.grp; draw(`.pg-grp[data-grp="${CSS.escape(b.dataset.grp)}"]`);
-        if (open) say(`${gName(open)}: ${(P.need.find(r => r.dim === dim && r.g === open).list || []).length} top-${TOP} places listed below.`); }));
+        if (open) say(`${gName(open)}: ${((P.need.find(r => r.dim === dim && r.g === open) || {}).list || []).length} top-${TOP} places listed below.`); }));
       el.querySelectorAll('[data-more]').forEach(b => (b.onclick = () => { showAll[b.dataset.more] = !showAll[b.dataset.more]; draw(`[data-more="${b.dataset.more}"]`); }));
       el.querySelectorAll('.pg-link').forEach(b => (b.onclick = () => {
         const url = location.href.split('#')[0] + '#' + b.dataset.link;
@@ -4117,10 +4119,19 @@
     progressLink = h => {
       const m = h.match(/^#progress(?:=(?:(\d{4})|d(\d+)))?$/);
       if (!m) return false;
-      if (m[1] && years.some(y => y.yr === +m[1])) pick = +m[1];
-      if (m[2]) { dim = 'district'; open = m[2]; }
+      // a link names a year, or opens on the newest (a year picked by an earlier link doesn't stick)
+      const badYear = m[1] && !years.some(y => y.yr === +m[1]);
+      pick = m[1] && !badYear ? +m[1] : (years[0] || {}).yr;
+      const badDist = m[2] && !P.need.some(r => r.dim === 'district' && r.g === m[2]);
+      if (m[2] && !badDist) { dim = 'district'; open = m[2]; }
       openFromList = String(+document.getElementById('distFilter').value || '') || null;   // so progressSync leaves the link's choice alone
       draw();
+      if (badYear || badDist) {
+        const msg = badYear ? `That link's year (${esc(m[1])}) isn't in this week's data, so here is the newest, ${pick}.`
+          : `That link's district (${esc(m[2])}) isn't one of Seattle's council districts, so no district is opened.`;
+        el.insertAdjacentHTML('afterbegin', `<p class="note link-note" role="status">${msg}</p>`);
+        history.replaceState(history.state, '', location.pathname + location.search + (badYear ? '#progress=' + pick : '#progress'));
+      }
       showTab(document.getElementById('tabbtn-progress'));
       const card = m[2] && isNarrow() ? el.querySelector('.pg-card.on') : null;
       const target = card || (m[2] ? el.querySelector('#pg-need') : m[1] ? el.querySelector('#pg-then') : null);
@@ -4247,7 +4258,8 @@
   // A shared link's district (?d=2), when it's one of the choices.
   { const d = new URLSearchParams(location.search).get('d'), sel = document.getElementById('distFilter');
     if (d && [...sel.options].some(o => o.value === d)) sel.value = d;
-    else if (d) { const u = new URLSearchParams(location.search); u.delete('d'); history.replaceState(null, '', location.pathname + (u.toString() ? '?' + u : '') + location.hash); } }
+    else if (d) { const u = new URLSearchParams(location.search); u.delete('d'); history.replaceState(null, '', location.pathname + (u.toString() ? '?' + u : '') + location.hash);
+      setTimeout(() => linkNote(`That link's district (${esc(d)}) isn't one of Seattle's council districts, so here is all of Seattle.`)); } }
   render();
 
   // Shareable links: #p=<key> opens a place by a key made from its name, so the link keeps working when ranks change.
@@ -4325,7 +4337,7 @@
     const titleEl = document.getElementById('detailTitle'), body = document.getElementById('detailBody');
     renderGraphs = () => {};
     const card = (it, i) => `<li><button type="button" class="home-card" data-home="${i}">
-        <span class="hc-rank" style="background:${TIERS[it.t].color}"${it.title ? ` title="${esc(it.title)}"` : ''}>${it.rk}</span>
+        <span class="hc-rank t${it.t}"${it.title ? ` title="${esc(it.title)}"` : ''}>${it.rk}</span>
         <span class="hc-main"><span class="hc-name">${esc(it.name)}</span><span class="hc-sub">${esc(it.sub)}</span></span>
         <span class="hc-val">${it.val}</span></button></li>`;
     let items, title, lead, middle = '';
@@ -4413,7 +4425,7 @@
       check(document.querySelectorAll('#pg-sidewalk tr, #pg-sidewalk .pg-sw li').length >= 8, 'progress: sidewalk report table is short');
       check(!!document.getElementById('listAsOf') && /Data as of/.test(document.getElementById('listAsOf').textContent), 'no data date above the list');
       check(document.querySelectorAll('#pg-working .pg-working li').length >= 1, 'is it working? section has no fix kinds');
-      check(document.querySelectorAll('#progress .pg-places tr').length >= 11, 'progress: past worst-places table is short');
+      check(document.querySelectorAll('#progress .pg-places tr, #progress .pg-pcards li').length >= 11, 'progress: past worst-places table is short');
       check(document.querySelectorAll('#progress .pg-need tr, #progress .pg-card').length >= 8, 'progress: district table is short');
       check(keyIdx().size === searchIdx.length, 'place link keys are not unique');
       check(schools().length >= 70 && schools().every(s => s.label && isFinite(s.lat)), 'school search list is short or broken');

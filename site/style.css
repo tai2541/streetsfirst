@@ -49,8 +49,8 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 .chip.sdot { background: #ece9fb; color: #3d2f9e; }
 .chip.still { background: #fff1c2; color: #6b4a00; }
 .chip.state { background: #eef1f6; color: #3a4456; border: 1px solid #c9d0dc; }
-table.kv td { text-align: left; padding: 3px 6px; }
-table.kv td:first-child { color: #52514e; white-space: nowrap; width: 1%; }
+table.kv td, table.kv th { text-align: left; padding: 3px 6px; }
+table.kv th { font-weight: normal; color: #52514e; white-space: nowrap; width: 1%; }
 .formula { font-size: 12.5px; margin: 6px 0 2px; padding: 6px 8px; background: #f6f8fb; border-radius: 6px; color: #1d2430; }
 #about ol li { margin-bottom: 8px; }
 
@@ -668,6 +668,9 @@ main.split .sheet { z-index: 1200; padding-right: 0; }
 .home-card:focus-visible, .home-pin:focus-visible { outline: 2px solid #2f55c7; outline-offset: 1px; }
 .hc-rank { flex: none; min-width: 36px; height: 26px; padding: 0 6px; border-radius: 13px; color: #fff; font-weight: 700; font-size: 13px;
   display: inline-flex; align-items: center; justify-content: center; }
+/* tier colors with text that reads at 4.5:1 (the map's lighter orange and gray are too faint under white text) */
+.hc-rank.t0 { background: #b3141b; } .hc-rank.t1 { background: #c2410c; }
+.hc-rank.t2 { background: #f0a020; color: #3b2600; } .hc-rank.t3 { background: #5b6576; }
 .hc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .hc-name { font-weight: 600; line-height: 1.3; }
 .hc-sub, .hp-sub { font-size: 12px; color: #5b6576; }
