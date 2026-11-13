@@ -3792,7 +3792,14 @@
           <label class="tag"><input type="checkbox" id="pgNone" ${onlyNone ? 'checked' : ''}>Only places with no fix before ${cmpEnd + 1}</label>
           <button type="button" class="linkbtn" id="pgCsv">Download this list (CSV)</button> · ${linkBtn('progress=' + pick)}
         </div>
-        ${tableWrap(`The worst ${WN} places of ${pick}`, `<table class="pg-table pg-places">
+        ${isNarrow()
+          // phones: one card per place, read top to bottom (a 6-column table runs off the screen)
+          ? `<ul class="pg-sw pg-pcards" aria-label="The ${WN} places ranked worst in ${pick}">${more('places', shown, 10, x => `<li>
+              <b>${rankTxt(x.r)}</b> ${placeBtn(x.loc)}${x.d ? ` <small class="muted">District ${x.d}</small>` : ''}${x.state ? ` <small class="pg-state">${esc(x.state)}: run by WSDOT</small>` : ''}
+              <br><small>Killed or seriously hurt: <b>${x.ksi} → ${x.ksi_cmp}</b> (${then} → ${cmpSpan}) · all crashes ${then}: ${x.c}</small>
+              <br><small>Fixes since ${y0(Y.d0)}: ${(x.fx || []).length ? fixCell(x).replace(/<br>/g, ', ') : 'none in SDOT\'s published data'}</small>
+              <br><small>Rank today: <b>${x.now ? rankTxt(x.now) : 'no crashes'}</b></small></li>`)}</ul>`
+          : tableWrap(`The worst ${WN} places of ${pick}`, `<table class="pg-table pg-places">
           <caption class="sr-only">The ${WN} places ranked worst in ${pick}, their fixes since, and how they're doing now</caption>
           <tr><th scope="col">Rank in ${pick}</th><th scope="col">Place</th><th scope="col">All crashes ${then}</th>
             <th scope="col">Killed or seriously hurt<br><span class="muted">${then} → ${cmpSpan}</span></th>
