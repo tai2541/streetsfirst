@@ -58,7 +58,18 @@ async function get(url, tries = 3) {
     const r = await get(u);
     if (r.status === 0 || r.status >= 400) problems.push(`link no longer opens (${r.status || r.error}): ${u}`);
   }
-  console.log(`Checked ${facts.length} outside facts, ${codes.length} City request forms and ${links.length} outside links.`);
+  // 4. the source datasets listed on the site (data/raw/sources.json, written by the fetch step): each link still opens.
+  //    Asked with HEAD, so a large download (the bus timetable) isn't fetched; a server that refuses HEAD is asked again with GET.
+  const srcFile = path.join(root, 'data/raw/sources.json');
+  const srcs = fs.existsSync(srcFile) ? JSON.parse(fs.readFileSync(srcFile, 'utf8').replace(/^\uFEFF/, '')) : [];
+  if (!srcs.length) problems.push('no source list (data/raw/sources.json): the site\'s Sources section would be empty');
+  for (const u of [...new Set(srcs.map(x => x.link))]) {
+    let st = 0;
+    try { st = (await fetch(u, { method: 'HEAD', headers: { 'User-Agent': UA }, redirect: 'follow', signal: AbortSignal.timeout(30000) })).status; } catch { }
+    if (st === 0 || st === 405 || st === 403) st = (await get(u)).status;
+    if (st === 0 || st >= 400) problems.push(`source link no longer opens (${st}): ${u}`);
+  }
+  console.log(`Checked ${facts.length} outside facts, ${codes.length} City request forms, ${links.length} outside links and ${srcs.length} source datasets.`);
   if (problems.length) { problems.forEach(p => console.log('OUTSIDE CHECK FAILED: ' + p)); process.exit(1); }
   console.log('All outside facts and links check out.');
 })();

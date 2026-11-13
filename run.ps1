@@ -23,10 +23,12 @@ function Read-Utf8([string]$p) { [IO.File]::ReadAllText((Join-Path $PSScriptRoot
 $fetched = if (Test-Path 'data\raw\fetched_at.txt') { (Read-Utf8 'data\raw\fetched_at.txt') } else { '' }
 $projEdited = if (Test-Path 'data\raw\proj_edited.json') { (Read-Utf8 'data\raw\proj_edited.json') } else { '{}' }
 $credits = if (Test-Path 'data\raw\basemap_credits.json') { (Read-Utf8 'data\raw\basemap_credits.json') } else { '{}' }
+$sources = if (Test-Path 'data\raw\sources.json') { (Read-Utf8 'data\raw\sources.json') } else { '[]' }   # the datasets read, from the fetch step
 # Two files: data.js has what the first screen needs (the map, the lists, the place panel). data-late.js has search,
 # "Is it getting fixed?" and the budget; the page asks for it once data.js is in, so the first screen loads sooner.
 $json = '{"fetchedAt":' + (ConvertTo-Json $fetched) +
         ',"credits":'    + $credits +
+        ',"sources":'    + $sources +
         ',"meta":'       + (Read-Utf8 'site\data\meta.json') +
         ',"priorities":' + (Read-Utf8 'site\data\priorities.json') +
         ',"boundary":'   + (Read-Utf8 'site\data\boundary.json') +

@@ -15,6 +15,22 @@ $tmp  = Join-Path $root 'data\raw.tmp'
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $tmp | Out-Null
 $counts = @{}
+# Every dataset read, for the site's Sources list: its name and link as the publisher gives them, and the day it was read.
+$sources = [ordered]@{}
+function Get-Publisher([string]$Url, [string]$Owner) {
+  if ($Url -match 'wsdot.wa.gov') { 'WSDOT' } elseif ($Url -match 'metro.kingcounty.gov') { 'King County Metro' }
+  elseif ($Url -match 'kingcounty.gov') { 'King County' } elseif ($Url -match 'legistar') { 'Seattle City Clerk' }
+  elseif ($Owner -match '^Transportation') { 'SDOT' } else { 'City of Seattle' }
+}
+function Add-Source([string]$Key, [string]$Name, [string]$Link, [string]$By) {
+  if (-not $sources.Contains($Key)) { $sources[$Key] = [ordered]@{ name = $Name; by = $By; link = $Link; at = '' } }
+  $sources[$Key].at = (Get-Date).ToString('yyyy-MM-dd')
+}
+# A dataset on the City's open data portal (Socrata): its name from the portal's own catalog.
+function Add-SocrataSource([string]$Id) {
+  $name = $Id; try { $name = (Get-Json "https://cos-data.seattle.gov/api/views/$Id.json").name } catch { }
+  Add-Source $Id $name "https://data.seattle.gov/d/$Id" 'City of Seattle'
+}
 
 # Retry transient network failures and rate limits (5 tries; waits 15, 30, 60, 120 s, or what the server asks for).
 function Wait-Retry($i, $err) {
@@ -71,6 +87,15 @@ function Get-ArcGISLayer([string]$Url, [string]$Fields, [string]$Prefix, [string
   }
   Write-Host "$Prefix : $total"
   $counts[$Prefix] = $total
+  if (-not $sources.Contains($Url)) {
+    # the catalog item behind a hosted layer has its public title and page; otherwise the layer's own name and address
+    $name = $meta.name; $link = $Url; $owner = ''
+    if ($meta.serviceItemId) {
+      try { $it = Get-Json "https://www.arcgis.com/sharing/rest/content/items/$($meta.serviceItemId)?f=json"
+            if ($it.title) { $name = $it.title; $owner = $it.owner; $link = "https://www.arcgis.com/home/item.html?id=$($meta.serviceItemId)" } } catch { }
+    }
+    Add-Source $Url $name $link (Get-Publisher $Url $owner)
+  } else { Add-Source $Url '' '' '' }
 }
 
 $gis = 'https://services.arcgis.com/ZOyb2t4B0UYuYNYH/arcgis/rest/services'
@@ -97,6 +122,7 @@ $soql = "`$select=servicerequestnumber,webintakeservicerequests,createddate,serv
         "&`$order=servicerequestnumber&`$limit=2000000"
 $u = 'https://cos-data.seattle.gov/resource/5ngg-rpne.csv?' + ($soql -replace ' ', '%20' -replace "'", '%27')
 Get-WithRetry $u (Join-Path $tmp 'service_requests.csv') 600
+Add-SocrataSource '5ngg-rpne'
 $reqRows = Import-Csv (Join-Path $tmp 'service_requests.csv')
 $counts['requests'] = @($reqRows).Count
 Write-Host "service requests: $($counts['requests'])"
@@ -114,6 +140,7 @@ Remove-Variable reqRows
 
 # ---- 3. Capital budget (all departments, all years; small) ----
 Get-WithRetry 'https://cos-data.seattle.gov/resource/m6va-m4qe.csv?$limit=1000000' (Join-Path $tmp 'capital_budget.csv') 300
+Add-SocrataSource 'm6va-m4qe'
 # Only SDOT's rows for the years the site shows are checked (older years are most of the file and aren't used).
 $budYear = (Get-Date).Year
 $counts['budget_sdot_shown'] = @(Import-Csv (Join-Path $tmp 'capital_budget.csv') | Where-Object {
@@ -212,7 +239,7 @@ Get-ArcGISLayer "$gis/Council_District_Member_Info/FeatureServer/0" 'C_DISTRICT,
 $today = (Get-Date).ToString('yyyy-MM-dd')
 $leg = "https://webapi.legistar.com/v1/seattle/OfficeRecords?`$filter=OfficeRecordBodyName eq 'City Council' and " +
        "OfficeRecordStartDate le datetime'$today' and OfficeRecordEndDate ge datetime'$today'"
-try { Get-WithRetry $leg (Join-Path $tmp 'legistar_council.json') 60 }
+try { Get-WithRetry $leg (Join-Path $tmp 'legistar_council.json') 60; Add-Source 'legistar' 'City Council members (office records)' 'https://seattle.legistar.com/People.aspx' (Get-Publisher $leg '') }
 catch { Write-Host "  council member list unavailable ($($_.Exception.Message)); names from the district map are shown unchecked"; '[]' | Set-Content (Join-Path $tmp 'legistar_council.json') }
 
 # ---- 4b1. WSDOT: where state highways run, which sections are limited access (WSDOT runs those; on other state highway
@@ -251,6 +278,7 @@ $projEdited | ConvertTo-Json | Set-Content (Join-Path $tmp 'proj_edited.json')
 # take at each time of day, so peak vs early-morning run times between stops show where traffic slows buses. ----
 $gtfsZip = Join-Path $tmp 'gtfs.zip'
 Get-WithRetry 'https://metro.kingcounty.gov/GTFS/google_transit.zip' $gtfsZip 300
+Add-Source 'gtfs' 'Metro bus schedules (GTFS)' 'https://metro.kingcounty.gov/GTFS/google_transit.zip' 'King County Metro'
 $gtfsDir = Join-Path $tmp 'gtfs'
 Expand-Archive $gtfsZip $gtfsDir -Force
 Remove-Item $gtfsZip
@@ -293,6 +321,7 @@ foreach ($svc in 'Canvas/World_Light_Gray_Base', 'Canvas/World_Light_Gray_Refere
 }
 [IO.File]::WriteAllText((Join-Path $tmp 'basemap_credits.json'), ($credits | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
 $counts | ConvertTo-Json | Set-Content (Join-Path $tmp 'counts.json')
+[IO.File]::WriteAllText((Join-Path $tmp 'sources.json'), (ConvertTo-Json @($sources.Values) -Depth 3), (New-Object Text.UTF8Encoding $false))
 Set-Content (Join-Path $tmp 'fetched_at.txt') (Get-Date).ToString('yyyy-MM-ddTHH:mmzzz')   # with the time zone (runners use UTC)
 # Swap without a moment with no data: old -> raw.old, new -> raw, then delete the old copy.
 $old = Join-Path $root 'data\raw.old'

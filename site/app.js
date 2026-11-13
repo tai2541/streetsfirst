@@ -3534,10 +3534,35 @@
         ${agRow('baseline_crash_count', `Baseline: ${TOP} spots with most crashes`)}
       </tbody></table>
       <p class="note">For scale: ${Math.round(100 * meta.busy_share_on_hin)}% of the ${fmt(meta.busy_locations)} spots with ${cfg('busy_min_crashes')}+ crashes are on the High Injury Network.</p>`;
+    // Sources: every dataset the fetch step read (data/raw/sources.json), with the publisher's own name and link and the day
+    // it was read. A dataset published once a year ("2015 Arterial Traffic Volumes", "2016 ...") is one line with its years.
+    const dayTxt = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const SRC = (() => {
+      const by = new Map();
+      for (const x of D.sources || []) {
+        const name = (x.name || '').trim().replace(/_/g, ' '), m = name.match(/^(\d{4}) (.+)$/), key = (m ? m[2] : name) + '|' + x.by;
+        if (!by.has(key)) by.set(key, { name: m ? m[2] : name, by: x.by, years: [], link: x.link, at: x.at });
+        const e = by.get(key);
+        if (m) { e.years.push(+m[1]); if (+m[1] === Math.max(...e.years)) e.link = x.link; }   // link the newest year
+        if (x.at > e.at) e.at = x.at;
+      }
+      return [...by.values()];
+    })();
+    const srcBy = [...new Set(SRC.map(x => x.by))];
+    const sourcesHtml = () => !SRC.length ? '' : `<h4 id="sources">Sources</h4>
+      <details class="src"><summary>All ${SRC.length} datasets this week's update read, by publisher</summary>
+      <p class="note">Each under its publisher's own name for it, with the day it was read. The links are checked every week.</p>
+      ${srcBy.map(b => `<p class="src-by"><b>${esc(b)}</b></p><ul class="src-list">${SRC.filter(x => x.by === b).map(x => {
+        const ys = x.years.slice().sort((a, c) => a - c);
+        const yrs = ys.length > 1 ? ` (${ys[0]}–${ys[ys.length - 1]}, one dataset a year)` : ys.length ? ` (${ys[0]})` : '';
+        return `<li><a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.name)}</a>${yrs} · read ${esc(dayTxt(x.at))}</li>`; }).join('')}</ul>`).join('')}</details>
+      <p class="note"><b>How to cite:</b> “Streets First (streetsfirst.org/seattle), data as of ${D.fetchedAt ? esc(dayTxt(D.fetchedAt.slice(0, 10))) : 'the date on the page'}”,
+        with the rank's date if you quote a rank; <a href="https://github.com/tai2541/streetsfirst/releases" target="_blank" rel="noopener">each week's full list is saved</a>
+        so it can be checked. For the underlying numbers, cite the publisher's dataset above. Streets First is independent: SDOT hasn't reviewed or endorsed it.</p>`;
     document.getElementById('about').innerHTML = `
       <h3>About this site</h3>
-      <p>Streets First is an independent project. It isn't made by or for the City of Seattle or SDOT, which haven't reviewed or endorsed it, and it uses only the
-        City's public data, downloaded and rebuilt automatically every Monday. All the code and every calculation are public on
+      <p>Streets First is an independent project. It isn't made by or for the City of Seattle or SDOT, which haven't reviewed or endorsed it, and it uses only
+        public data${srcBy.length ? ` (from ${srcBy.join(', ').replace(/, ([^,]*)$/, ' and $1')}; see Sources below)` : ''}, downloaded and rebuilt automatically every Monday. All the code and every calculation are public on
         <a href="https://github.com/tai2541/streetsfirst" target="_blank" rel="noopener">GitHub</a> for anyone to read and check (other use needs permission).</p>
       <p><b>Who made it:</b> Dara Try, a Seattle resident. Questions or suggestions: <a href="mailto:contact@streetsfirst.org">contact@streetsfirst.org</a></p>
       <p><b>See a mistake in this website's numbers?</b> Email <a href="mailto:contact@streetsfirst.org">contact@streetsfirst.org</a>, or
@@ -3547,6 +3572,7 @@
         after WSDOT's review. This site counts police reports in SDOT's open collision data
         for the ${WY} years shown, leaves out freeway crashes, and places each crash at the intersection or block SDOT assigns it to.
         The most recent months may still be filling in as reports arrive.</p>
+      ${sourcesHtml()}
       <p class="note"><b>Privacy.</b> No accounts, cookies or analytics. The map images come from Esri, which sees the area you're viewing.
         A typed address is looked up with Esri's address search (OpenStreetMap's if Esri can't find it); picking an address from the
         suggestions list doesn't send it anywhere. Pins are kept only in this browser, so anyone using it can see them. The site is hosted
@@ -3554,7 +3580,7 @@
       <h3>What this ranks</h3>
       <p>Every Seattle intersection and every stretch of street between intersections with a police-reported crash from ${monthYear(meta.window_from)} to
         ${monthYear(meta.window_to)} (${fmt(meta.collisions_scored)} SDOT collision reports), ranked by how likely people are to keep
-        getting killed or seriously hurt there.</p>
+        getting killed or seriously hurt there (expected harm: an estimate from past crashes).</p>
       ${example}
       ${mode === 'risk' ? risk + ksi : ksi + risk}
       ${validation}
