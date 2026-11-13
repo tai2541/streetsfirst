@@ -3709,8 +3709,9 @@
     const span = (a, b) => y0(a) === yEnd(b) ? String(y0(a)) : `${y0(a)}–${yEnd(b)}`;
     const cmpSpan = span(C.d0, C.d1), cmpEnd = yEnd(C.d1);
     // Change between two counts: a percentage only when both are big enough for one to mean something.
+    const CHG_MIN = 30;
     const change = (a, b) => {
-      if (a >= 30 && b >= 30) { const c = Math.round(100 * (b / a - 1)); return c === 0 ? 'about the same' : `${c < 0 ? 'down' : 'up'} ${Math.abs(c)}%`; }
+      if (a >= CHG_MIN && b >= CHG_MIN) { const c = Math.round(100 * (b / a - 1)); return c === 0 ? 'about the same' : `${c < 0 ? 'down' : 'up'} ${Math.abs(c)}%`; }
       const d = b - a; return d === 0 ? 'same' : `${Math.abs(d)} ${d < 0 ? 'fewer' : 'more'}`;
     };
     const fixedBy = x => x.g === 'then' || x.g === 'between';
@@ -3739,7 +3740,7 @@
       const groups = [
         { key: 'fixed', label: `Got a fix before ${y0(C.d0)}`, a: L.filter(fixedBy) },
         { key: 'during', label: `First fix during ${cmpSpan}`, a: L.filter(x => x.g === 'during') },
-        { key: 'none', label: `No fix by ${cmpEnd + 1} in SDOT's published data`, a: L.filter(x => x.g === 'none') }
+        { key: 'none', label: `No counted fix before ${cmpEnd + 1} in SDOT's published data`, a: L.filter(x => x.g === 'none') }
       ];
       const sum = (a, k) => a.reduce((s, x) => s + (x[k] || 0), 0);
       const still = L.filter(x => x.now && x.now <= TOP).length;
@@ -3751,13 +3752,13 @@
         : '<span aria-label="none">—</span>';
       const sentence = () => {
         const f = G.fixed, n = G.none;
-        const part = g => `${g.a.length === 1 ? 'the 1 place' : `the ${g.a.length} places`} ${g === f ? `fixed before ${y0(C.d0)}` : `with no fix before ${cmpEnd + 1}${(s => s ? ` (${s} of them run by WSDOT)` : '')(g.a.filter(x => x.state).length)}`}
+        const part = g => `${g.a.length === 1 ? 'the 1 place' : `the ${g.a.length} places`} ${g === f ? `fixed before ${y0(C.d0)}` : `with no counted fix before ${cmpEnd + 1}${(s => s ? ` (${s} of them run by WSDOT)` : '')(g.a.filter(x => x.state).length)}`}
           had ${fmt(sum(g.a, 'ksi'))} crashes where someone was killed or seriously hurt in ${then} and ${fmt(sum(g.a, 'ksi_cmp'))} in ${cmpSpan}`;
         // The fixes counted are mostly intersection treatments, so the groups also differ in kind of place: said from the data.
         const st = g => g.a.filter(x => x.t !== 'I').length, stAll = st(f) + st(G.during) + st(n);
         const kinds = ixMostly && stAll && st(n) > st(f) + st(G.during)
           ? ` Of the ${stAll} stretches of street in this list, ${st(n) === stAll ? 'all' : st(n)} are in “no fix”: the fixes counted here (${FIX_KINDS}) are mostly made at intersections (${ixPct}% of them), so these groups differ in the kind of place as well as in fixes, and this doesn't show what a fix does.` : '';
-        return f.a.length && n.a.length ? `In short: ${part(f)}; ${part(n)}. Citywide, these crashes went ${change(Y.ksi_city, C.ksi_city)}.${kinds}` : '';
+        return f.a.length && n.a.length ? `In short: ${part(f)}; ${part(n)}. Citywide, these crashes went ${change(Y.ksi_city, C.ksi_city)}, though SDOT's data doesn't say how much of that is a real change and how much a change in how injuries are recorded.${kinds}` : '';
       };
       return `<section class="pg-sec" id="pg-then">
         <h3>Did the worst places get fixed?</h3>
@@ -3772,7 +3773,7 @@
         <div class="stat-grid pg-stats">
           <div class="stat"><b>${G.fixed.a.length}</b><span>got a fix before ${y0(C.d0)}</span></div>
           <div class="stat"><b>${G.during.a.length}</b><span>got their first fix in ${cmpSpan}</span></div>
-          <div class="stat"><b>${G.none.a.length}</b><span>had no fix before ${cmpEnd + 1} in SDOT's published data</span></div>
+          <div class="stat"><b>${G.none.a.length}</b><span>had no counted fix before ${cmpEnd + 1} in SDOT's published data</span></div>
           <div class="stat"><b>${still}</b><span>are in today's top ${TOP}</span></div>
         </div>
         ${(() => {
@@ -3795,11 +3796,11 @@
         <p class="note">Counts are crashes where someone was killed or seriously hurt (not people), at places with a known location.
           Places at the top of a list usually have fewer crashes later even with no changes (the places ranked ${WN + 1}–${cfg('worst_ref_to')}
           show how much), so a group's drop isn't the effect of its fixes. The groups also differ in the kind of place and in why work
-          went there, so this can't show whether fixes worked; it shows where work went. Small numbers can swing a lot. Citywide, these crashes went
-          ${change(Y.ksi_city, C.ksi_city)} while all crashes went ${change(Y.crashes_city, C.crashes_city)}; SDOT's data doesn't say
-          how much of that is a real rise and how much is a change in how injuries are recorded.</p>
+          went there, so this can't show whether fixes worked; it shows where work went. Small numbers can swing a lot. Change: when both counts are ${CHG_MIN} or more it's a percent; smaller counts show the
+          difference. Citywide, these crashes went ${change(Y.ksi_city, C.ksi_city)} while all crashes went ${change(Y.crashes_city, C.crashes_city)};
+          SDOT's data doesn't say how much of that is a real change and how much is a change in how injuries are recorded.</p>
         <div class="pg-tools">
-          <label class="tag"><input type="checkbox" id="pgNone" ${onlyNone ? 'checked' : ''}>Only places with no fix before ${cmpEnd + 1}</label>
+          <label class="tag"><input type="checkbox" id="pgNone" ${onlyNone ? 'checked' : ''}>Only places with no counted fix before ${cmpEnd + 1}</label>
           <button type="button" class="linkbtn" id="pgCsv">Download this list (CSV)</button> · ${linkBtn('progress=' + pick)}
         </div>
         ${isNarrow()
@@ -3926,7 +3927,7 @@
             <td>${r.top50}</td><td>${r.top50_state || 0}</td><td>${r.top50_nothing}${r.top50_ends ? ` <small class="pg-n">(${r.top50_ends} at corners only)</small>` : ''}</td></tr>`).join('')}
         </table>`)}
         ${sel && !narrow ? openList() : ''}
-        <p class="note" id="pgNoneNote">* No work since ${P.since_d} or planned: no dated safety fix or bus lane since ${P.since_d}, when these crash counts start (older work isn't counted, though each place's page shows it; for a stretch of street, a fix at the corners at its ends isn't counted, since it doesn't reach crashes along the block, but the count of those is given), no planned SDOT project, head-start walk signal or no turn on red nearby, and no budget project named for the street, in the layers this site reads (the same test as each place's own page). Places WSDOT runs (freeways, ramps, state bridges) are counted in their own column; state highways on city streets, which the City runs, count as city streets. The fix types counted: ${FIX_KINDS}${ixMostly ? ` (${ixPct}% of them at intersections, so stretches of street rarely have one)` : ''}.</p>
+        <p class="note" id="pgNoneNote">* No work since ${P.since_d} or planned: no dated safety fix since ${P.since_d}, when these crash counts start (a new bus lane alone isn't counted: SDOT builds them as transit projects; older work isn't counted, though each place's page shows it; for a stretch of street, a fix at the corners at its ends isn't counted, since it doesn't reach crashes along the block, but the count of those is given), no planned SDOT project, head-start walk signal or no turn on red nearby, and no budget project named for the street, in the layers this site reads (the same test as each place's own page). Places WSDOT runs (freeways, ramps, state bridges) are counted in their own column; state highways on city streets, which the City runs, count as city streets. The fix types counted: ${FIX_KINDS}${ixMostly ? ` (${ixPct}% of them at intersections, so stretches of street rarely have one)` : ''}.</p>
         <p class="note">Crashes: ${monthYear(P.window.d0)}–${throughMonth(P.window.d1)}. Fixes: dated fixes since January ${P.since} at places with
           crashes, counted once per place they reach (one long bike lane can reach many places); head-start walk signals are shown on their own: ${fmt(T.lpi)} of them, against ${fmt(T.other)} other fixes${(() => {
             const d = P.need.filter(r => r.dim === 'district'), t = T.lpi, top = d.slice().sort((a, b) => b.lpi - a.lpi)[0];
@@ -3949,15 +3950,16 @@
       const name = g => g === 'city' ? 'All Seattle' : 'District ' + esc(g);
       const known = rows.filter(r => r.med != null).sort((a, b) => a.med - b.med), lo = known[0], hi = known[known.length - 1];
       const range = known.length > 1 && hi.med > lo.med
-        ? ` Of the reports that were fixed, half were fixed within ${days(lo.med)} in District ${esc(lo.g)} and within ${days(hi.med)} in District ${esc(hi.g)}.` : '';
+        ? ` Across districts it ranged from ${days(lo.med)} (District ${esc(lo.g)}, ${fmt(lo.n)} reports) to ${days(hi.med)} (District ${esc(hi.g)}, ${fmt(hi.n)} reports).` : '';
+      const cityMed = city.med != null ? ` Citywide, of the reports that were fixed, half were fixed within ${days(city.med)}.` : '';
       const all = [...rows, city];
       const body = isNarrow()
         ? `<ul class="pg-sw">${all.map(r => `<li class="${r.g === 'city' ? 'pg-sw-city' : ''}"><b>${name(r.g)}</b>: ${fmt(r.n)} reports · <b>${pc(r.fixed, r.n)} fixed</b>${r.med != null ? `, half of those within ${days(r.med)}` : ''}
-            <br><small>${pc(r.fast, r.n)} fixed within ${fast} days · ${pc(r.open, r.n)} still open · ${pc(r.owner || 0, r.n)} assigned to the property owner · ${pc(r.nowork, r.n)} no work done (none needed, or couldn't find it) · ${pc(r.dup, r.n)} duplicates · ${pc(r.no_wo, r.n)} no work order</small></li>`).join('')}</ul>`
+            <br><small>${pc(r.fast, r.n)} of all reports fixed within ${fast} days · ${pc(r.open, r.n)} still open · ${pc(r.owner || 0, r.n)} assigned to the property owner · ${pc(r.nowork, r.n)} no work done (none needed, or couldn't find it) · ${pc(r.dup, r.n)} duplicates · ${pc(r.no_wo, r.n)} no work order</small></li>`).join('')}</ul>`
         : tableWrap('Reported sidewalk damage by council district', `<table class="pg-table pg-swt">
           <caption class="sr-only">Reports of damaged sidewalks and what happened to them, by council district</caption>
           <tr><th scope="col"><span class="sr-only">District</span></th><th scope="col">Reports</th><th scope="col">Fixed</th><th scope="col">Of those, half within</th>
-            <th scope="col">Fixed within ${fast} days</th><th scope="col">Still open</th><th scope="col">Assigned to the property owner</th>
+            <th scope="col">Fixed within ${fast} days (share of all reports)</th><th scope="col">Still open</th><th scope="col">Assigned to the property owner</th>
             <th scope="col">No work done (none needed, or couldn't find it)</th><th scope="col">Duplicate of another report</th>
             <th scope="col">No work order</th></tr>
           ${all.map(r => `<tr class="${r.g === 'city' ? 'pg-sw-city' : ''}"><th scope="row">${name(r.g)}</th><td>${fmt(r.n)}</td><td>${pc(r.fixed, r.n)}</td><td>${days(r.med)}</td>
@@ -3966,10 +3968,10 @@
       return `<section class="pg-sec" id="pg-sidewalk">
         <h3>Reported sidewalk damage: what happened to each report?</h3>
         <p class="lead">Reports of damaged sidewalks made to the City's Find It Fix It, ${monthYear(W.d0)}–${monthYear(W.d1)}, matched by report number to
-          SDOT's work orders.${range}</p>
+          SDOT's work orders.${cityMed}${range}</p>
         ${body}
         <p class="note">In Seattle, the owner of the adjacent property is often responsible for sidewalk repair; SDOT's work orders show it
-          inspecting reports, making first fixes, and assigning some repairs to the owner. Fixed: an SDOT work order on the sidewalk, curb or wheelchair ramp was closed as done. Most are
+          inspecting reports, making first fixes, and assigning some repairs to the owner. Fixed means the first repair, which may be temporary: an SDOT work order on the sidewalk, curb or wheelchair ramp was closed as done. Most are
           what SDOT calls a "Sidewalk Preliminary Repair", a first fix that isn't necessarily a rebuilt sidewalk.${W.wo_not_sw ? ` Work orders closed for
           something else${(W.wo_not_sw_top || []).length ? `, most often ${W.wo_not_sw_top.map(t => `“${esc(t.trim())}”`).join(' and ')}` : ''} (${fmt(W.wo_not_sw)} of them),
           don't count as fixing the sidewalk.` : ''} Each report is counted once,
@@ -4208,7 +4210,7 @@
       <div class="cs-nums">
         <div><b>${fmt(r.ksi)}</b><span>crashes that killed or seriously hurt someone (${pct(r.ksi, tot('ksi'))}% of the city's)${r.killed != null ? `: ${r.killed ? killedTxt(r.killed, r.fatal) : 'no one killed'}, ${fmt(r.hurt)} seriously injured` : ''}</span></div>
         <div><b>${fmt(r.top50)}</b><span>of the citywide top ${TOP} places${r.top50_state ? `: ${r.top50_state} run by WSDOT, ${r.top50 - r.top50_state} on city streets` : ''}</span></div>
-        ${r.top50 ? `<div><b>${fmt(r.top50_nothing)}</b><span>of the ${r.top50_state ? `${r.top50 - r.top50_state} on city streets` : `citywide top ${TOP} here`} with no counted safety fix since ${esc(P.since_d)} or planned work*${r.top50_ends ? ` (${r.top50_ends} with work only at the corners at their ends)` : ''}</span></div>` : ''}
+        ${r.top50 ? `<div><b>${fmt(r.top50_nothing)}</b><span>of the ${r.top50_state ? `${r.top50 - r.top50_state} on city streets` : `citywide top ${TOP} here`} with no work counted since ${esc(P.since_d)} or planned* (work before then isn't counted${r.top50_ends ? `; ${r.top50_ends} had work at the corners at their ends` : ''}; see each place)</span></div>` : ''}
       </div>
       <div class="cs-state" id="distState" hidden></div>
       <div class="cs-foot">Of the fixes SDOT dated since January ${esc(P.since)} at places with crashes, ${pct(r.lpi, tot('lpi'))}% of head-start walk signals and

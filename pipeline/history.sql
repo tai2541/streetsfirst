@@ -238,16 +238,13 @@ group by e.block;
 
 create or replace table place_work as
 -- Fix counts are by calendar year (since January of the window's first year). "Work since" a place's crash window began
--- is by date: a dated fix, or a dated bus lane (SDOT builds them as transit projects that change the street; not in the
--- fix counts), on or after the window's first day.
+-- is by date: a dated fix on or after the window's first day. A new bus lane alone isn't counted as work: SDOT builds
+-- them as transit projects (place pages say so in "In short"), so this matches what each place's page says.
 with fx as (
   select location, count(*) filter (where k = 'Head-start walk signal') as lpi, count(*) filter (where k <> 'Head-start walk signal') as other
   from place_fixes where y >= year(ws()) group by location
 ),
-recent as (
-  select location from place_fixes where d >= ws()
-  union select location from loc_fix_hits where kind = 'Bus lane' and status = 'Built' and d >= ws()
-),
+recent as (select distinct location from place_fixes where d >= ws()),
 places as (
   select r.location, coalesce(r.council_district::varchar, 'none') as district, coalesce(r.rse_quintile, 'none') as rse,
     r.ksi, r.killed, r.fatal, r.seriously_injured, r.rank, r.addr_type, r.lat, r.lon, r.rank <= top_n() as top50, coalesce(fx.lpi, 0) as lpi, coalesce(fx.other, 0) as other,
@@ -291,7 +288,7 @@ from by_g b full join proj_g p using (dim, grp);
 -- Totals along each street (all its intersections and the stretches between them), ranked by crashes that killed or
 -- seriously hurt someone. A crash at an intersection counts for each street that meets there, so a street's total is
 -- complete but totals of different streets can't be added together. Counts only, no costs. Street names are SDOT's.
--- "No work": a top-100 place on a city street with no dated safety fix or bus lane since the window began and no planned
+-- "No work": a top-100 place on a city street with no dated safety fix since the window began and no planned
 -- work (as in the district table); places WSDOT runs are counted apart.
 create or replace table street_totals as
 with sp as (
@@ -429,7 +426,7 @@ copy (
       'recent_fixes': (select list({'loc': location, 'k': k, 'd': d, 'rank': rank} order by d desc, rank) from recent_fixes)
     },
     'district_line': (select {'n': count(*), 'ksi': coalesce(sum(ksi), 0), 'top': count(*) filter (where top50)} from place_work where council_district2 is not null),
-    'need': (select list({'dim': dim, 'g': grp, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'top50': top50, 'top50_nothing': top50_nothing, 'top50_state': top50_state,
+    'need': (select list({'dim': dim, 'g': grp, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'top50': top50, 'top50_nothing': top50_nothing, 'top50_state': top50_state, 'top50_ends': top50_ends,
                           'lpi': fixes_lpi, 'other': fixes_other, 'proj_planned': proj_planned, 'list': top50_list}
                          order by dim, grp) from need_work),
     'working': {
