@@ -63,8 +63,11 @@ with m as (
 c as (
   select m.location,
     case when interstate(m.srn) then 'I-' || ltrim(m.srn, '0') else 'SR ' || ltrim(m.srn, '0') end as route,
-    -- most of it along a limited-access section (any interstate or ramp is one)
-    m.ramp or interstate(m.srn) or coalesce((select sum(ST_Length(ST_Intersection(m.part, ST_Buffer(l.geom, 50))))
+    -- most of it along a limited-access section (any interstate or ramp is one). The ramp/interstate shortcut only holds
+    -- when the place's own street (a block: the name before BETWEEN) is a state route, ramp, viaduct or tunnel by name:
+    -- ramps merge onto City bridges (the West Seattle Bridge) and run beside them, which doesn't make the bridge WSDOT's.
+    ((m.ramp or interstate(m.srn)) and regexp_matches(case when m.location like '% BETWEEN %' then split_part(m.location, ' BETWEEN ', 1)
+      else m.location end, '\b(SR ?\d+|I ?5|I ?90|RP|VI|TUNNEL)\b')) or coalesce((select sum(ST_Length(ST_Intersection(m.part, ST_Buffer(l.geom, 50))))
       from wsdot_limited l where ST_DWithin(m.part, l.geom, 50)) / nullif(ST_Length(m.part), 0) > 0.5, false) as lim,
     m.ramp or interstate(m.srn) or exists(select 1 from wsdot_limited l where ST_DWithin(m.part, l.geom, 50)) as lim_near,
     (select arg_max(b.name, ST_Length(ST_Intersection(m.part, ST_Buffer(b.geom, 30)))) from wsdot_bridges b
