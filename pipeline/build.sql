@@ -82,6 +82,9 @@ create or replace macro inc_min_crashes() as 2;     -- "Increases to look into":
 create or replace macro inc_min_days() as 730;      -- ...over at least this long on each side
 create or replace macro wide_n() as 100;            -- "Whole streets": places in the citywide top 100 (and top_n)
 create or replace macro cmp_lag_months() as 6;      -- past rankings are compared with the last full years ending this long ago (severity fills in late)
+create or replace macro chg_min() as 30;             -- "Is it getting fixed?": a change is given as a percent only when both counts are at least this
+create or replace macro ask_up_min() as 2;          -- a printed question about a fix: its targeted crashes rose by at least this many, more than the city's change
+create or replace macro print_cip_n() as 6;          -- a district's printout lists this many of its budget lines (the largest; the budget tab has all)
 create or replace macro move_min() as 5;             -- "what changed since last month": top places that moved at least this many ranks
 create or replace macro deaths_min() as 2;          -- places where at least this many people died are always listed
 create or replace macro repeat_years() as 3;        -- "repeat serious crashes": someone killed or seriously hurt in this many different years
@@ -193,7 +196,15 @@ select (w_end - to_months(window_months()))::date as w_start, w_end,
        (w_end - interval 24 month)::date as test_start,                       -- validation split
        greatest(date '2023-06-01', (w_end - interval 36 month)::date) as req_start  -- request scoring window
 from e;
+-- The budget years the site shows: the budget tab and each place's budget line read the same years, so a line's years
+-- and the total beside it always cover the same budget.
+create or replace macro budget_from() as year(current_date) - 2;
 create or replace macro ws() as (select w_start from scoring_window);
+-- Work since the crash window began: dated on or after its first day. SDOT gives some dates as a year only (stored as
+-- 30/31 December); one in the window's first year can't be placed on either side of its start, so it isn't counted as
+-- since (the place's page lists it as earlier, "month not given"). The page's sinceWin() is the same rule.
+create or replace macro since_ws(d) as (d >= ws() and not (year(d) = year(ws()) and month(d) = 12 and day(d) >= 30
+                                                      and ws() > make_date(year(ws())::int, 1, 1)));
 create or replace macro we() as (select w_end from scoring_window);
 -- The fetch starts a few months before the scored years; if SDOT's data ever fell far enough behind that the scored years
 -- began before the first crash fetched, the early months would be silently missing. Stop instead.
@@ -933,7 +944,7 @@ copy (
     select *, coalesce(nullif(regexp_extract(project, '^(MC-TR-C[0-9]+)', 1), ''), nullif(regexp_extract(code, '^(MC-TR-C[0-9]+)', 1), ''),
                       nullif(nullif(trim(code), ''), '(blank)'), program || ' / ' || project) as pid
     from capital_budget
-    where dept = 'Seattle Department of Transportation' and year >= year(current_date) - 2),
+    where dept = 'Seattle Department of Transportation' and year >= budget_from()),
   names as (select pid, arg_max(program, {'y': year, 'p': program}) as program, arg_max(project, {'y': year, 'p': project}) as project from b group by pid)
   select n.program, n.project, b.pid as code, b.year, round(sum(b.amount)) amount,
          round(sum(b.amount) filter (where b.fund ilike '%levy%')) as levy
@@ -1028,7 +1039,7 @@ copy (
      'school_ft': school_ft(), 'merge_ft': round(merge_dlat() * 111320 / 0.3048, -1)::int, 'hist_from_year': hist_from_year(),
      'worst_n': worst_n(), 'worst_ref_to': worst_ref_to(), 'recent_fix_days': recent_fix_days(), 'ba_min_days': ba_min_days(),
      'ba_max_days': ba_max_days(), 'inc_min_crashes': inc_min_crashes(), 'inc_min_days': inc_min_days(), 'wide_n': wide_n(),
-     'cmp_lag_months': cmp_lag_months(), 'move_min': move_min(), 'ba_few_dates': ba_few_dates(), 'ba_cluster_dates': ba_cluster_dates(), 'bus_min_mi': bus_min_mi(),
+     'cmp_lag_months': cmp_lag_months(), 'move_min': move_min(), 'print_cip_n': print_cip_n(), 'chg_min': chg_min(), 'ask_up_min': ask_up_min(), 'ba_few_dates': ba_few_dates(), 'ba_cluster_dates': ba_cluster_dates(), 'bus_min_mi': bus_min_mi(),
      'signal_from_year': year(signal_from()), 'deaths_min': deaths_min(), 'repeat_years': repeat_years(),
      'sw_fast_days': sw_fast_days(), 'sw_min_age_days': sw_min_age_days()} as cfg,
     hist_start() as crash_hist_from,

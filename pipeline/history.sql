@@ -210,12 +210,16 @@ from j;
 -- Dated fixes since the crash window began at a block's end intersections. The block's page lists them and the district
 -- table says how many blocks have only those, but they don't count as the block's own work: a fix at a corner doesn't
 -- reach crashes in the middle of the block (crashes near a corner are recorded at the corner).
+-- A street's name without the direction letters SDOT sometimes puts inside it ("M L KING JR ER WAY S", "BEACON WR AVE S",
+-- "ROOSEVELT N WAY NE"), so a block's own street is recognised in its corner names and the corner is named for the cross street.
+create or replace macro st_key(s) as
+  regexp_replace(regexp_replace(s, ' (ER|WR|NR|SR) ', ' ', 'g'), '(\S) (N|S|E|W) (\S)', '\1 \3', 'g');
 create or replace table end_fixes as
 select e.block as location,
-  list(distinct {'at': coalesce(list_filter(string_split(e.ix, ' AND '), lambda s: s <> split_part(e.block, ' BETWEEN ', 1))[1], e.ix),
+  list(distinct {'at': coalesce(list_filter(string_split(e.ix, ' AND '), lambda s: st_key(s) <> st_key(split_part(e.block, ' BETWEEN ', 1)))[1], e.ix),
                  'k': f.k, 'y': f.y, 'd': f.d}) as end_fixes
 from block_ends e join place_fixes f on f.location = e.ix
-where f.d >= ws() and f.k not in ('New sidewalk', 'Neighborhood safety project')
+where since_ws(f.d) and f.k not in ('New sidewalk', 'Neighborhood safety project')
 group by e.block;
 
 -- Planned work at a block's end intersections (a planned head-start walk signal or no turn on red, or a planned SDOT
@@ -229,7 +233,7 @@ with ix_plans as (
             join proj j on j.id::varchar = r.id::varchar where j.stage <> 'done' and j.kind <> 'lpi' and j.work
 )
 select e.block as location,
-  list(distinct {'at': coalesce(list_filter(string_split(e.ix, ' AND '), lambda s: s <> split_part(e.block, ' BETWEEN ', 1))[1], e.ix),
+  list(distinct {'at': coalesce(list_filter(string_split(e.ix, ' AND '), lambda s: st_key(s) <> st_key(split_part(e.block, ' BETWEEN ', 1)))[1], e.ix),
                  'k': x.k, 'id': x.id}) as end_planned
 from block_ends e join ix_plans x on x.location = e.ix
 left join ranked b on b.location = e.block
@@ -242,9 +246,9 @@ create or replace table place_work as
 -- them as transit projects (place pages say so in "In short"), so this matches what each place's page says.
 with fx as (
   select location, count(*) filter (where k = 'Head-start walk signal') as lpi, count(*) filter (where k <> 'Head-start walk signal') as other
-  from place_fixes where d >= ws() group by location
+  from place_fixes where since_ws(d) group by location
 ),
-recent as (select distinct location from place_fixes where d >= ws()),
+recent as (select distinct location from place_fixes where since_ws(d)),
 places as (
   select r.location, coalesce(r.council_district::varchar, 'none') as district, coalesce(r.rse_quintile, 'none') as rse,
     r.ksi, r.killed, r.fatal, r.seriously_injured, r.rank, r.addr_type, r.lat, r.lon, r.rank <= top_n() as top50, coalesce(fx.lpi, 0) as lpi, coalesce(fx.other, 0) as other,

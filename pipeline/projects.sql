@@ -95,7 +95,7 @@ with cip as (
   from (select year, amount,
                coalesce(nullif(regexp_extract(project, '^(MC-TR-C[0-9]+)', 1), ''), code) as pid,
                trim(regexp_replace(project, '^MC-TR-C[0-9]+\s*-\s*', '')) as title
-        from capital_budget where dept = 'Seattle Department of Transportation' and amount > 0)
+        from capital_budget where dept = 'Seattle Department of Transportation' and amount > 0 and year >= budget_from())
   group by pid having max(year) >= year(current_date) - 1
 ),
 cipn as (select *, ' ' || street_norm(title) || ' ' as tn from cip),

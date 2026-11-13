@@ -775,6 +775,9 @@ body.sheet-open #expandPanel, body.sheet-open #expandDetail, body.sheet-open #pa
   body.print-dist #distPrint, body.print-dist #distPrint * { visibility: visible !important; }
   #distPrint h2 { font-size: 17px; margin: 6px 0; } #distPrint h3 { font-size: 14px; margin: 10px 0 4px; }
   #distPrint .dp-t { border-collapse: collapse; width: 100%; } #distPrint .dp-t th, #distPrint .dp-t td { border-bottom: 1px solid #ccc; padding: 3px 4px; text-align: left; vertical-align: top; }
+  /* every counted place is listed (up to the top list's size): small type and narrow margins keep it to one page */
+  body.print-dist > #distPrint { font-size: 10.5px; line-height: 1.3; } #distPrint .dp-t { font-size: 9.5px; } #distPrint .dp-t td small { font-size: 9px; }
+  body.print-dist #distPrint p { margin: 4px 0; }
 }
 
 /* ---------- since last month (list), rank over the years (details), "Is it getting fixed?" sheet ---------- */
@@ -981,6 +984,7 @@ main { overflow: hidden; overflow: clip; }
 
 /* links on the dark summary cards */
 .city-summary a { color: var(--amber); font-weight: 600; text-underline-offset: 2px; }
+.city-summary .linkbtn { color: var(--amber); font-weight: 600; text-underline-offset: 2px; }   /* the print button reads like the card's links (the default link blue is too dark on navy) */
 
 /* the address pop-up's own-street list: the place name wraps normally (the .pin-near row layout squeezed it) */
 .pin-mine li { display: block; }
