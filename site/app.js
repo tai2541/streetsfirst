@@ -1829,7 +1829,7 @@
           (${fmt(Math.max(p.volume, weight('risk_vol_floor')))} vehicles a weekday × 365 × ${WY} years ÷ 1 million).</p>`
       : `<p class="note">Not ranked for risk: ${p.volume ? `fewer than ${weight('risk_min_crashes')} crashes` : 'no SDOT traffic count'}.</p>`;
     const ranks = `<p class="note">Ranks${asOfShort() ? ` as of ${asOfShort()}` : ''}: ${rankTxt(p.rank_ksi)} most likely to hurt people · ${p.rank_risk ? '#' + p.rank_risk : 'unranked'} for how busy it is.
-        Ranks change weekly; <a href="https://github.com/tai2541/streetsfirst/releases" target="_blank" rel="noopener">each week's list is saved</a>.</p>`;
+        Ranks change weekly, so quote one with its date${asOfShort() && p.rank_ksi ? ` (“${rankTxt(p.rank_ksi)} as of ${asOfShort()}”)` : ''}; <a href="https://github.com/tai2541/streetsfirst/releases" target="_blank" rel="noopener">each week's list is saved</a>.</p>`;
     return (mode === 'risk' ? riskLine + ksiLine : ksiLine + riskLine) + ranks;
   }
   const groupName = g => {
@@ -4234,6 +4234,11 @@
   {
     const d = asOfShort(), s = document.getElementById('listAsOf');
     if (s) s.textContent = d ? `Data as of ${d}` : '';
+    // How to quote a rank: with its date, since ranks change weekly. The example is this week's #1, from the data.
+    const q = document.getElementById('quoteLine'), ex = byId.get(1);
+    if (q && d) q.innerHTML = `<b>Quoting a rank?</b> Ranks change every week, so give the date with it${ex
+      ? `, for example: “${esc(ex.name)} was #1 on Streets First's list as of ${d}”` : ''}. Each week's full list is saved
+      (<a href="https://github.com/tai2541/streetsfirst/releases" target="_blank" rel="noopener">past weeks</a>), so a quoted rank can be checked.`;
     const top = document.getElementById('listCsvTop');
     if (top) top.onclick = () => { document.getElementById('listCsv').click(); top.closest('details').open = false; };
     document.addEventListener('click', e => {   // a tap outside closes the menu
