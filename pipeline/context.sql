@@ -106,6 +106,8 @@ create or replace table council as
 select f.properties.C_DISTRICT::int as district,
        case when lower(trim(f.properties.Name)) in (select n from council_now)
             then f.properties.Name end as member,
+       -- in office since: the start of the City Clerk's current record for them (one record covers a continuous stint)
+       (select min(started) from council_now where n = lower(trim(f.properties.Name))) as since,
        -- the district map's link, when it is a council page (one district's has been a stray file link); else the council's own page
        case when regexp_matches(f.properties.Website, '^https://(www\.)?seattle\.gov/council/[a-z]')
             then f.properties.Website else 'https://www.seattle.gov/council' end as url, gj_geom(f.geometry) as geom

@@ -9,6 +9,13 @@
   },
   "facts": [
     {
+      "id": "mayor-runs-departments",
+      "what": "SDOT answers to the Mayor: the Mayor directs and controls City departments",
+      "says": ["the Mayor directs and controls all City offices and departments"],
+      "source": "https://www.seattle.gov/mayor",
+      "expect": ["Mayor directs and controls all City offices and departments"]
+    },
+    {
       "id": "spu-emergency",
       "what": "Seattle Public Utilities' 24/7 line for street flooding and sewer backups",
       "says": ["(206) 386-1800", "tel:+12063861800", "24/7"],

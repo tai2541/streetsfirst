@@ -203,13 +203,16 @@
   };
   // Capitals at the start of each word only ("Int'l", not "Int'L"); K-8 stays as written.
   const schoolName = n => String(n).toLowerCase().replace(/(^|[\s-])\w/g, c => c.toUpperCase()).replace(/\bK-8\b/i, 'K-8');
+  // ", in office since Nov 2025": from the City Clerk's records (Legistar), fetched weekly
+  const sinceTxt = d => d ? `, in office since ${monthYear(d.slice(0, 10))}` : '';
   // The council member for a place, the City's equity index (spots only), and a print button.
   function civicBox(c, rse) {
     if (!c) return '';
     return `<div class="civic">
       <div><b>Bigger fixes</b> (redesigns, signals, sidewalks) are paid for through the City budget, which the City Council
-        votes on. The council member for this district: <b>${esc(c.member || '—')}</b> (District ${c.d})${c.url
-          ? (/^https:\/\//.test(c.url) ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">Their page ↗</a>` : '') : ''}.${(CTX.citywide || []).length ? ` Citywide council member${CTX.citywide.length === 1 ? '' : 's'} (elected by the whole city): ${CTX.citywide.map(esc).join(' and ')}.` : ''}${c.d2 ? ` This place is on the line between District ${c.d} and District ${c.d2}
+        votes on. SDOT itself is a City department, so it answers to the Mayor (the Mayor directs and controls all City offices and departments).
+        The council member for this district: <b>${esc(c.member || '—')}</b> (District ${c.d}${sinceTxt(c.since)})${c.url
+          ? (/^https:\/\//.test(c.url) ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">Their page ↗</a>` : '') : ''}.${(CTX.citywide || []).length ? ` Citywide council member${CTX.citywide.length === 1 ? '' : 's'} (elected by the whole city): ${CTX.citywide.map(x => typeof x === 'string' ? esc(x) : esc(x.n) + (x.since ? ` (${sinceTxt(x.since).slice(2)})` : '')).join(' and ')}.` : ''}${c.d2 ? ` This place is on the line between District ${c.d} and District ${c.d2}
         (the boundary runs down the street), so it's listed and counted in both districts: added up, the district totals come to more than the citywide total.` : ''}
         <a href="#progress=d${c.d}">Is it getting fixed in District ${c.d}?</a></div>
       ${rse && rse.q ? `<div class="note">How the City ranks this neighborhood for investment (its Race and Social Equity Index, by census tract): <b>${esc(({ 'Highest Equity Priority': 'highest equity priority',
@@ -1935,7 +1938,7 @@
         ${whyRank(p)}
         <div class="chips dchips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</div>
         ${reportBox(p.name)}
-        ${civicBox(p.council_district ? { d: p.council_district, member: p.council_member, url: p.council_url, d2: p.council_district2 } : councilAt(p.lat, p.lon),
+        ${civicBox(p.council_district ? { d: p.council_district, member: p.council_member, url: p.council_url, d2: p.council_district2, since: ((CTX.council || []).find(x => String(x.d) === String(p.council_district) && x.member === p.council_member) || {}).since } : councilAt(p.lat, p.lon),
                    { q: p.rse_quintile, y: p.rse_year })}
       </div>
       <div id="graphs" class="graphs"></div>
@@ -3900,7 +3903,7 @@
     // ---- 3. where serious crashes are vs where SDOT's published work is
     let dim = 'district', open = null, openFromList = null;
     const RSE_ORDER = ['Highest Equity Priority', 'Second Highest', 'Middle', 'Second Lowest', 'Lowest', 'none'];
-    const member = g => { const c = (CTX.council || []).find(x => String(x.d) === g); return c && c.member ? esc(c.member) : ''; };
+    const member = g => { const c = (CTX.council || []).find(x => String(x.d) === g); return c && c.member ? esc(c.member) + (c.since ? ` <small class="pg-n">(since ${monthYear(c.since.slice(0, 10))})</small>` : '') : ''; };
     const gName = (g, short) => g === 'none' ? (dim === 'district' ? 'No district (city-limit streets)' : 'No tract (city-limit streets)')
       : dim === 'district' ? `District ${g}` : g === 'Highest Equity Priority' ? 'Highest priority' : g;
     function needPart() {
@@ -3963,6 +3966,8 @@
         </table>`)}
         ${sel && !narrow ? openList() : ''}
         <p class="note" id="pgNoneNote">* No work since ${P.since_d} or planned: no dated safety fix since ${P.since_d}, when these crash counts start (a new bus lane alone isn't counted: SDOT builds them as transit projects; older work isn't counted, though each place's page shows it; for a stretch of street, a fix at the corners at its ends isn't counted, since it doesn't reach crashes along the block, but the count of those is given), no planned SDOT project, head-start walk signal or no turn on red nearby, and no budget project named for the street, in the layers this site reads (the same test as each place's own page). Places WSDOT runs (freeways, ramps, state bridges) are counted in their own column; state highways on city streets, which the City runs, count as city streets. The fix types counted: ${FIX_KINDS}${ixMostly ? ` (${ixPct}% of them at intersections, so stretches of street rarely have one)` : ''}.</p>
+        ${(() => { const ms = (CTX.council || []).filter(c => c.member && c.since), late = ms.filter(c => c.since.slice(0, 10) > P.window.d0);
+          return dim === 'district' && late.length ? `<p class="note">${late.length} of the ${ms.length} district council members took office after ${monthYear(P.window.d0)}, when these crash counts start (each start date is shown by the name), so part of these years came before them.</p>` : ''; })()}
         <p class="note">Crashes: ${monthYear(P.window.d0)}–${throughMonth(P.window.d1)}. Fixes: dated fixes since January ${P.since} at places with
           crashes, counted once per place they reach (one long bike lane can reach many places); head-start walk signals are shown on their own: ${fmt(T.lpi)} of them, against ${fmt(T.other)} other fixes${(() => {
             const d = P.need.filter(r => r.dim === 'district'), t = T.lpi, top = d.slice().sort((a, b) => b.lpi - a.lpi)[0];
@@ -4241,7 +4246,7 @@
     const city = P.need.filter(x => x.dim === 'rse');
     const tot = k => city.reduce((t, x) => t + (x[k] || 0), 0), pct = (a, b) => (b ? Math.round(100 * a / b) : 0);
     const c = (CTX.council || []).find(x => String(x.d) === r.g);
-    el.innerHTML = `<div class="cs-head">District ${esc(r.g)}${c && c.member ? ' · Councilmember ' + esc(c.member) : ''} · ${windowTxt()}</div>
+    el.innerHTML = `<div class="cs-head">District ${esc(r.g)}${c && c.member ? ' · Councilmember ' + esc(c.member) + sinceTxt(c.since) : ''} · ${windowTxt()}</div>
       <div class="cs-nums">
         <div><b>${fmt(r.ksi)}</b><span>crashes that killed or seriously hurt someone (${pct(r.ksi, tot('ksi'))}% of the city's)${r.killed != null ? `: ${r.killed ? killedTxt(r.killed, r.fatal) : 'no one killed'}, ${fmt(r.hurt)} seriously injured` : ''}</span></div>
         <div><b>${fmt(r.top50)}</b><span>of the citywide top ${TOP} places${r.top50_state ? `: ${r.top50_state} run by WSDOT, ${r.top50 - r.top50_state} on city streets` : ''}</span></div>

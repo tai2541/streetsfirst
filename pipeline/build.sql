@@ -1067,10 +1067,10 @@ copy (
 -- Council districts with their members, and public schools: so a pin or searched address can show them too.
 copy (
   select {
-    'council': (select list({'d': district, 'member': member, 'url': url,
+    'council': (select list({'d': district, 'member': member, 'since': case when member is not null then since::varchar end, 'url': url,
                  'geom': ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(geom, 40), 'EPSG:2926', 'EPSG:4326'))::json} order by district) from council),
     -- serving council members not tied to a district map seat: the citywide positions (from the City Clerk's list)
-    'citywide': (select list(full_name order by full_name) from council_now
+    'citywide': (select list({'n': full_name, 'since': started::varchar} order by full_name) from council_now
                  where n not in (select lower(trim(member)) from council where member is not null)
                    and (started is null or started <= current_date)),
     'schools': (select list([name, round(ST_Y(ST_Transform(geom, 'EPSG:2926', 'EPSG:4326')), 5)::varchar,
