@@ -1437,7 +1437,7 @@
         '<text x="' + (L - 6) + '" y="' + (y + 4) + '" text-anchor="end" class="tc-ax">' + v + '</text>'; }).join('');
     const years = per.filter(b => b.jan).map(b => '<line x1="' + X(6 * b.i) + '" x2="' + X(6 * b.i) + '" y1="' + top + '" y2="' + xb + '" stroke="#e4e2db"/>' +
       '<text x="' + (X(6 * b.i) + 3) + '" y="' + (xb + 14) + '" class="tc-ax">' + b.year + '</text>').join('');
-    const fixLines = inRange.map((x, j) => { const fx = X(mIdx(x.d) + (+x.d.slice(8, 10) - 1) / 30), ly = 12 + 16 * j, tw = 7 * (x.label.length + 11), tx = Math.max(2, Math.min(fx + 5, W - 4 - tw));
+    const fixLines = inRange.map((x, j) => { const fx = X(mIdx(x.d) + (+x.d.slice(8, 10) - 1) / 30), ly = 12 + 16 * j, tw = 7.8 * (x.label.length + 2 + fixDate(x.d).length), tx = Math.max(2, Math.min(fx + 5, W - 4 - tw));
       return '<line x1="' + fx + '" x2="' + fx + '" y1="' + (ly + 3) + '" y2="' + xb + '" stroke="#1d2430" stroke-width="2" stroke-dasharray="6 4"/>' +
         '<text x="' + tx + '" y="' + ly + '" class="tc-fix">' + esc(x.label) + ', ' + fixDate(x.d) + '</text>'; }).join('');
     const hits = per.map(b => '<rect class="tc-hit" x="' + X(6 * b.i) + '" y="' + top + '" width="' + (X(6) - X(0)) + '" height="' + (xb - top) + '" data-tip="' + esc(
@@ -1446,10 +1446,12 @@
       (inRange.length ? '. ' + inRange.map(x => x.label + ' installed ' + fixDate(x.d)).join('; ') : '');
     const svg = '<svg class="tchart" width="' + W + '" height="' + (xb + 22) + '" viewBox="0 0 ' + W + ' ' + (xb + 22) + '" role="img" aria-label="' + esc(summary) + '">' +
       years + axis(top, H1, maxC) + axis(top + H1 + gap, H2, maxR) +
+      line('crashes', Y1, SEV.I.color) + line('severe', Y1, SEV.F.color) + line('reports', Y2, REQ_COLOR) +
+      dots('crashes', Y1, SEV.I.color) + dots('severe', Y1, SEV.F.color) + squares + fixLines +
+      // panel titles after the fix lines, with a white edge, so a fix line doesn't run through the words
       '<text x="' + L + '" y="' + (top - 6) + '" class="tc-t">Crashes</text>' +
       '<text x="' + L + '" y="' + (top + H1 + gap - 8) + '" class="tc-t">Repair reports within ' + ft(weight('request_radius_m')) + ' ft</text>' +
-      line('crashes', Y1, SEV.I.color) + line('severe', Y1, SEV.F.color) + line('reports', Y2, REQ_COLOR) +
-      dots('crashes', Y1, SEV.I.color) + dots('severe', Y1, SEV.F.color) + squares + fixLines + hits + '</svg>';
+      hits + '</svg>';
 
     // Before/after for the first fix in range, using complete crash data only.
     let ba = '';
@@ -1692,7 +1694,8 @@
     // The search area, made obvious: shaded, dashed, and labelled with its size on the map itself.
     const rm = weight('request_radius_m');
     L.circle([p.lat, p.lon], { radius: rm, color: '#1d2430', weight: 2, dashArray: '6 5', fillColor: REQ_COLOR, fillOpacity: 0.08, interactive: false }).addTo(focus);
-    L.marker([p.lat + rm / 111320, p.lon], { keyboard: false, interactive: false,
+    // under the circle: the map's buttons sit along the top on phones
+    L.marker([p.lat - rm / 111320, p.lon], { keyboard: false, interactive: false,
       icon: L.divIcon({ className: 'radius-label', iconSize: null, html: `<span>Find It, Fix It repair requests within ${ft(rm)} ft</span>` }) }).addTo(focus);
     const groups = new Map();
     (det ? det.requests : []).filter(r => !reqFilter || r.t === reqFilter).forEach(r => {
@@ -1901,16 +1904,16 @@
       <div class="dhead">
         ${p.neighborhood ? `<div class="where">${esc(p.neighborhood)}${p.area && p.area !== p.neighborhood ? ` <span class="muted">· ${esc(p.area)}</span>` : ''}</div>` : ''}
         <div class="note">${kind} · <a href="${sv}" target="_blank" rel="noopener">Street View ↗</a> ·
-          <button type="button" class="linkbtn" id="copyLink">${canShare() ? 'Share' : 'Copy link'}</button> · ${copyLoc(p.name)}</div>
+          <button type="button" class="linkbtn" id="copyLink">${canShare() ? 'Share' : 'Copy link'}</button> <span class="nowrap">· ${copyLoc(p.name)}</span></div>
         ${sdotSpelling(p.location) ? `<div class="note">SDOT's name: ${esc(p.location)} (it names each side of a divided street separately)</div>` : ''}
         ${verdict(p)}
         ${p.crashes < 5 ? `<p class="note few">With only ${plural(p.crashes, 'crash', 'crashes')} here, this is a record of what happened,
           too few to show a pattern.</p>` : ''}
         <div class="stat-grid">
           <div class="stat"><b>${p.crashes}</b><span>crashes</span></div>
-          <div class="stat"><b>${(p.killed ?? 0) + (p.seriously_injured ?? 0)}</b><span>people killed or seriously hurt</span></div>
+          <div class="stat"><b>${(p.killed ?? 0) + (p.seriously_injured ?? 0)}</b><span>${(p.killed ?? 0) + (p.seriously_injured ?? 0) === 1 ? 'person' : 'people'} killed or seriously hurt</span></div>
           <div class="stat"><b>${p.pb_crashes ?? p.ped_crashes + p.bike_crashes}</b><span>with people walking or biking</span></div>
-          <div class="stat"><b>${p.requests}</b><span>repair requests nearby</span></div>
+          <div class="stat st-req"><b>${p.requests}</b><span>repair requests nearby</span></div>
         </div>
         ${p.ksi > (p.killed ?? 0) + (p.seriously_injured ?? 0) ? `<p class="note">SDOT's data codes ${plural(p.ksi, 'crash', 'crashes')} here as fatal
           or serious but lists ${(p.killed ?? 0) + (p.seriously_injured ?? 0) || 'no'} ${(p.killed ?? 0) + (p.seriously_injured ?? 0) === 1 ? 'person' : 'people'} killed or seriously hurt in them: some police reports give
@@ -2838,7 +2841,8 @@
       const n = el('list').querySelectorAll('li[data-id]:not(.extra)').length, top = +el('topN').value;
       const ids = [...el('list').querySelectorAll('li[data-id]:not(.extra)')].map(li => +li.dataset.id);
       const parts = [n ? (n < top ? n + (n === 1 ? ' place' : ' places') : 'Top ' + n) : 'No places match', el('mode').selectedOptions[0].text];
-      if (el('distFilter').value) parts.push(el('distFilter').selectedOptions[0].text);
+      // in a district the numbers are ranks within it (#1 is the district's worst), the citywide rank beside each
+      if (el('distFilter').value) parts.push(el('distFilter').selectedOptions[0].text + ', ranked within it');
       if (el('addrFilter').value) parts.push(el('addrFilter').selectedOptions[0].text);
       [['onlyOngoing', 'Repeat serious crashes'], ['noPlan', 'No published SDOT project']]
         .forEach(([id, l]) => el(id).checked && parts.push(l));
@@ -4174,14 +4178,7 @@
       ${meta.forward_top50_ksi ? `<div class="cs-note">Predicting is harder: ranked on the first ${yrsBetween(meta.window_from, meta.test_from)} years, the top ${TOP} had
         ${fmt(meta.forward_top50_ksi)} of the next ${yrsBetween(meta.test_from, meta.window_to)} years' ${fmt(meta.test_ksi_total)} fatal or serious crashes
         (${Math.round(100 * meta.forward_top50_ksi / meta.test_ksi_total)}%). From police reports in SDOT's data; freeways are mostly not in it.</div>` : ''}`;
-    if (reduceMotion) return;
-    el.querySelectorAll('b[data-n]').forEach(b => {
-      const to = +b.dataset.n, pct = b.hasAttribute('data-pct'), t0 = performance.now(), dur = 1100;
-      const step = t => { const k = Math.min(1, (t - t0) / dur), v = to * (1 - Math.pow(1 - k, 3));
-        b.textContent = pct ? v.toFixed(1) + '%' : fmt(Math.round(v)); if (k < 1) requestAnimationFrame(step); };
-      requestAnimationFrame(step);
-      setTimeout(() => (b.textContent = pct ? to.toFixed(1) + '%' : fmt(to)), dur + 300);   // always land on the true value
-    });
+    // no count-up: a number caught mid-count (in a screenshot) would be wrong
   })();
 
   // With a district picked, a card for it in place of the city's: its share of the city's crashes that killed or seriously
