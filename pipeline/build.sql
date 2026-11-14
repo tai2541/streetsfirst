@@ -1106,6 +1106,7 @@ copy (
     (select alley from collisions_dropped)                  as dropped_alley,
     (select count(*) from requests)                         as requests,
     (select count(*) from locations)                        as locations_scored,
+    (select count(*) from ranked where rank_risk is not null) as locations_rated_risk,
     (select count(*) from locations where addr_type = 'I')  as intersections_scored,
     (select count(*) from locations where addr_type <> 'I') as stretches_scored,
     (select list({'mode': mode, 'on_hin': on_hin, 'on_hin_high': on_hin_high, 'sdot_hcl_recent': sdot_hcl_recent} order by mode)

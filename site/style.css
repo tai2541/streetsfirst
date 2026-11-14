@@ -1110,3 +1110,10 @@ td.nowrap .sub2 { white-space: normal; max-width: 7em; }
 #slist .score { white-space: normal; text-align: right; max-width: 6.5em; }
 /* the method page's source links: 24px targets */
 .src-list li { min-height: 24px; padding: 2px 0; }
+/* Round 24: the fade's mask would hide a focused table's ring; the dialog's sticky title never covers what has focus */
+.tablewrap.more-right:focus-visible, .tc-wrap.more-right:focus-visible { -webkit-mask-image: none; mask-image: none; }
+#resources { scroll-padding-top: 64px; }
+#slist .score { max-width: 7.5em; }
+/* the checked chip's mark is drawn, not read (it was read as part of the checkbox's name) */
+.tag:has(input:checked)::before { content: "\2713" / ""; }
+.rep-h { display: inline; font-size: inherit; margin: 0; font-weight: 700; }

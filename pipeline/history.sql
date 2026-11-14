@@ -256,6 +256,7 @@ places as (
     r.ksi, r.killed, r.fatal, r.seriously_injured, r.rank, r.addr_type, r.lat, r.lon, r.rank <= top_n() as top50, coalesce(fx.lpi, 0) as lpi, coalesce(fx.other, 0) as other,
     r.location in (select location from recent) as fixed_recently,
     r.location in (select location from end_fixes) as ends_fixed,
+    r.location in (select location from end_planned) as ends_planned,
     coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned' or len(r.cip) > 0, false) as proj_planned,
     -- "planned" only because a budget line is named for its street (the budget doesn't say which blocks it covers)
     coalesce(len(r.cip), 0) > 0 and not coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned', false) as budget_only,
@@ -281,6 +282,8 @@ by_g as (
     count(*) filter (where top50) as top50,
     count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null) as top50_nothing,
     count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null and ends_fixed) as top50_ends,
+    -- planned work at the corners at a stretch's ends (listed, not counted as the block's own): said beside "nothing planned"
+    count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null and ends_planned) as top50_endplan,
     count(*) filter (where top50 and state_route is not null) as top50_state,
     count(*) filter (where top50 and not fixed_recently and budget_only and state_route is null) as top50_budget,
     count(*) filter (where sig) as sig, count(*) filter (where sig_lpi) as sig_lpi,
@@ -475,7 +478,7 @@ copy (
                        order by month(d) = 12 and day(d) >= 30, d desc, rank) from recent_fixes)
     },
     'district_line': (select {'n': count(*), 'ksi': coalesce(sum(ksi), 0), 'top': count(*) filter (where top50)} from place_work where council_district2 is not null),
-    'need': (select list({'dim': dim, 'g': grp, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'top50': top50, 'top50_nothing': top50_nothing, 'top50_state': top50_state, 'top50_ends': top50_ends, 'top50_budget': top50_budget, 'sig': sig, 'sig_lpi': sig_lpi,
+    'need': (select list({'dim': dim, 'g': grp, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'top50': top50, 'top50_nothing': top50_nothing, 'top50_state': top50_state, 'top50_ends': top50_ends, 'top50_endplan': top50_endplan, 'top50_budget': top50_budget, 'sig': sig, 'sig_lpi': sig_lpi,
                           'lpi': fixes_lpi, 'other': fixes_other, 'proj_planned': proj_planned, 'list': top50_list}
                          order by dim, grp) from need_work),
     'working': {
