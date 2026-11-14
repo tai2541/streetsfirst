@@ -143,6 +143,8 @@ where json_type(f->'geometry') = 'OBJECT'
   and coalesce(f->'properties'->>'START_DATE', f->'properties'->>'COUNTSTART') is not null;
 
 -- one row per street name (some counts list two streets), split-roadway names normalized like loc_names
+-- A counted stretch's identity across years' layers (SDOT redraws them): its middle, to 100 ft.
+create or replace macro seg_key(g) as round(ST_X(ST_PointOnSurface(g)) / 100)::varchar || ':' || round(ST_Y(ST_PointOnSurface(g)) / 100)::varchar;
 create or replace table volhist_named as
 select yr, name_key(trim(unnest(string_split(street, ',')))) as street, awdt, geom from volhist where street is not null;
 
@@ -150,12 +152,13 @@ select yr, name_key(trim(unnest(string_split(street, ',')))) as street, awdt, ge
 -- Kept per street, not added up at intersections: cross streets are counted in different years.
 create or replace table loc_volhist as
 with nearest as (
-  select n.location, n.name, v.yr, arg_min(v.awdt, {'d': ST_Distance(p.geom, v.geom), 'a': v.awdt})::int as v
+  select n.location, n.name, v.yr, arg_min({'v': v.awdt::int, 'k': seg_key(v.geom)}, {'d': ST_Distance(p.geom, v.geom), 'a': v.awdt}) as h
   from loc_names n join loc_pts p using (location)
   join volhist_named v on v.street = n.name and v.awdt is not null and ST_DWithin(p.geom, v.geom, 300)
   group by all
 )
-select location, list({'s': name, 'y': yr, 'v': v} order by name, yr) as vol_history
+-- k: which counted stretch of the street (its middle, to 100 ft): a trend is given only between counts of the same stretch
+select location, list({'s': name, 'y': yr, 'v': h.v, 'k': h.k} order by name, yr) as vol_history
 from nearest group by location;
 
 -- ---------------------------------------------------------------- rush-hour bus slowdown (Metro timetable)
@@ -288,10 +291,10 @@ select row_number() over (order by awdt desc, street) as id, * from (
 );
 create or replace table count_seg_history as
 with m as (select id, street, ST_PointOnSurface(geom) as mid from count_segments),
-near as (select m.id, v.yr, arg_min(v.awdt, {'d': ST_Distance(m.mid, v.geom), 'a': v.awdt}) as v
+near as (select m.id, v.yr, arg_min({'v': v.awdt::int, 'k': seg_key(v.geom)}, {'d': ST_Distance(m.mid, v.geom), 'a': v.awdt}) as h
          from m join volhist v on v.street = m.street and v.awdt is not null and ST_DWithin(m.mid, v.geom, 150)
          group by all)
-select id, list({'y': yr, 'v': v::int} order by yr) as history from near group by id;
+select id, list({'y': yr, 'v': h.v, 'k': h.k} order by yr) as history from near group by id;
 
 -- Neighborhood at the middle of each counted segment, so two segments of the same street can be told apart.
 create or replace table count_seg_hood as

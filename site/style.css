@@ -1091,3 +1091,22 @@ td.nowrap .sub2 { white-space: normal; max-width: 7em; }
   .rank-hist { grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); }
   .rank-hist li span[aria-hidden] { font-size: 11px; }
 }
+
+/* Round 23, phones and larger text */
+/* a table wider than its box fades at the right while more is off to the side */
+.tablewrap.more-right, .tc-wrap.more-right, #detailBody .dtable.more-right { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+/* the crash table: severity goes under the date on a narrow screen, so "What happened" keeps its width */
+.dtable .sev-in { display: none; }
+@media (max-width: 420px) { .dtable .c-sev { display: none; } .dtable .sev-in { display: block; font-size: 12px; } }
+/* a report card is a link all over, not only on its title */
+.res-list li { position: relative; }
+.res-list li a.res-link::after { content: ""; position: absolute; inset: 0; border-radius: 9px; }
+/* the report dialog's close button stays in sight while its list scrolls */
+#resources .res-top { position: sticky; top: -18px; background: #fff; margin: -18px -20px 0; padding: 14px 20px 8px; z-index: 2; }
+/* long filter chips and selects wrap within the screen */
+.tag { white-space: normal; max-width: 100%; }
+.controls select { max-width: 100%; }
+/* the sidewalk list: the tier and score fit beside the name, its words wrapping */
+#slist .score { white-space: normal; text-align: right; max-width: 6.5em; }
+/* the method page's source links: 24px targets */
+.src-list li { min-height: 24px; padding: 2px 0; }
