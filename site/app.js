@@ -215,8 +215,8 @@
     return `<div class="report" data-loc="${esc(place)}">
       <div><h3 class="rep-h">See a problem here?</h3> Reports are how problems get on the City's repair list. Opening a form also copies
         this location (<b>${esc(place)}</b>) so you can paste it in.</div>
-      <ul class="res-list">${R.slice(0, 3).map(resItem).join('')}</ul>
-      <details class="res-fold"><summary>More problem types</summary><ul class="res-list">${R.slice(3).map(resItem).join('')}</ul></details>
+      <ul class="res-list">${R.slice(0, school ? 4 : 3).map(resItem).join('')}</ul>
+      <details class="res-fold"><summary>More problem types</summary><ul class="res-list">${R.slice(school ? 4 : 3).map(resItem).join('')}</ul></details>
       <div class="res-call">Rather talk to someone? Call the City at <a href="tel:+12066842489">(206) 684-2489</a> (weekdays 8 to 5). For a bigger safety
         change than a repair (an unsafe crossing, speeding), contact SDOT at <a href="mailto:684-Road@seattle.gov">684-Road@seattle.gov</a> or
         <a href="tel:+12066847623">(206) 684-7623</a>, or your council member. When you write, give the place${noLink ? '' : ' and its link'},
@@ -253,7 +253,7 @@
   function civicBox(c, rse) {
     if (!c) return '';
     return `<div class="civic">
-      <div><b>Bigger fixes</b> (redesigns, signals, sidewalks) are paid for through the City budget, which the City Council
+      <div><b>Bigger fixes</b> (redesigns, signals, sidewalks) are paid for through the City budget (including voter-approved transportation levies), which the City Council
         votes on. SDOT itself is a City department, so it answers to the Mayor (the Mayor directs and controls all City offices and departments).
         The council member for this district: <b>${esc(c.member || '—')}</b> (District ${c.d}${sinceTxt(c.since, c.until)})${c.url
           ? (/^https:\/\//.test(c.url) ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">${/\/council\/?$/.test(c.url) ? "the City Council's page" : esc(c.member) + "'s council page"} <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>` : '') : ''}.${(CTX.citywide || []).length ? ` Citywide council member${CTX.citywide.length === 1 ? '' : 's'} (elected by the whole city): ${CTX.citywide.map(x => typeof x === 'string' ? esc(x) : esc(x.n) + (x.since ? ` (${sinceTxt(x.since).slice(2)})` : '')).join(' and ')}.` : ''}${c.d2 ? ` This place is on the line between District ${c.d} and District ${c.d2}
@@ -352,9 +352,14 @@
 
   const resDlg = document.getElementById('resources');
   document.getElementById('resBody').innerHTML = resourceList();
-  document.getElementById('reportHead').addEventListener('click', e => { e.preventDefault(); resDlg.showModal(); });
+  document.getElementById('reportHead').addEventListener('click', e => { e.preventDefault(); resDlg.showModal(); overlayOn(); });
   document.getElementById('resClose').addEventListener('click', () => resDlg.close());
   // closing it on a phone: its opener sits in the folded menu, so focus goes to the menu button
+  // On a phone the report dialog and the view menu get a history entry, so Android's Back closes them instead of leaving the site;
+  // closed another way, the entry is taken back (after Back, the entry showing is no longer theirs, so nothing is taken)
+  const overlayOn = () => { if (isNarrow()) pushEntry({ sfOverlay: 1 }, () => location.href); };
+  const overlayOff = () => { if (history.state && history.state.sfOverlay) closeEntry(st => st.sfOverlay, location.href); };
+  resDlg.addEventListener('close', overlayOff);
   resDlg.addEventListener('close', () => { const a = document.activeElement; if (isNarrow() && (!a || a === document.body || !a.offsetParent)) document.getElementById('viewMenuBtn').focus(); });
   resDlg.addEventListener('click', e => { if (e.target === resDlg) resDlg.close(); });
 
@@ -505,8 +510,8 @@
     const hy = p.sdot_hcl_years || [], first = hy[0], last = hy[hy.length - 1];
     if (first && first <= +meta.window_from.slice(0, 4) && p.ksi_after_hcl >= 2)
       // every year listed (runs of years joined), so a place off the list for years isn't read as listed all along
-      return { short: `On SDOT's High Collision list (it flags places for engineering review) in ${yearRuns(hy)}; ${plural(p.ksi_after_hcl, 'crash', 'crashes')} that killed or seriously hurt someone ${windowTxt()}`,
-        long: `SDOT's High Collision Locations list flags places for engineering review; it isn't a list of planned projects. Listed here in ${yearRuns(hy)}; ${p.ksi_after_hcl} crashes killed or seriously injured someone in the scored years.` };
+      return { short: `On SDOT's High Collision list in ${yearRuns(hy)} (a listing asks for an engineering review; what a review found or changed isn't in SDOT's open data); ${plural(p.ksi_after_hcl, 'crash', 'crashes')} that killed or seriously hurt someone ${windowTxt()}`,
+        long: `SDOT's High Collision Locations list flags places for engineering review; it isn't a list of planned projects, and what a review found or changed (signal timing, signs, enforcement requests) isn't in SDOT's open data. Listed here in ${yearRuns(hy)}; ${p.ksi_after_hcl} crashes killed or seriously injured someone in the scored years.` };
     return null;
   }
 
@@ -602,7 +607,7 @@
     const cls = recent.length ? 'done' : planned.length || cip.length ? 'planned' : 'none';
     // say so when nothing is planned, since "what's planned here?" is the first question people bring
     if (parts.length && !planned.length && !cip.length) parts.push(endsP.length ? "nothing else planned on SDOT's published project maps" : "nothing planned on SDOT's published project maps");
-    const text = parts.length ? parts.join(' · ') : 'No work recorded here in the SDOT layers this site reads';
+    const text = parts.length ? parts.join(' · ') : `No work recorded here in the SDOT layers this site reads${p.state_route ? "; WSDOT's own project records aren't read here" : ''}`;
     // short (list cards): the first part, plus what's planned (or that nothing is), so a short form never hides a plan
     // (the part that decides it: a planned project, else a budget line, else "nothing planned"; corner work never decides it)
     // (both a plan and a budget line when there are both)
@@ -1415,7 +1420,9 @@
   // map and the list. Choosing a view closes it; so do Esc and a tap anywhere else.
   const headerEl = document.querySelector('header'), menuBtn = document.getElementById('viewMenuBtn');
   function setMenu(open, focusBack) {
+    const was = headerEl.classList.contains('menu-open');
     headerEl.classList.toggle('menu-open', open);
+    if (open && !was) overlayOn(); else if (!open && was) overlayOff();
     menuBtn.setAttribute('aria-expanded', String(open));
     if (open) (document.querySelector('nav [role=tab].active') || document.querySelector('nav [role=tab]')).focus();
     else if (focusBack) menuBtn.focus();
@@ -1977,14 +1984,17 @@
     // a long stretch against single corners: say how long it is, up front (a headline would compare it with corners)
     const longTxt = p.addr_type !== 'I' && p.block_ft && meta.median_block_ft && p.block_ft >= 2 * meta.median_block_ft
       ? ` This is a stretch of street ${fmt(p.block_ft)} ft long, about ${Math.round(p.block_ft / meta.median_block_ft)} times a typical Seattle block (${fmt(meta.median_block_ft)} ft); longer stretches collect more crashes, so compare it with other stretches, not with single corners.` : '';
-    const s1 = `${rk <= TOP ? `#${fmt(rk)} of the ${TOP} places in Seattle where someone is likeliest to be killed or seriously hurt in a crash` : `Ranks #${fmt(rk)} of Seattle's ${fmt(kindCount(rk))} places with crashes for how likely someone is to be killed or seriously hurt there`} (estimated from past crashes).${longTxt} ${hurt.replace(/^./, c => c.toUpperCase())} since ${since}.${why}${nextToDeath(p)}${lateTxt}`;
+    // (a place where no one was killed or seriously hurt is in the top list on the estimate alone: said as an estimate)
+    const s1 = `${rk <= TOP ? (p.ksi ? `#${fmt(rk)} of the ${TOP} places in Seattle where someone is likeliest to be killed or seriously hurt in a crash`
+      : `#${fmt(rk)} of the top ${TOP} on this site's harm estimate (every crash, weighted by how badly people were hurt)`) : `Ranks #${fmt(rk)} of Seattle's ${fmt(kindCount(rk))} places with crashes for how likely someone is to be killed or seriously hurt there`} (estimated from past crashes).${longTxt} ${hurt.replace(/^./, c => c.toUpperCase())} since ${since}.${why}${nextToDeath(p)}${lateTxt}`;
     // a stretch: work at the corners at its ends doesn't count as its own, but say it's there
     const block = p.addr_type !== 'I', endDone = block && (p.end_fixes || []).some(f => sinceWin(f.d)), endPlan = block && endPlanned(p).length > 0;
     const corner = endDone && endPlan ? '; the corners at its ends have some, with more planned there'
       : endDone ? '; the corners at its ends have some' : endPlan ? '; work is planned at a corner at its end' : '';
     // budget lines named for a bus route (build.sql, cip_route_lines) can't be matched to a street by name: said where buses run
-    const rl = (p.bus_routes || []).length && (meta.cip_route_lines || []).length
-      ? ` Budget lines named for a bus route, like “${meta.cip_route_lines[0]}”, aren't matched to places.` : '';
+    // (only where the line's route runs on the street it's planned along: build.sql, route_line_map)
+    const rl = (meta.cip_route_lines || []).filter(x => x && x.route && (p.bus_routes || []).map(String).includes(x.route) && ` ${p.location} `.includes(` ${x.street} `))
+      .map(x => ` Money is budgeted ${x.y0 === x.y1 ? x.y0 : x.y0 + '–' + x.y1} for the ${esc(x.t)}, planned along ${niceName(x.street)} (route ${esc(x.route)} today); the budget doesn't say which blocks it changes, so it isn't counted here.`).join('');
     // a budget line matched only by the street's name: say so, not "planned" (the budget data doesn't say where on the street)
     const c0 = (p.cip || [])[0];
     const cipTxt = c0 ? `a budget line is named for ${c0.s ? niceName(c0.s) : 'this street'} (“${c0.t}”, ${c0.y0 === c0.y1 ? c0.y0 : c0.y0 + '–' + c0.y1}); the budget data doesn't say whether it reaches this ${block ? 'block' : 'corner'}` : '';
@@ -2176,7 +2186,7 @@
       <div id="graphs" class="graphs"></div>
       <div class="dcols">
         <div class="dcol">
-          ${sec('done', 'What SDOT has done or plans here', treatments(p))}
+          ${sec('done', p.state_route ? 'What SDOT or WSDOT has done or plans here' : 'What SDOT has done or plans here', treatments(p))}
           ${sec('street', 'The street', streetInfo(p))}
           ${sec('traffic', 'Traffic here', trafficHere(p))}
           ${sidewalksHere(p) ? sec('walk', 'Sidewalks here', sidewalksHere(p)) : ''}
@@ -2389,7 +2399,7 @@
   function pushEntry(state, url0) {
     whenSettled(() => {
       const url = typeof url0 === 'function' ? url0() : url0;
-      if (here(url) === location.href && !state.sfPin) return;
+      if (here(url) === location.href && !state.sfPin && !state.sfOverlay) return;
       history.pushState({ ...state, sf: 1, prev: location.hash }, '', url);
     });
   }
@@ -2894,7 +2904,9 @@
     phoneDetailShown(wasHidden);
     renderGraphs = () => {};
     document.getElementById('detailTitle').innerHTML = '<span aria-hidden="true">📍</span> ' + esc(pinTitle(g));
-    const body = document.getElementById('detailBody'), list = nb.all.slice(0, 10), mine = onMyStreet(g);
+    // the 10 highest-ranked, then any other place nearby where someone was killed or seriously hurt (else the red count's places can go unlisted)
+    const top10 = nb.all.slice(0, 10), ksiMore = nb.all.slice(10).filter(n => n.x.ksi > 0), list = top10.concat(ksiMore), mine = onMyStreet(g);
+    const body = document.getElementById('detailBody');
     const card = (n, attr) => `<li><button type="button" class="home-card" ${attr}>
             <span class="hc-rank t${tierK(n.x.rank)}" title="${rankTxt(n.x.rank)}">${rankTxt(n.x.rank, false)}</span>
             <span class="hc-main"><span class="hc-name">${esc(niceName(n.x.name))}</span>
@@ -2914,8 +2926,8 @@
           : `<p class="note">No crashes reported on ${esc(mine.name)} within ${distWords(STREET_M)} of this address in these years.</p>`}</section>` : ''}
       <section class="hsec hsec-top"><h3>Places with crashes nearby</h3>
         ${list.length ? `<ol class="home-top">${list.map((n, i) => card(n, `data-near="${i}"`)).join('')}</ol>
-          <div class="note">Ranked out of ${fmt(N)} places with crashes. ${nb.all.length > 10 ? `${nb.all.length - 10} more places nearby aren't listed here;
-            ` : ''}${nb.all.length > 10 ? 'places' : 'Places'} outside the ranked list are on the map as small grey dots.</div>`
+          <div class="note">Ranked out of ${fmt(N)} places with crashes.${ksiMore.length ? ` The first 10 by rank, then the ${plural(ksiMore.length, 'other place', 'other places')} nearby where someone was killed or seriously hurt.` : ''} ${nb.all.length > list.length ? `${nb.all.length - list.length} more places nearby aren't listed here;
+            ` : ''}${nb.all.length > list.length ? 'places' : 'Places'} outside the ranked list are on the map as small grey dots.</div>`
           : `<p class="note">No crashes reported within ${NEARW} in these years.</p>`}</section>
       ${reportBox(g.label, g.school || !!schoolNear(g.lat, g.lon), true)}
       ${civicBox(councilAt(g.lat, g.lon))}
@@ -3226,9 +3238,12 @@
   // Every redraw of a list updates the title, whatever caused it.
   ['list', 'tlist', 'slist'].forEach(id => new MutationObserver(panelBanner).observe(document.getElementById(id), { childList: true }));
   panelBanner();
+  // (on a phone with the list pulled down, its body is inert: raise it first, then focus)
   document.getElementById('panelSearch').onclick = () => {
+    const low = isNarrow() && S.list.snap === 'peek';
+    if (low) setSnap(S.list, 'half');
     document.getElementById('panelBody').scrollTop = 0;
-    document.getElementById('search').focus({ preventScroll: true });
+    setTimeout(() => document.getElementById('search').focus({ preventScroll: true }), low ? 60 : 0);
   };
   // The bus and sidewalk views have links of their own (#buses, #traffic, #sidewalks, #sidewalks=poor; with ?d=N for a
   // district), kept in the address bar as the view changes, so a copied link reopens the same list. Places (#p=) and
@@ -3295,10 +3310,10 @@
       // the nearest heading before it: its earlier siblings, then its parent's, up to the panel
       let n = t, h = null;
       while (n && !h && n !== document.body && !/^(detail|panelBody)$/.test(n.id)) {
-        if (n.previousElementSibling) { n = n.previousElementSibling; h = /^H[2-5]$/.test(n.tagName) ? n : [...n.querySelectorAll('h2, h3, h4, h5')].pop() || null; }
+        if (n.previousElementSibling) { n = n.previousElementSibling; h = /^(H[2-5]|SUMMARY)$/.test(n.tagName) ? n : [...n.querySelectorAll('h2, h3, h4, h5')].pop() || null; }
         else n = n.parentElement;
       }
-      if (h) t.setAttribute('aria-label', h.textContent.trim());
+      if (h) t.setAttribute('aria-label', (h.tagName === 'SUMMARY' ? h.textContent.split(':')[0] : h.textContent).trim());
     });
     let q = 0; const all = () => { if (q) return; q = requestAnimationFrame(() => { q = 0; document.querySelectorAll(sel).forEach(upd); name(); }); };
     document.addEventListener('scroll', e => { if (e.target.matches && e.target.matches(sel)) upd(e.target); }, true);
@@ -3351,9 +3366,12 @@
   // Real counts only: a value repeated at a later date is SDOT re-publishing the same count, so it's dropped. So are
   // counts that are implausible next to the street's other counts (a fall to under a fifth, e.g. 7,199 to 90, or a
   // five-fold jump): those are almost always a partial or misfiled count, not a real change.
+  // (an SDOT estimate carried in a year's layer, the same year and value as a segment marked estimated, isn't a count: left out)
+  let estKeys = null;
+  const isEst = x => { if (!estKeys) estKeys = new Set(((D.traffic || {}).segments || []).filter(s => s.est && s.yr).map(s => s.yr + ':' + Math.round(s.awdt))); return estKeys.has(x.y + ':' + Math.round(x.v)); };
   const cleanHist = h => {
     const out = [];
-    for (const x of h || []) {
+    for (const x of (h || []).filter(x => !isEst(x))) {
       const prev = out[out.length - 1];
       if (prev && x.v === prev.v) continue;
       if (prev && (x.v < prev.v / 5 || x.v > prev.v * 5)) continue;
@@ -3386,14 +3404,15 @@
   // (keys are the stretch's middle to 100 ft: SDOT's redrawn lines can land in the next square, so neighbouring keys count as the same)
   // The counts of one counted stretch (k: its middle, to 100 ft; exact, so a neighbouring block is never taken for it):
   // the stretch of `own` (a traffic segment's own count) or else of the newest count
-  const stretchKey = (h, own) => { const o = own && h.find(x => x.y === own.y && x.v === own.v); return (o || h[h.length - 1] || {}).k; };
-  function sameStretch(h, own) { const k = stretchKey(h, own); return k ? h.filter(x => x.k === k) : h; }
+  // (a segment whose own count isn't in its history gets no stretch: no line, no trend, no "this stretch")
+  const stretchKey = (h, own) => { const o = own && h.find(x => x.y === own.y && x.v === own.v); return own ? (o || {}).k : (h[h.length - 1] || {}).k; };
+  function sameStretch(h, own) { const k = stretchKey(h, own); return k ? h.filter(x => x.k === k) : own ? [] : h; }
   function trendText(h, quiet, own) {
     const all = cleanHist(h).filter(x => !pandemic(x.y));
     h = sameStretch(all, own);
     const span = x => x.length >= 2 && x[x.length - 1].y - x[0].y >= 4;
     if (!span(h)) return !quiet && span(all) && all.some(x => x.k && x.k !== stretchKey(all, own)) ? 'Counts from different stretches of the street over the years, so no trend is given' : null;
-    // a count far off its neighbours (more than double or under half) is likely another roadway or a one-off: no trend
+    // a count far off its neighbours (more than 2.5 times, or under a 2.5th of, the one before) is likely another roadway or a one-off: no trend
     if (h.some((x, i) => i && (x.v > 2.5 * h[i - 1].v || x.v < h[i - 1].v / 2.5))) return quiet ? null : 'Counts jump between years, so no trend is given';
     const a = h[0], b = h[h.length - 1], c = Math.round(100 * (b.v - a.v) / a.v);
     return Math.abs(c) < 5 ? `About the same as ${a.y}` : `${c > 0 ? 'Up' : 'Down'} ${Math.abs(c)}% since ${a.y}`;
@@ -3639,10 +3658,11 @@
   function trafficHistChart(hist, own) {
     const h = cleanHist(hist), mine = sameStretch(h, own), k = stretchKey(h, own);
     if (h.length < 2) return '';
-    const other = x => k && x.k !== k, left = h.filter(other).length;
-    const W = 300, H = 90, L0 = 44, R = 10, y0 = Math.min(...h.map(x => x.y)), y1 = Math.max(...h.map(x => x.y));
+    const noOwn = !!own && !k, other = x => noOwn || (k && x.k !== k), left = h.filter(other).length;
+    const W = 300, H = 90, L0 = 44, R = 10, P = 8, y0 = Math.min(...h.map(x => x.y)), y1 = Math.max(...h.map(x => x.y));
     const max = Math.max(...h.map(x => x.v)) * 1.1;
-    const X = y => L0 + (W - L0 - R) * (y1 === y0 ? 0.5 : (y - y0) / (y1 - y0)), Y = v => 8 + (H - 26) * (1 - v / max);
+    // (dots kept clear of the axis labels)
+    const X = y => L0 + P + (W - L0 - P - R) * (y1 === y0 ? 0.5 : (y - y0) / (y1 - y0)), Y = v => 8 + (H - 26) * (1 - v / max);
     return `<svg class="tchart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img"
         aria-label="${esc('Traffic counts: ' + h.map(x => `${x.y}: ${fmt(x.v)}${other(x) ? ' (another stretch of the street)' : ''}`).join(', '))}">
       <line x1="${L0}" x2="${W - R}" y1="${Y(0)}" y2="${Y(0)}" stroke="#c3c2b7"/>
@@ -3661,7 +3681,8 @@
           return `<text x="${anchor === 'end' ? Math.min(W - 2, lx + 12) : anchor === 'start' ? Math.max(2, lx - 12) : lx}" y="${H - 4}" text-anchor="${anchor}" class="tc-ax">${x.y}</text>`;
         }).join('');
       })()}
-    </svg>${left ? `<div class="note">Filled dots${mine.length > 1 ? ', joined by the line,' : ''} are counts of ${own && h.some(x => x.y === own.y && x.v === own.v) ? 'this' : 'the most recently counted'} stretch; ${plural(left, 'hollow dot is a count', 'hollow dots are counts')} of other stretches of the street.</div>` : ''}`;
+    </svg>${noOwn ? `<div class="note">Counts of this street nearby over the years (hollow dots); this segment's own count isn't among them, so no trend is given.</div>`
+      : left ? `<div class="note">Filled dots${mine.length > 1 ? ', joined by the line,' : ''} are counts of ${own ? 'this' : 'the most recently counted'} stretch; ${left === 1 ? '1 hollow dot is a count of another stretch' : `${left} hollow dots are counts of other stretches`} of the street.</div>` : ''}`;
   }
 
   const safetyList = list => list.length
@@ -3680,7 +3701,8 @@
       const sents = v ? (v.textContent.replace(/\s+/g, ' ').trim().match(/.+?\.(?=\s|$)\s*/g) || []) : [];
       let text = ''; for (const s of sents) { if ((text + s).length > 240 && text) break; text += s; }
       const d = asOfShort();
-      navigator.share({ title: h.textContent.trim() + ' · Streets First', text: text.trim() + (d ? ` (Streets First, data as of ${d})` : ''), url }).catch(() => {});
+      // (the text opens with the place: many apps drop the title)
+      navigator.share({ title: h.textContent.trim() + ' · Streets First', text: h.textContent.trim().replace(/\s+/g, ' ') + ': ' + text.trim() + (d ? ` (Streets First, data as of ${d})` : ''), url }).catch(() => {});
       return;
     }
     const label = btn.textContent, done = () => { btn.textContent = 'Link copied'; announce('Link copied'); setTimeout(() => (btn.textContent = label), 1800); };
@@ -4020,7 +4042,7 @@
         ${ex2.k50}${two ? ' and ' + ex2.b50 : ''} for one list, and ${one.k200}${two ? ' and ' + one.b200 : ''} in the top ${LIST}, against
         ${ex2.k200}${two ? ' and ' + ex2.b200 : ''}. Use "Show" to see intersections or stretches on their own, ranked again within that kind.</p>` : ''}
       <p class="note">Test 1 was also used to choose the method, so it flatters it a little${two ? '; Test 2 was added afterwards as a check' : ''}. ${(r => r && r.top_before && r.city_before
-          ? `In Test 1, the top ${TOP}'s fatal and serious crashes fell from ${fmt(r.top_before)} a year to ${fmt(r.top_after)} (down ${Math.round(100 * (1 - r.top_after / r.top_before))}%), while the city's fell ${Math.round(100 * (1 - r.city_after / r.city_before))}% (the city's later years hold more recent reports with no severity recorded yet, so its fall may be a little smaller). A high rank partly fades on its own (regression to the mean), so the top places can be expected to have fewer crashes next period even with no fix`
+          ? `In Test 1, the top ${TOP}'s fatal and serious crashes fell from ${fmt(r.top_before)} a year to ${fmt(r.top_after)} (down ${Math.round(100 * (1 - r.top_after / r.top_before))}%), while the city's fell ${Math.round(100 * (1 - r.city_after / r.city_before))}% (the later years hold more recent reports with no severity recorded yet, so both falls may be a little smaller). A high rank partly fades on its own (regression to the mean), so the top places can be expected to have fewer crashes next period even with no fix`
           : 'Spots that rank high after a bad few years partly improve on their own (regression to the mean)')(meta.val_rtm)}: the blending evens out the fatal/serious share where numbers are small, but not the crash count itself.</p>`;
     // Other points per crash (made in build.sql): how many of this week's top places stay, and Test 1's later crashes caught.
     const wts = meta.weight_tests || [], wSite = wts.find(x => x.set === 'site');
@@ -4840,7 +4862,7 @@
   const lateTxt = c => { const w = D.progress && D.progress.window; if (!c || !c.member || !c.since || !w || c.since.slice(0, 10) <= w.d0) return '';
     const share = (new Date(c.since) - new Date(w.d0)) / (new Date(w.d1) - new Date(w.d0));
     return `${esc(c.member)} took office in ${monthYear(c.since.slice(0, 10))}; ${share > 0.5 ? 'most' : 'part'} of these years came before.`; };
-  const budgetOnly = r => r.top50 && r.top50_budget ? ` <small>(not counting ${r.top50_budget} planned only by a budget line named for the street)</small>` : '';
+
   const budgetTxt = r => r.top50_budget ? `; of its ${fmt(r.top50 - (r.top50_state || 0))} top ${TOP} places${r.top50_state ? ' on city streets' : ''}, ${r.top50_budget} ${r.top50_budget === 1 ? 'counts' : 'count'} as planned only because a budget line is named for ${r.top50_budget === 1 ? 'its street' : 'their streets'}, which may not reach ${r.top50_budget === 1 ? 'it' : 'them'}` : '';
   // A district's sidewalks, for its card and printout: SDOT's blocks missing a sidewalk (and of those, its Tier 1) and
   // blocks with sidewalk rated poor (pipeline/sidewalks.sql, by_district), and what happened to damaged-sidewalk reports
@@ -4879,7 +4901,7 @@
       ${lateTxt(c) ? `<p>${lateTxt(c)}</p>` : ''}
       <p>${windowTxt()}: <b>${fmt(r.ksi)}</b> crashes on City and WSDOT streets in the district (freeways are mostly not in SDOT's data) killed or seriously hurt someone${r.killed != null ? ` (${r.killed ? killedTxt(r.killed, r.fatal) : 'no one killed'}; ${fmt(r.hurt)} people seriously injured)` : ''}${lineTxt(d)}.
         ${!r.top50 ? `None of the citywide top ${TOP} places are in District ${d}.`
-        : `<b>${fmt(r.top50)}</b> of the citywide top ${TOP} places ${r.top50 === 1 ? 'is' : 'are'} here${r.top50_state ? ` (${r.top50_state} run by WSDOT)` : ''}; <b>${fmt(r.top50_nothing)}</b>${budgetOnly(r)} of those on city streets ${r.top50_nothing === 1 ? 'has' : 'have'} no safety work counted since ${esc(P.since_d)} and nothing planned or budgeted in the SDOT data this site reads (budget lines matched by street name${r.top50_ends ? `; ${r.top50_ends} of them had work at the corners at their ends, which doesn't count as the block's own` : ''}${r.top50_endplan ? `; ${r.top50_endplan} of them ${r.top50_endplan === 1 ? 'has' : 'have'} work planned at the corners at their ends, likewise not counted` : ''})${budgetTxt(r)}.`}</p>
+        : `<b>${fmt(r.top50)}</b> of the citywide top ${TOP} places ${r.top50 === 1 ? 'is' : 'are'} here${r.top50_state ? ` (${r.top50_state} run by WSDOT)` : ''}; <b>${fmt(r.top50_nothing)}</b> of those on city streets ${r.top50_nothing === 1 ? 'has' : 'have'} no safety work counted since ${esc(P.since_d)} and nothing planned or budgeted in the SDOT data this site reads (budget lines matched by street name${r.top50_ends ? `; ${r.top50_ends} of them had work at the corners at their ends, which doesn't count as the block's own` : ''}${r.top50_endplan ? `; ${r.top50_endplan} of them ${r.top50_endplan === 1 ? 'has' : 'have'} work planned at the corners at their ends, likewise not counted` : ''})${budgetTxt(r)}.`}</p>
       <p>${counted.length ? `The ${counted.length} places in the citywide top ${TOP}:` : `Its ${places.length} highest-ranked places:`}</p>
       <table class="dp-t"><tr><th>Citywide rank</th><th>Place</th><th>People killed or seriously injured</th><th>SDOT work</th></tr>
         ${places.map(p => `<tr><td>${rankTxt(p.rank_ksi)}</td><td>${esc(niceName(p.location))}${p.state_route ? ' <small>(run by WSDOT)</small>' : ''}${p.council_district2 ? ' <small>(on the line with District ' + (+p.council_district === +d ? p.council_district2 : p.council_district) + ')</small>' : ''}</td><td>${people(p)}</td><td><small>${esc(workSummary(p).short)}</small></td></tr>`).join('')}</table>
@@ -4896,7 +4918,8 @@
   window.addEventListener('beforeprint', () => {
     if (document.body.classList.contains('print-dist')) return;
     if (!detailEl.hidden && !detailEl.classList.contains('home') && !openSheet()) return;   // a place's own handout
-    const d = +document.getElementById('distFilter').value || 0;
+    // (the district opened in "Is it getting fixed?" first, else the list's district filter)
+    const pm = openSheet() && /progress=d(\d+)/.exec(location.hash), d = pm ? +pm[1] : +document.getElementById('distFilter').value || 0;
     if (d) { distPrint(d, true); return; }
     let el = document.getElementById('distPrint');
     if (!el) { el = document.createElement('div'); el.id = 'distPrint'; document.body.appendChild(el); }
@@ -4915,12 +4938,12 @@
     const city = P.need.filter(x => x.dim === 'rse');
     const tot = k => city.reduce((t, x) => t + (x[k] || 0), 0), pct = (a, b) => (b ? Math.round(100 * a / b) : 0);
     const c = (CTX.council || []).find(x => String(x.d) === r.g);
-    el.innerHTML = `<div class="cs-head">District ${esc(r.g)}${c && c.member ? ' · Councilmember ' + esc(c.member) + sinceTxt(c.since, c.until) : ''} · ${windowTxt()}</div>${lateTxt(c) ? `<p class="note">${lateTxt(c)}</p>` : ''}
+    el.innerHTML = `<div class="cs-head">District ${esc(r.g)}${c && c.member ? ' · Councilmember ' + esc(c.member) + sinceTxt(c.since, c.until) : ''} · ${windowTxt()}</div>${lateTxt(c) ? `<div class="cs-note">${lateTxt(c)}</div>` : ''}
       <div class="cs-nums">
         <div><b>${fmt(r.ksi)}</b><span>crashes on City and WSDOT streets that killed or seriously hurt someone (${pct(r.ksi, tot('ksi'))}% of the city's${lineTxt(r.g)})${r.killed != null ? `: ${r.killed ? killedTxt(r.killed, r.fatal) : 'no one killed'}, ${fmt(r.hurt)} seriously injured` : ''}</span></div>
         <div><b>${fmt(r.top50)}</b><span>of the citywide top ${TOP} places${r.top50_state ? `: ${r.top50_state} run by WSDOT, ${r.top50 - r.top50_state} on city streets` : ''}${(n => n
           ? `. ${n} of these ${n === 1 ? 'is' : 'are'} shared with a neighboring district (on the line between them, counted in both), so district counts add up to more than ${TOP}` : '')((r.list || []).filter(x => x.line).length)}</span></div>
-        ${r.top50 ? `<div><b>${fmt(r.top50_nothing)}</b>${budgetOnly(r)}<span>of the ${r.top50_state ? `${r.top50 - r.top50_state} on city streets` : `citywide top ${TOP} here`} with no work counted since ${esc(P.since_d)} and nothing planned or budgeted* (work before then isn't counted${r.top50_ends ? `; ${r.top50_ends} had work at the corners at their ends` : ''}${r.top50_endplan ? `; ${r.top50_endplan} ${r.top50_endplan === 1 ? 'has' : 'have'} work planned at the corners at their ends, not counted` : ''}${budgetTxt(r)})${r.top50_nothing ? ` <button type="button" class="linkbtn show-none">Show ${r.top50_nothing === 1 ? 'it' : 'them'}</button>` : ''}</span></div>` : ''}
+        ${r.top50 ? `<div><b>${fmt(r.top50_nothing)}</b><span>of the ${r.top50_state ? `${r.top50 - r.top50_state} on city streets` : `citywide top ${TOP} here`} with no work counted since ${esc(P.since_d)} and nothing planned or budgeted* (work before then isn't counted${r.top50_ends ? `; ${r.top50_ends} had work at the corners at their ends` : ''}${r.top50_endplan ? `; ${r.top50_endplan} ${r.top50_endplan === 1 ? 'has' : 'have'} work planned at the corners at their ends, not counted` : ''}${budgetTxt(r)})${r.top50_nothing ? ` <button type="button" class="linkbtn show-none">Show ${r.top50_nothing === 1 ? 'it' : 'them'}</button>` : ''}</span></div>` : ''}
       </div>
       <div class="cs-state" id="distState" hidden></div>
       ${swDistTxt(r.g) ? `<div class="cs-foot cs-sw">${swDistTxt(r.g)} <button type="button" class="linkbtn show-sw">See the blocks</button></div>` : ''}
@@ -5120,6 +5143,8 @@
   window.addEventListener('popstate', () => {
     // our own taking back of an entry: the page already shows what that entry says (the district may have changed since)
     if (backPending) { backDone(); distToUrl(); return; }
+    // Back with the report dialog or the view menu open (a phone): it closes them, nothing else
+    if (resDlg.open || headerEl.classList.contains('menu-open')) { if (resDlg.open) resDlg.close(); if (headerEl.classList.contains('menu-open')) setMenu(false, true); return; }
     syncToUrl();
   });
   // ---------- desktop overview: the details panel never closes; with nothing picked it shows where to start ----------

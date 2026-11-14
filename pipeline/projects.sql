@@ -187,7 +187,9 @@ hits0 as (
   from fam k join cipn c on c.tn like '% ' || k.m || ' %'
   join locations l using (location)
   left join cip_hoods h on h.pid = c.pid
-  where (h.hns is null or list_has_any(h.hns, [street_norm(coalesce(l.area, '')), street_norm(coalesce(l.neighborhood, ''))]))
+  -- (a combined neighborhood name, "Bitter Lake / Haller Lake", matches either part)
+  where (h.hns is null or list_has_any(h.hns, list_concat([street_norm(coalesce(l.area, '')), street_norm(coalesce(l.neighborhood, ''))],
+           list_transform(string_split(coalesce(l.area, '') || ' / ' || coalesce(l.neighborhood, ''), ' / '), lambda x: street_norm(trim(x))))))
     and (c.cross_n is null or ' ' || street_norm(l.location) || ' ' like '% ' || c.cross_n || ' %')
     and (k.kind = 'full' or not regexp_matches(c.tn, ' (N|S|E|W|NE|NW|SE|SW) ' || k.m || ' ') or regexp_matches(k.m, '^(N|S|E|W|NE|NW|SE|SW) '))
     and (k.kind <> 'bare' or (not regexp_matches(c.tn, ' ' || k.m || ' (ST|AVE|WAY|PL|BLVD|DR|RD|CT|LN|TER|PKWY) ')
