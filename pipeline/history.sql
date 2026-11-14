@@ -93,8 +93,17 @@ create or replace table place_history as
 select h.location,
   list([p.yr, h.rk] order by p.yr) filter (where p.kind = 'year') as rank_years,
   any_value(h.rk) filter (where p.id = 'm1') as rank_month_ago,
-  any_value(h.rk) filter (where p.id = 'm12') as rank_year_ago
-from hist_rank h join hist_periods p using (id) group by h.location;
+  any_value(h.rk) filter (where p.id = 'm12') as rank_year_ago,
+  any_value(mv.month_moves) as month_moves
+from hist_rank h join hist_periods p using (id)
+-- crashes that killed or seriously hurt someone and left the scored years since last month ('out') or joined them ('in'):
+-- the usual reason a place's rank moved
+left join (select f.location, list({'d': f.date, 'f': f.severity = 'Fatal Collision', 'w': case when f.date < m0.d0 then 'out' else 'in' end} order by f.date) as month_moves
+           from crash_full f, (select * from hist_periods where id = 'm0') m0, (select * from hist_periods where id = 'm1') m1
+           where f.severity in ('Fatal Collision', 'Serious Injury Collision')
+             and ((f.date >= m1.d0 and f.date < m0.d0) or (f.date >= m1.d1 and f.date < m0.d1))
+           group by f.location) mv using (location)
+group by h.location;
 
 -- ---------------------------------------------------------------- (1) the worst places of each year: what happened since
 -- Fixes with a date at each place: SDOT's dated fixes, new signals (the signal's install date) and finished projects nearby
@@ -257,9 +266,12 @@ places as (
     r.location in (select location from recent) as fixed_recently,
     r.location in (select location from end_fixes) as ends_fixed,
     r.location in (select location from end_planned) as ends_planned,
-    coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned' or len(r.cip) > 0, false) as proj_planned,
+    coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned' or len(r.cip) > 0
+             -- a planned radar speed sign or a bike lane being built (SDOT's fix layers; the place's page lists them as planned)
+             or len(list_filter(coalesce(r.fixes, []), lambda f: f.s <> 'Built' and f.k <> 'Bus lane')) > 0, false) as proj_planned,
     -- "planned" only because a budget line is named for its street (the budget doesn't say which blocks it covers)
-    coalesce(len(r.cip), 0) > 0 and not coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned', false) as budget_only,
+    coalesce(len(r.cip), 0) > 0 and not coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned'
+      or len(list_filter(coalesce(r.fixes, []), lambda f: f.s <> 'Built' and f.k <> 'Bus lane')) > 0, false) as budget_only,
     r.state_route, r.council_district2, r.crashes, r.ped_crashes, r.bike_crashes,
     -- head-start walk signals need a traffic signal: compared with the intersections that have one
     r.addr_type = 'I' and coalesce(r.signalized, false) as sig, r.addr_type = 'I' and coalesce(r.signalized, false) and r.lpi_status = 'Existing' as sig_lpi

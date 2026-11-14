@@ -407,8 +407,8 @@ sg as (select a.location, bool_or(ped_signal) ped_signal, bool_or(ped_audio) ped
        join signals g on g.intkey = a.intkey or (a.addr_type = 'I' and g.geom is not null and ST_DWithin(p.geom, g.geom, 80))
        group by a.location)
 select a.location, a.addr_type, a.intkey, s.speed_limit,
-       -- (a junction in the SR 99 tunnel is on the state route: no street segment of it is within reach to say so)
-       case when a.addr_type = 'I' and a.location like 'SR99 TUNNEL %' then 4 else s.art_class end as art_class, s.pavement_min,
+       -- (the SR 99 tunnel is the state route: its junctions have no street segment within reach, its stretches take the streets above)
+       case when a.location like 'SR99 TUNNEL %' then 4 else s.art_class end as art_class, s.pavement_min,
        case when a.addr_type <> 'I' then len.block_ft end as block_ft,
        v.volume, v.volume_streets, v.volume_year, v.volume_estimated,
        h.hin_level, coalesce(c.hcl_years, []) as hcl_years, c.hcl_types,
@@ -417,7 +417,7 @@ select a.location, a.addr_type, a.intkey, s.speed_limit,
        sg.location is not null as signalized, sg.ped_signal, sg.ped_audio, sg.lt_protected, sg.lt_installed, sg.signal_installed,
        -- reference group for expected harm
        case when a.addr_type = 'I' then 'I' else 'B' end as addr_class,
-       case case when a.addr_type = 'I' and a.location like 'SR99 TUNNEL %' then 4 else s.art_class end
+       case case when a.location like 'SR99 TUNNEL %' then 4 else s.art_class end
                         when 1 then 'principal' when 2 then 'minor' when 3 then 'collector'
                         when 4 then 'state' when 5 then 'state' else 'local' end as street_bucket
 from locations_all a
@@ -914,7 +914,7 @@ create or replace table spot_export as
          sw_missing_tier, sw_poor_ft, sw_poor_assessed, proj_ids, side_ids, proj_planned, cip, signal_installed,
          crosswalks, crosswalks_midblock, crosswalk_school, crosswalk_controls, curb_ramps, curb_ramps_poor, bike_facilities, lights_out, lights_out_major,
          school, school_ft, walk_zones, rse_quintile, rse_year, council_district, council_district2, council_member, council_url, before_after,
-         rank_years, rank_month_ago, rank_year_ago, merged
+         rank_years, rank_month_ago, rank_year_ago, month_moves, merged
   from ranked left join place_history using (location) left join end_fixes using (location) left join end_planned using (location)
   -- a place made of SDOT intersections on each side of a divided street: SDOT's names and their crashes in the years shown
   left join (select location, list({'name': sdot_location, 'n': n} order by n desc, sdot_location) as merged

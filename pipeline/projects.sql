@@ -218,7 +218,10 @@ route_line_map as (select * from (values ('R LINE', '7', 'RAINIER AVE S')) m(lin
 rline as (
   select l.location, c.pid, c.title, c.y0, c.y1, m.street as s, m.route as rt
   from route_line_map m join cip c on upper(' ' || c.title) like '% ' || m.line || '%'
-  join locations l on list_contains(l.bus_routes, m.route) and ' ' || l.location || ' ' like '% ' || m.street || ' %'
+  -- (the street itself: a stretch of it, or a corner on it; not a stretch of a side street that ends at it)
+  join locations l on list_contains(l.bus_routes, m.route)
+    and (l.location like m.street || ' BETWEEN %'
+         or (l.location not like '% BETWEEN %' and list_contains(string_split(l.location, ' AND '), m.street)))
 )
 select location, list({'c': pid, 't': title, 'y0': y0, 'y1': y1, 's': s, 'rt': rt} order by y1 desc, pid) as cip
 from (select location, pid, title, y0, y1, s, null::varchar as rt from hits union all select * from rline) group by location;

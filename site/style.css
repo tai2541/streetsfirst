@@ -527,7 +527,9 @@ header nav { margin-left: 0; }
 .hlabel { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.25; }
 .tab-short { display: none; }
 @media (max-width: 760px) {
-  header .sub { display: none; }
+  /* only "Independent: not the City." on a phone: the rest of the line is on the intro */
+  header .sub { display: block; font-size: 0; margin: 0; line-height: 1; }
+  header .sub .indep { font-size: 11.5px; line-height: 1.3; }
   .tab-long { display: none; }
   .tab-short { display: inline; }
   nav[role=tablist] button { white-space: nowrap; }
@@ -771,6 +773,9 @@ body.sheet-open #expandPanel, body.sheet-open #expandDetail, body.sheet-open #pa
   .dcols { display: grid !important; grid-template-columns: 1fr 1fr; gap: 0 16px; }
   .dcol { display: contents !important; }
   .dsec h3 { break-after: avoid; }
+  /* screen-only bits: the phone sheet's handle and the keyboard focus ring (opening a place focuses its title) */
+  .grab { display: none !important; }
+  #detail :focus, #detail :focus-visible { outline: none !important; box-shadow: none !important; }
 }
 .print-head { display: none; }
 #distPrint { display: none; }
@@ -1132,4 +1137,10 @@ td.nowrap .sub2 { white-space: normal; max-width: 7em; }
   #list li.selected, .tlist li.selected { outline: 3px solid Highlight; outline-offset: 1px; }
   .linkbtn, .show-none { color: LinkText !important; text-decoration: underline !important; }
   .legend i, .rh-legend i, .lg-tline { border: 1px solid CanvasText; }
+}
+
+/* A narrow window: an open place covers the list instead of the map (app.js applyLayout, "cover") */
+@media (min-width: 761px) {
+  main.cover #detail { left: 16px; right: auto; width: calc(var(--panel-w, 416px) - 16px) !important; z-index: 1200; }
+  main.cover #panelEdge, main.cover #expandDetail { display: none; }
 }
