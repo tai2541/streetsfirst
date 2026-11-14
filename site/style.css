@@ -1120,3 +1120,16 @@ td.nowrap .sub2 { white-space: normal; max-width: 7em; }
 /* Round 25: the report box's heading reads as its bold lead-in, not as a section label */
 #detail .rep-h, .rep-h { display: inline; font-size: inherit; margin: 0; font-weight: 700; text-transform: none; letter-spacing: 0; color: inherit; }
 .nw { white-space: nowrap; }
+
+/* Round 27: Windows High Contrast (forced colors). Charts, legends, the map key, pins and severity dots carry meaning in
+   their own colors, so they keep them; a selected tab, filter or card shows in the system's highlight colors; link-style
+   buttons look like links. */
+@media (forced-colors: active) {
+  .graphs, .tchart, .legend, .rh-legend, #legend, .leaflet-marker-icon, .leaflet-overlay-pane, .sev, .lg-safety, .lg-tline, .chip, .hc-rank, .rank {
+    forced-color-adjust: none; }
+  [role=tab][aria-selected=true], [aria-pressed=true], .seg-btn.on, .fbtn.on, .tag:has(input:checked) {
+    background: Highlight !important; color: HighlightText !important; border: 2px solid HighlightText !important; }
+  #list li.selected, .tlist li.selected { outline: 3px solid Highlight; outline-offset: 1px; }
+  .linkbtn, .show-none { color: LinkText !important; text-decoration: underline !important; }
+  .legend i, .rh-legend i, .lg-tline { border: 1px solid CanvasText; }
+}

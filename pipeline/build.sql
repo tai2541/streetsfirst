@@ -348,7 +348,9 @@ with
 s as (select p.location,
         -- (on a bridge or tunnel, the streets around it are not its street: no speed rather than theirs)
         coalesce(max(s.speed) filter (where own.name is not null), case when not on_structure(p.location) then max(s.speed) end) as speed_limit,
-        min(s.artclass) filter (where s.artclass between 1 and 5) as art_class,
+        -- (a stretch's own street segment gives its class when it has one: the SR 99 tunnel isn't 1st Ave above it)
+        coalesce(min(s.artclass) filter (where s.artclass between 1 and 5 and own.name is not null and p.location like '% BETWEEN %'),
+                 min(s.artclass) filter (where s.artclass between 1 and 5)) as art_class,
         min(s.pci) as pavement_min
       from loc_pts p join streets s on ST_DWithin(p.geom, s.geom, 60)
       left join loc_names own on own.location = p.location and own.name = name_key(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''))

@@ -89,7 +89,9 @@
       .replace(/ SR ?(\d+)/g, ' SR $1').replace(/ I ?(5|90|405) /g, ' I-$1 ')
       .replace(/ OFF RP /g, ' OFF-RAMP ').replace(/ OF RP /g, ' OFF-RAMP ').replace(/ ON RP /g, ' ON-RAMP ').replace(/ RP /g, ' RAMP ')
       // trails: "MTS DEARBORN CONNCTR TRL" -> Mountains to Sound Dearborn Connector Trail
-      .replace(/ TRL /g, ' TRAIL ').replace(/ CONNC?TR? /g, ' CONNECTOR ').replace(/ MTS /g, ' MOUNTAINS TO SOUND ').replace(/ RDWY /g, ' ROADWAY ');
+      .replace(/ TRL /g, ' TRAIL ').replace(/ CONNC?TR? /g, ' CONNECTOR ').replace(/ MTS /g, ' MOUNTAINS TO SOUND ').replace(/ RDWY /g, ' ROADWAY ')
+      // SDOT's codes: "2ND AVE ET S" (Extension), "DEAD END 1" (numbered dead ends), "CITY LIMITS C"
+      .replace(/ (AVE|ST) ET /g, ' $1 EXTENSION ').replace(/ DEAD END \d+ /g, ' DEAD END ').replace(/ CITY LIMITS C /g, ' CITY LIMITS ');
     // one travel direction goes to the end in words; several stay where they are, in words
     const dirs = t.match(/ (EB|WB|NB|SB)(?= )/g) || [];
     if (dirs.length === 1) t = t.replace(/ (EB|WB|NB|SB) /, ' ') + `(${DIRW[dirs[0].trim()]})`;
@@ -352,13 +354,15 @@
 
   const resDlg = document.getElementById('resources');
   document.getElementById('resBody').innerHTML = resourceList();
-  document.getElementById('reportHead').addEventListener('click', e => { e.preventDefault(); resDlg.showModal(); overlayOn(); });
+  // (from the phone menu: the menu closes first and takes its history entry back, then the dialog adds its own)
+  document.getElementById('reportHead').addEventListener('click', e => { e.preventDefault(); if (document.querySelector('header').classList.contains('menu-open')) setMenu(false); resDlg.showModal(); overlayOn(); });
   document.getElementById('resClose').addEventListener('click', () => resDlg.close());
   // closing it on a phone: its opener sits in the folded menu, so focus goes to the menu button
   // On a phone the report dialog and the view menu get a history entry, so Android's Back closes them instead of leaving the site;
   // closed another way, the entry is taken back (after Back, the entry showing is no longer theirs, so nothing is taken)
-  const overlayOn = () => { if (isNarrow()) pushEntry({ sfOverlay: 1 }, () => location.href); };
-  const overlayOff = () => { if (history.state && history.state.sfOverlay) closeEntry(st => st.sfOverlay, location.href); };
+  let overlayPushed = false;
+  const overlayOn = () => { if (isNarrow()) { overlayPushed = true; pushEntry({ sfOverlay: 1 }, () => location.href); } };
+  const overlayOff = () => { overlayPushed = false; if (history.state && history.state.sfOverlay) closeEntry(st => st.sfOverlay, location.href); };
   resDlg.addEventListener('close', overlayOff);
   resDlg.addEventListener('close', () => { const a = document.activeElement; if (isNarrow() && (!a || a === document.body || !a.offsetParent)) document.getElementById('viewMenuBtn').focus(); });
   resDlg.addEventListener('click', e => { if (e.target === resDlg) resDlg.close(); });
@@ -1284,13 +1288,14 @@
     s.bar.addEventListener('pointerdown', e => {
       if (!isNarrow() || e.button > 0 || e.target.closest('button:not(.grab), a, input, select')) return;
       id = e.pointerId; y0 = e.clientY; h0 = visH(s); dragging = false; samples = [[e.timeStamp, e.clientY]];
-      try { s.bar.setPointerCapture(id); } catch (err) { /* capture is a nicety; dragging still works */ }
     });
     s.bar.addEventListener('pointermove', e => {
       if (e.pointerId !== id) return;
       const dy = e.clientY - y0;
       if (!dragging) {
         if (Math.abs(dy) < 6) return;
+        // (the pointer is captured only once it's a drag: captured at the press, a mouse click on the handle went to the bar instead)
+        try { s.bar.setPointerCapture(id); } catch (err) { /* capture is a nicety; dragging still works */ }
         dragging = true; s.anim++;               // a grab stops a slide where it is
         const H = fullH();
         s.el.style.transition = 'none'; if (s.el.style.height !== H + 'px') s.el.style.height = H + 'px';
@@ -1786,7 +1791,7 @@
     // SDOT keeps separate lists (signalized and unsignalized corners, mid-block, pedestrian, bicycle): say which.
     const hclType = { Signalized: 'signalized intersections', 'Non-Signalized': 'intersections without a signal', 'Mid-Block': 'mid-block', Pedestrian: 'pedestrian', Bicycle: 'bicycle' };
     if (p.sdot_hcl_years && p.sdot_hcl_years.length) items.push(`On SDOT's <b>High Collision Locations</b> list${(p.sdot_hcl_types || []).length
-      ? ` (${p.sdot_hcl_types.map(t => hclType[t] || esc(t)).join(', ')})` : ''} in ${esc(p.sdot_hcl_years.join(', '))}.`);
+      ? ` (${p.sdot_hcl_types.map(t => hclType[t] || esc(t)).join(', ')})` : ''} in ${esc(p.sdot_hcl_years.join(', '))} <span class="muted">(a listing asks for an engineering review; what a review found or changed isn't in SDOT's open data)</span>.`);
     if (p.lpi_status === 'Existing') items.push(`<b>Head-start walk signal</b> (Leading Pedestrian Interval: the walk light comes on a few seconds before cars get a green) since ${p.lpi_installed ? (/-01-01$/.test(p.lpi_installed) ? p.lpi_installed.slice(0, 4) : monthYear(p.lpi_installed)) : 'an unknown date'}.`);
     else if (p.lpi_status === 'Planned') items.push(`Head-start walk signal <b>planned</b>${plannedFor(p.lpi_planned)}.`);
     else if (p.lpi_status === 'Not Feasible') items.push(`Head-start walk signal judged <b>not feasible</b> by SDOT.`);
@@ -1977,7 +1982,8 @@
       : p.crashes === 1 ? `${plural(p.crashes, 'crash', 'crashes')} here, which didn't kill or seriously hurt anyone` : `${plural(p.crashes, 'crash', 'crashes')} here, none of them killing or seriously hurting anyone`;
     // why it ranks where it does when most of its score isn't from crashes that killed or seriously hurt someone
     const why = !p.ksi && rk <= LIST ? ' It ranks this high because of how many crashes happen here: the estimate counts every crash, weighed by how badly people were hurt.'
-      : p.harm && p.ksi_harm != null && p.ksi_harm < p.harm / 2 ? ' Most of its score comes from its other crashes, where people were hurt less badly.' : '';
+      // ("most" only when its other crashes are past half the whole score, as in "Why #N": the typical part can be larger)
+      : p.harm && p.ksi_harm != null && p.expected_harm && p.harm - p.ksi_harm > p.expected_harm / 2 ? ' Most of its score comes from its other crashes, where people were hurt less badly.' : '';
     // a death or serious injury after the scored years: on the page from the first day, in the ranking once it's scored
     const late = ((det && det.crashes) || []).filter(c => c.n && c.d > meta.window_to && (c.s === 'F' || c.s === 'S')).sort((a, b) => b.d.localeCompare(a.d));
     const lateTxt = !late.length ? '' : ` Not counted yet: ${late.slice(0, 3).map(c => `${c.fat ? `${plural(c.fat, 'person', 'people')} killed` : `${plural(c.ser || 1, 'person', 'people')} seriously injured`} here on ${new Date(c.d + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`).join('; ')}${late.length > 3 ? `, and ${late.length - 3} more` : ''}. Police reports arrive months late, so the ranking adds ${late.length > 1 ? 'them' : 'it'} later.`;
@@ -1986,7 +1992,7 @@
       ? ` This is a stretch of street ${fmt(p.block_ft)} ft long, about ${Math.round(p.block_ft / meta.median_block_ft)} times a typical Seattle block (${fmt(meta.median_block_ft)} ft); longer stretches collect more crashes, so compare it with other stretches, not with single corners.` : '';
     // (a place where no one was killed or seriously hurt is in the top list on the estimate alone: said as an estimate)
     const s1 = `${rk <= TOP ? (p.ksi ? `#${fmt(rk)} of the ${TOP} places in Seattle where someone is likeliest to be killed or seriously hurt in a crash`
-      : `#${fmt(rk)} of the top ${TOP} on this site's harm estimate (every crash, weighted by how badly people were hurt)`) : `Ranks #${fmt(rk)} of Seattle's ${fmt(kindCount(rk))} places with crashes for how likely someone is to be killed or seriously hurt there`} (estimated from past crashes).${longTxt} ${hurt.replace(/^./, c => c.toUpperCase())} since ${since}.${why}${nextToDeath(p)}${lateTxt}`;
+      : `#${fmt(rk)} of the top ${TOP} on this site's harm estimate`) : `Ranks #${fmt(rk)} of Seattle's ${fmt(kindCount(rk))} places with crashes for how likely someone is to be killed or seriously hurt there`} (estimated from past crashes).${longTxt} ${hurt.replace(/^./, c => c.toUpperCase())} since ${since}.${why}${nextToDeath(p)}${lateTxt}`;
     // a stretch: work at the corners at its ends doesn't count as its own, but say it's there
     const block = p.addr_type !== 'I', endDone = block && (p.end_fixes || []).some(f => sinceWin(f.d)), endPlan = block && endPlanned(p).length > 0;
     const corner = endDone && endPlan ? '; the corners at its ends have some, with more planned there'
@@ -2003,12 +2009,12 @@
       : w.budgetOnly && w.busNew ? `SDOT added a bus lane here in ${w.busNew}. SDOT's bus-lane data doesn't list other changes made with it, so this site doesn't count it as safety work. Apart from that, no work ${block ? 'on the block itself' : 'here'} since ${since}${endDone ? ' (the corners at its ends have some)' : ''}. ${cipTxt.replace(/^./, c => c.toUpperCase())}.`
       : w.budgetOnly ? `Nothing built ${block ? 'on the block itself' : 'here'} since ${since}${endDone ? ' (the corners at its ends have some)' : ''}${endPlan ? (endDone ? '; work is planned at a corner at its end' : ' (work is planned at a corner at its end)') : ''}. ${cipTxt.replace(/^./, c => c.toUpperCase())}.`
       // (SDOT's bus-lane layer lists the lane only: other changes built with it, like crossings, aren't in it)
-      : w.busNew ? `SDOT added a bus lane here in ${w.busNew}. SDOT's bus-lane data doesn't list other changes made with it, so this site doesn't count it as safety work. Apart from that, no work ${block ? 'on the block itself' : 'here'} since ${since}${w.cls === 'planned' ? ', but SDOT has work planned or budgeted' : ` and none planned, in the SDOT data this site reads${corner}`}.${w.cls === 'planned' ? '' : rl}`
+      : w.busNew ? `SDOT added a bus lane here in ${w.busNew}. SDOT's bus-lane data doesn't list other changes made with it, so this site doesn't count it as safety work. Apart from that, no work ${block ? 'on the block itself' : 'here'} since ${since}${w.cls === 'planned' ? ', but SDOT has work planned or budgeted' : ` and none planned, in the SDOT data this site reads${corner}`}.`
       : w.cls === 'planned' ? `Nothing built ${block ? 'on the block itself' : 'here'} since ${since}${endDone ? ' (the corners at its ends have some)' : ''}, but SDOT has work planned or budgeted.`
-      : `No safety work ${block ? 'on the block itself' : 'here'} since ${since}, when these crash counts start${w.olderTxt ? ` (earlier: ${w.olderTxt})` : ''}, and none planned, in the SDOT data this site reads${corner}.${rl}`;
+      : `No safety work ${block ? 'on the block itself' : 'here'} since ${since}, when these crash counts start${w.olderTxt ? ` (earlier: ${w.olderTxt})` : ''}, and none planned, in the SDOT data this site reads${corner}.`;
     // the first SDOT a reader meets on a place's page says what it is
     return `<p class="inshort"><b>In short:</b> ${esc(s1)} ${esc(/^SDOT\b/.test(s2) ? s2.replace(/^SDOT\b/, "SDOT (the City's transportation department)")
-      : s2.replace('in the SDOT data this site reads', "in the data this site reads from SDOT, the City's transportation department"))}</p>`;
+      : s2.replace('in the SDOT data this site reads', "in the data this site reads from SDOT, the City's transportation department"))}${rl}</p>`;   // (the R Line, whatever SDOT has done here)
   }
   function verdict(p, det) {
     const parts = [];
@@ -2032,7 +2038,7 @@
       (p.rank_risk ? `, and #${fmt(p.rank_risk)} of the ${fmt(meta.locations_rated_risk || D.priorities.filter(q => q.rank_risk).length)} places with a traffic count (or SDOT estimate) and enough crashes to rate, once you account for how busy it is${p.addr_type === 'I' && p.volume_streets === 1 ? ' (only one of its streets has an SDOT count, so it ranks as more dangerous for its traffic than it likely is)' : ''}` : '') + '.';
     const why = p.killed >= DEATHS && rk > TOP
       ? `<p class="callout">${p.fatal >= 2 ? `${p.killed} people died here, in ${p.fatal} crashes${p.assumed_killed ? ` (SDOT codes ${p.assumed_killed === 1 ? 'one of them' : p.assumed_killed + ' of them'} fatal but lists no one killed; this site counts one person for each)` : ''}.` : `One crash here killed ${p.killed} people.`} It ranks ${rankTxt(rk)} because the ranking estimates where people are most
-          likely to be hurt next, and with ${p.crashes} crashes in total the ranking leans partly on what's typical for similar streets.${p.fatal - (p.assumed_killed || 0) >= 2 ? ' That may understate it: repeated deaths can mean traffic moves at deadly speeds.' : ''} It's always added to the lists
+          likely to be hurt next, and with ${plural(p.crashes, 'crash', 'crashes')} in total the ranking leans partly on what's typical for similar streets.${p.fatal - (p.assumed_killed || 0) >= 2 ? ' That may understate it: repeated deaths can mean traffic moves at deadly speeds.' : ''} It's always added to the lists
           so it isn't overlooked.</p>` : '';
     const w = workSummary(p);
     return `${inShort(p, w, det)}<p class="verdict">${esc(parts.join(' '))}</p><p class="verdict2">${line2}</p>
@@ -2166,7 +2172,7 @@
         ${p.crashes < 5 ? `<p class="note few">With only ${plural(p.crashes, 'crash', 'crashes')} here, this is a record of what happened,
           too few to show a pattern.</p>` : ''}
         <div class="stat-grid">
-          <div class="stat"><b>${p.crashes}</b><span>crashes</span></div>
+          <div class="stat"><b>${p.crashes}</b><span>${p.crashes === 1 ? 'crash' : 'crashes'}</span></div>
           <div class="stat"><b>${(p.killed ?? 0) + (p.seriously_injured ?? 0)}</b><span>${(p.killed ?? 0) + (p.seriously_injured ?? 0) === 1 ? 'person' : 'people'} killed or seriously hurt</span></div>
           <div class="stat"><b>${p.pb_crashes ?? p.ped_crashes + p.bike_crashes}</b><span>with people walking or biking</span></div>
           <div class="stat st-req"><b>${p.requests}</b><span>repair requests nearby</span></div>
@@ -2195,8 +2201,8 @@
             ${fileNote(det, p)}
             ${untyped ? `<div class="note">${untyped} crash${untyped > 1 ? 'es have' : ' has'} no type recorded.</div>` : ''}
             <ul class="tight">
-              <li>Wet/icy road: ${p.wet_crashes} of the ${p.road_known} scored crashes with known road conditions (${pct(p.wet_crashes, p.road_known)}%; city ${Math.round(100 * meta.city_wet_share)}%)</li>
-              <li>Dark: ${p.dark_crashes} of the ${p.light_known} scored crashes with known light (${pct(p.dark_crashes, p.light_known)}%; city ${Math.round(100 * meta.city_dark_share)}%) · streetlights off/none: ${p.unlit_crashes}</li>
+              ${p.road_known ? `<li>Wet/icy road: ${p.wet_crashes} of the ${p.road_known} scored crashes with known road conditions (${pct(p.wet_crashes, p.road_known)}%; city ${Math.round(100 * meta.city_wet_share)}%)` : ''}</li>
+              ${p.light_known ? `<li>Dark: ${p.dark_crashes} of the ${p.light_known} scored crashes with known light (${pct(p.dark_crashes, p.light_known)}%; city ${Math.round(100 * meta.city_dark_share)}%) · streetlights off/none: ${p.unlit_crashes}</li>` : ''}
               ${lightsOutLine(p)}
             </ul>`)}
           ${sec('reqtypes', `Repair requests within ${R} ft`, `
@@ -2725,7 +2731,8 @@
   // ---------- address pin: a personal reference point (home, work, a kid's school) ----------
   // The typed address goes to Esri's geocoder (OpenStreetMap's if Esri fails) only when someone asks to pin it.
   const SEA = { w: -122.46, s: 47.48, e: -122.22, n: 47.74 };
-  const inSeattle = (lat, lon) => lat > SEA.s && lat < SEA.n && lon > SEA.w && lon < SEA.e;
+  // inside the city limits (the boundary the map draws), not just its box: Mercer Island, White Center and Skyway are in the box
+  const inSeattle = (lat, lon) => lat > SEA.s && lat < SEA.n && lon > SEA.w && lon < SEA.e && (!D.boundary || inPoly(lon, lat, D.boundary));
   map.createPane('pin'); map.getPane('pin').style.zIndex = 660;
   const pinLayer = L.layerGroup().addTo(map);
   // Each lookup gives up after 8 s. If both lookups fail to connect, the answer is { offline: true }, not "not found".
@@ -2754,7 +2761,8 @@
     .filter(w => !/^(seattle|wa|washington|usa|united|states|\d{5})$/.test(w));
   const streetChanged = (typed, found) => {
     const t = streetWords(typed.replace(/\s+(#|apt\b|unit\b|ste\b|suite\b)[^,]*/i, '').replace(/^\s*\d+(?:(ne|nw|se|sw|[nsew])|[a-z])?\s+/i, (m, dir) => (dir ? dir + ' ' : ''))), f = new Set(streetWords(found));
-    return /^\s*\d/.test(typed) && t.length > 0 && t.some(w => !f.has(w));
+    // (an address: any typed street word missing; anything else, a place name or a P.O. box: none of its words found)
+    return t.length > 0 && (/^\s*\d/.test(typed) ? t.some(w => !f.has(w)) : !t.some(w => f.has(w)));
   };
   function searchMsg(html) { sList.innerHTML = `<li class="none">${html}</li>`; sList.hidden = false; sInput.setAttribute('aria-expanded', 'true'); say(sList.textContent); }
   let geoToken = 0;
@@ -3154,6 +3162,7 @@
     tabs.forEach(x => { const on = x === b; x.classList.toggle('active', on); x.setAttribute('aria-selected', on); x.tabIndex = on ? 0 : -1; });
     // phone menu: show the chosen view on its button, and close it
     document.getElementById('viewMenuLabel').textContent = (b.querySelector('.tab-short') || b).textContent;
+    if (document.querySelector('header').classList.contains('menu-open')) overlayOff();   // (the menu's history entry goes with it)
     document.querySelector('header').classList.remove('menu-open');
     document.getElementById('viewMenuBtn').setAttribute('aria-expanded', 'false');
   }
@@ -3241,9 +3250,9 @@
   // (on a phone with the list pulled down, its body is inert: raise it first, then focus)
   document.getElementById('panelSearch').onclick = () => {
     const low = isNarrow() && S.list.snap === 'peek';
-    if (low) setSnap(S.list, 'half');
+    if (low) { setSnap(S.list, 'half'); S.list.body.inert = false; }   // (the body stays inert until the slide ends otherwise)
     document.getElementById('panelBody').scrollTop = 0;
-    setTimeout(() => document.getElementById('search').focus({ preventScroll: true }), low ? 60 : 0);
+    document.getElementById('search').focus({ preventScroll: true });
   };
   // The bus and sidewalk views have links of their own (#buses, #traffic, #sidewalks, #sidewalks=poor; with ?d=N for a
   // district), kept in the address bar as the view changes, so a copied link reopens the same list. Places (#p=) and
@@ -3411,6 +3420,7 @@
     const all = cleanHist(h).filter(x => !pandemic(x.y));
     h = sameStretch(all, own);
     const span = x => x.length >= 2 && x[x.length - 1].y - x[0].y >= 4;
+    if (own && !stretchKey(all, own)) return null;   // (its own count isn't in its history: the chart's note says so)
     if (!span(h)) return !quiet && span(all) && all.some(x => x.k && x.k !== stretchKey(all, own)) ? 'Counts from different stretches of the street over the years, so no trend is given' : null;
     // a count far off its neighbours (more than 2.5 times, or under a 2.5th of, the one before) is likely another roadway or a one-off: no trend
     if (h.some((x, i) => i && (x.v > 2.5 * h[i - 1].v || x.v < h[i - 1].v / 2.5))) return quiet ? null : 'Counts jump between years, so no trend is given';
@@ -3458,7 +3468,7 @@
         hours (usually late night or early morning), added up over every weekday bus. Ranked by bus time lost per mile, so short, badly jammed stretches rank high. From King County Metro's published weekday timetable${T.weekday ? ' (the schedule for ' + longDate(T.weekday) + ', a typical weekday)' : ''}.`,
       items: () => T.stretches.filter(s => s.rank).sort((a, b) => a.rank - b.rank), byDist: true,
       rank: s => s.rank, name: stretchName,
-      sub: s => `${routeList(s.routes, 8)} · ${s.mi} mi, about ${Math.round(s.lpm / 60)} h a day per mile`,
+      sub: s => `${routeList(s.routes, 8)} · ${s.mi} mi, about ${s.lpm < 60 ? (s.lpm / 60).toFixed(1) : Math.round(s.lpm / 60)} h a day per mile`,
       score: s => `${(s.lost / 60).toFixed(1)} h <small>a day</small>`,
       chips: s => [
         { cls: 'serious', text: `+${(s.peak - s.base).toFixed(1)} min a bus${s.routes.length > 1 && s.rt ? ` on ${esc(rtName(s.rt))}` : ''} ${hourSpan(s)} (${Math.round(100 * s.slower)}% slower)` },
@@ -3472,7 +3482,7 @@
       <div class="dhead">
         <div class="where">${esc(TMODES.bus.sub(s))} · ${copyLoc(stretchName(s))}</div>
         <p class="verdict">${hourSpan(s).replace(/^./, c => c.toUpperCase())} on a weekday, Metro gives ${s.routes.length > 1 && s.rt ? `its busiest route here, ${esc(rtName(s.rt))},` : 'buses'} <b>${s.peak} minutes</b> for this
-          ${s.mi}-mile stretch, compared with ${s.base} minutes in its quickest hours: <b>${Math.round(100 * s.slower)}% slower</b>.
+          ${s.mi}-mile stretch, compared with ${s.base} minutes in its quickest hours: <b>${Math.round(100 * s.slower) ? Math.round(100 * s.slower) + '% slower' : 'about the same, to the minute'}</b>.
           ${fmt(s.trips)} buses run it each weekday; together they lose about <b>${(s.lost / 60).toFixed(1)} hours a day</b> here.
           <span class="muted">(Counted: the routes Metro times at both of these stops; other buses on this street, timed at other stops, aren't in these numbers.)</span></p>
         <div class="stat-grid">
@@ -3687,7 +3697,7 @@
 
   const safetyList = list => list.length
     ? `<ul class="tight">${list.slice(0, 8).map(p => `<li><button type="button" class="linkbtn" data-open="${p.rank_ksi}">${rankTxt(p.rank_ksi)} · ${esc(p.name)}</button>
-        <span class="muted">· ${plural((p.killed ?? 0) + (p.seriously_injured ?? 0), 'person', 'people')} killed or seriously hurt</span></li>`).join('')}</ul>
+        <span class="muted">· ${(p.killed ?? 0) + (p.seriously_injured ?? 0) ? `${plural((p.killed ?? 0) + (p.seriously_injured ?? 0), 'person', 'people')} killed or seriously hurt` : `${plural(p.crashes, 'crash', 'crashes')}, no one killed or seriously hurt`}</span></li>`).join('')}</ul>
        ${list.length > 8 ? `<div class="note">and ${list.length - 8} more in the safety top ${LIST}.</div>` : ''}`
     : `<div class="note">None of the safety top ${LIST} are along here.</div>`;
 
@@ -3785,8 +3795,8 @@
     const out = [];
     const st = p.bus_stretch_id && T.stretches.find(x => x.id === p.bus_stretch_id);
     if (p.bus_trips) out.push(`<p><b>${plural(p.bus_trips, 'bus', 'buses')}</b> a weekday${p.bus_routes && p.bus_routes.length ? ` <span class="muted">(${esc(routeList(p.bus_routes, 12).replace(/^Routes? /, m => m.toLowerCase()).replace(/^The /, 'the '))})</span>` : ''}.</p>`);
-    if (st) out.push(`<p>On the bus route section through here (${esc(stretchName(st))}), buses are <b>${Math.round(100 * st.slower)}% slower
-        ${hourSpan(st)}</b>: ${st.base} minutes in its quickest hours (usually late night or early morning), ${st.peak} at its slowest.
+    if (st) out.push(`<p>On the bus route section through here (${esc(stretchName(st))}), buses are <b>${Math.round(100 * st.slower) ? `${Math.round(100 * st.slower)}% slower
+        ${hourSpan(st)}` : 'about as quick at every hour'}</b>: ${st.base} minutes in its quickest hours (usually late night or early morning), ${st.peak} at its slowest.
         <button type="button" class="linkbtn" data-traffic="${st.id}">See this bus stretch on the map</button></p>`);
     const by = {};
     (p.vol_history || []).forEach(x => (by[x.s] = by[x.s] || []).push({ y: x.y, v: x.v, k: x.k }));
@@ -5144,7 +5154,9 @@
     // our own taking back of an entry: the page already shows what that entry says (the district may have changed since)
     if (backPending) { backDone(); distToUrl(); return; }
     // Back with the report dialog or the view menu open (a phone): it closes them, nothing else
-    if (resDlg.open || headerEl.classList.contains('menu-open')) { if (resDlg.open) resDlg.close(); if (headerEl.classList.contains('menu-open')) setMenu(false, true); return; }
+    // (only when the entry left was theirs; a real Back with the dialog open on a desktop closes it and goes back as usual)
+    if (overlayPushed && (resDlg.open || headerEl.classList.contains('menu-open'))) { overlayPushed = false; if (resDlg.open) resDlg.close(); if (headerEl.classList.contains('menu-open')) setMenu(false, true); return; }
+    if (resDlg.open) resDlg.close();
     syncToUrl();
   });
   // ---------- desktop overview: the details panel never closes; with nothing picked it shows where to start ----------

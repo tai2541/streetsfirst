@@ -222,7 +222,9 @@ from gtfs_shape_pts where shape_id in (select shape_id from gtfs_trips) group by
 create or replace table loc_bus as
 with shape_trips as (select t.shape_id, r.route_short_name as rt, count(*) as n
                      from gtfs_trips t join gtfs_routes r using (route_id) group by all),
-near as (select distinct p.location, s.shape_id from loc_pts p join gtfs_shape_lines s on ST_Intersects(ST_Buffer(p.geom, p.r), s.geom))
+-- (no bus runs in a tunnel: the routes on the streets above it aren't its own)
+near as (select distinct p.location, s.shape_id from loc_pts p join gtfs_shape_lines s on ST_Intersects(ST_Buffer(p.geom, p.r), s.geom)
+         where not regexp_matches(regexp_replace(p.location, ' BETWEEN .*', ''), '\b(TUNNEL|TUN)\b'))
 select location, sum(n)::int as bus_trips, list_sort(list_distinct(list(rt))) as bus_routes
 from near join shape_trips using (shape_id) group by location;
 
@@ -278,7 +280,7 @@ from bus_stretch;
 create or replace table loc_bus_stretch as
 select p.location, arg_max(s.id, {'l': s.lost_per_mile, 'i': -s.id}) as bus_stretch_id
 from loc_pts p join bus_stretch s on ST_DWithin(p.geom, s.geom, p.r)
-where s.lost_per_mile is not null group by p.location;
+where s.lost_per_mile is not null and not regexp_matches(regexp_replace(p.location, ' BETWEEN .*', ''), '\b(TUNNEL|TUN)\b') group by p.location;
 
 -- ---------------------------------------------------------------- busiest streets (today's count segments)
 -- Each current count segment with its history: the same street's count nearest its middle each year.
