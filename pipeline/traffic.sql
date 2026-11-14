@@ -81,7 +81,7 @@ where f.geometry is not null and f.properties.RemovalDate is null;
 
 -- Points (humps, cushions, radar signs) belong to the street block they're on (SDOT's segment key);
 -- at intersections, anything within 100 ft. Lanes: at an intersection, any passing within its radius; on a block, a lane
--- SDOT records on the block's own segment key, or, for a lane with no key there, pieces running along the block's own
+-- SDOT records on the block's own segment key, or, for a lane with no segment key SDOT's streets have, pieces running along the block's own
 -- street line (each piece within 30 ft of it for at least a quarter of the block, together over half), so a lane on a
 -- cross street that only touches the block's ends never counts, nor its date.
 -- Every match, with its own install date (dates before 1990 are placeholders in SDOT's data). Kept for the history view.
@@ -107,7 +107,9 @@ select location, kind, case when d >= date '1990-01-01' then d end as d, status 
       select s.location, fl.kind, fl.d, fl.status, ST_Length(s.geom) as len,
              ST_Length(ST_Intersection(s.geom, ST_Buffer(fl.geom, 30))) as piece
       from loc_shape s join fix_lines fl on ST_DWithin(s.geom, fl.geom, 30) where s.r = 40
-        -- (a kind already found on the block's own key is taken from there)
+        -- (a kind already found on the block's own key is taken from there; a lane SDOT keys to another segment is that
+        -- segment's: nearly always the cross street, or the next block)
+        and (fl.segkey is null or fl.segkey not in (select compkey from streets))
         and not exists (select 1 from streets k join fix_lines f2 on f2.segkey = k.compkey where k.loc_name = s.location and f2.kind = fl.kind))
     where piece >= 0.25 * greatest(len, 1))
   where along > 0.5 * greatest(len, 1)

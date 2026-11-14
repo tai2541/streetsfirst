@@ -82,6 +82,8 @@
   function nicePart0(u) {
     let t = ' ' + u.replace(/ - |-(?=[A-Z])/g, '–') + ' ';
     t = t.replace(/([ –])(W SEA BR?|WSB|W SEATTLE BR) /g, '$1WEST SEATTLE BR ')
+      // the Alaskan Way Viaduct came down in 2019: its ramps' names now lead to SR 99 (SDOT's spelling stays on the place's page)
+      .replace(/ ALASKAN WY VI /g, ' SR 99 ')
       .replace(/ AV /g, ' AVE ').replace(/ AV /g, ' AVE ').replace(/ VI /g, ' VIADUCT ').replace(/ BV /g, ' BLVD ')
       .replace(/ (\d+) (AVE|ST|PL) /g, (m, n, k) => ` ${ord(n)} ${k} `)
       .replace(/ SR ?(\d+)/g, ' SR $1').replace(/ I ?(5|90|405) /g, ' I-$1 ')
@@ -108,10 +110,17 @@
   let plainNames = null;
   const plainOf = s => { if (!plainNames) { const pn = (meta && meta.plain_names) || {}; plainNames = { parts: pn.parts || {}, keep: new Set(pn.keep || []) }; }
     return plainNames.keep.has(s) ? null : plainNames.parts; };
+  // A name that keeps a roadway code (it would match another without it) says the roadway in words instead:
+  // "S GENESEE S ST" -> "S Genesee St (south roadway)". The same pattern the build reads (addresses.sql, plain_parts).
+  const ROADWAY = { WR: 'west', ER: 'east', NR: 'north', SR: 'south', W: 'west', E: 'east', N: 'north', S: 'south' };
+  const roadwayRe = /^(\S.*) (WR|ER|NR|SR|N|S|E|W) (ST|AVE|AV|WAY|WY|PL|DR|RD|BLVD|CT|LN|TER|PKWY|CIR|LOOP)( (?:N|S|E|W|NE|NW|SE|SW))?$/;
+  const roadwayPart = u => { const r = u.trim().match(roadwayRe); return r ? nicePart0(`${r[1]} ${r[3]}${r[4] || ''}`) + ` (${ROADWAY[r[2]]} roadway)` : nicePart0(u); };
   // the name as SDOT writes it, when the page shows it differently (else '')
-  const sdotSpelling = s => { const m = plainOf(s); return m && s.split(/ BETWEEN | AND /).some(u => Object.hasOwn(m, u.trim())) ? s : ''; };
+  const sdotSpelling = s => { const m = plainOf(s) || {};
+    return s.split(/ BETWEEN | AND /).map(u => u.trim()).some(u => Object.hasOwn(m, u) || roadwayRe.test(u) || / ?ALASKAN WY VI /.test(` ${u} `)) ? s : ''; };
   function niceName(s) {
-    const m = plainOf(s) || {}, nicePart = u => nicePart0(Object.hasOwn(m, u.trim()) ? m[u.trim()] : u);
+    const m = plainOf(s) || {};
+    const nicePart = u => Object.hasOwn(m, u.trim()) ? nicePart0(m[u.trim()]) : roadwayPart(u);
     const b = s.split(' BETWEEN ');
     if (b.length === 2) {
       const main = nicePart(b[0]);
@@ -264,7 +273,7 @@
     if (p.proj_planned) return `${who}'s published plans include work here. What will it change for the crashes recorded here, and when?`;
     // a budget line named for the street (shown on the same page): ask whether it reaches this place
     const c0 = (p.cip || [])[0];
-    if (c0) return `${who}'s budget has “${cipExpand(c0.t)}” (${c0.y0 === c0.y1 ? c0.y0 : c0.y0 + '–' + c0.y1}), named for this street. Will it reach this ${p.addr_type === 'B' ? 'block' : 'place'}, and what will it change for the crashes here?`;
+    if (c0) return `${who}'s budget has “${cipExpand(c0.t)}” (${c0.y0 === c0.y1 ? c0.y0 : c0.y0 + '–' + c0.y1}), named for ${c0.s ? esc(niceName(c0.s)) : 'this street'}. Will it reach this ${p.addr_type === 'B' ? 'block' : 'place'}, and what will it change for the crashes here?`;
     if (p.addr_type === 'B' && p.ksi >= 2) {
       const w = workSummary(p);
       return `From ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}, ${plural(p.ksi, 'crash', 'crashes')} on this block killed or seriously hurt someone.${w.cls === 'done' ? '' : ` ${who}'s data shows no safety change along the block itself since ${monthYear(meta.window_from)}${w.busNew ? ` (other than a bus lane in ${w.busNew})` : ''}.`} Is this block part of a corridor safety project, and what would it change here?`;
@@ -317,7 +326,7 @@
 
   // ---------- ranking modes ----------
   const MODES = {
-    ksi: { label: 'Most likely to hurt people', short: `Where people are likeliest to be killed or seriously hurt next, from ${WY} years of crashes. Harm score: higher means more likely; ▲ ▼: moved since last month.`, hint: `The places with the highest expected harm: an estimate, from ${WY} years of every crash (not only the worst), of where people are likeliest to be killed or seriously hurt next. The score adds up every crash here, weighted by how badly people were hurt; the list is rebuilt every week (late crash reports can move it), and ▲ and ▼ show places that moved since last month's list. Start here.`, unit: 'score' },
+    ksi: { label: 'Most likely to hurt people', short: `Where people are likeliest to be killed or seriously hurt next, from ${WY} years of crashes. Harm score: higher means more likely; ▲ ▼: moved since last month.`, hint: `The places with the highest expected harm: an estimate, from ${WY} years of every crash (not only the worst), of where people are likeliest to be killed or seriously hurt next. The score adds up every crash here, weighted by how badly people were hurt; the list is rebuilt every week (late crash reports can move it), and ▲ and ▼ show places that moved since last month's list. Scores close together can't be told apart, so read it in groups (the top ${TOP}), not as an exact order. Start here.`, unit: 'score' },
     risk: { label: 'Most dangerous for how busy it is', short: 'Crash harm for every million vehicles that pass through. Often quieter streets.', hint: '', unit: 'per million vehicles' }
   };
   let mode = (() => { try { return JSON.parse(localStorage.getItem('ipm.mode')) || 'ksi'; } catch { return 'ksi'; } })();
@@ -420,16 +429,23 @@
           ? `head-start walk signal planned${plannedFor(p.lpi_planned)}` : p.lpi_status === 'Not Feasible'
           ? 'SDOT assessed a head-start walk signal as not feasible here' : 'no head-start walk signal'} (SDOT data)`);
       if (p.signalized && p.angle_crashes >= 10 && p.angle_crashes / (p.typed_crashes || n) >= 0.4)
-        out.push(`${p.angle_crashes} of ${p.typed_crashes || n} crashes with a recorded type were vehicles hitting each other at an angle (from the side) at this signal, a pattern often reviewed with signal visibility and timing (SDOT data)`);
+        out.push(`${p.angle_crashes} of ${p.typed_crashes || n} crashes with a recorded type were vehicles hitting each other at an angle (from the side) at this signal (SDOT data)`);
       if (!p.signalized && p.angle_crashes >= 5)
         out.push(`${p.angle_crashes} angle crashes at a corner with no traffic signal (SDOT data)`);
     } else {
-      if (p.ped_crashes >= 3) out.push(`${p.ped_crashes} crashes with people walking, away from the corners: crossings, lighting and speed worth a look`);
+      if (p.ped_crashes >= 3) out.push(`${p.ped_crashes} crashes with people walking, away from the corners (SDOT data)`);
       if (manyLeft) out.push(`${lt} left-turn crashes along this stretch, often at driveways or mid-block turns`);
     }
     return out;
   }
 
+  // 2010, 2011, 2014, 2023, 2024 -> "2010–2011, 2014 and 2023–2024"
+  function yearRuns(ys) {
+    const r = [];
+    [...ys].map(Number).sort((a, b) => a - b).forEach(y => { const l = r[r.length - 1]; if (l && y === l[1] + 1) l[1] = y; else r.push([y, y]); });
+    const t = r.map(([a, b]) => a === b ? String(a) : a + '–' + b);
+    return t.length > 1 ? t.slice(0, -1).join(', ') + ' and ' + t[t.length - 1] : t[0] || '';
+  }
   // Already treated or listed by SDOT, and still hurting people.
   function stillDangerous(p) {
     const laterNtor = p.ntor_status === 'Existing' && p.ntor_installed && p.lpi_installed && p.ntor_installed > p.lpi_installed;
@@ -445,8 +461,9 @@
     }
     const hy = p.sdot_hcl_years || [], first = hy[0], last = hy[hy.length - 1];
     if (first && first <= +meta.window_from.slice(0, 4) && p.ksi_after_hcl >= 2)
-      return { short: `First on SDOT's High Collision list in ${first}${hy.length > 1 ? ` (listed ${hy.length} times, most recently ${last})` : ''}; ${plural(p.ksi_after_hcl, 'crash', 'crashes')} that killed or seriously hurt someone ${windowTxt()}`,
-        long: `SDOT's High Collision Locations list flags places for engineering review; it isn't a list of planned projects. First listed here in ${first}; ${p.ksi_after_hcl} crashes killed or seriously injured someone in the scored years.` };
+      // every year listed (runs of years joined), so a place off the list for years isn't read as listed all along
+      return { short: `On SDOT's High Collision list (it flags places for engineering review) in ${yearRuns(hy)}; ${plural(p.ksi_after_hcl, 'crash', 'crashes')} that killed or seriously hurt someone ${windowTxt()}`,
+        long: `SDOT's High Collision Locations list flags places for engineering review; it isn't a list of planned projects. Listed here in ${yearRuns(hy)}; ${p.ksi_after_hcl} crashes killed or seriously injured someone in the scored years.` };
     return null;
   }
 
@@ -523,7 +540,7 @@
     if (planned.length) parts.push(`Planned here or nearby: ${planned.join(', ')}`);
     const endsP = endPlanned(p);
     if (endsP.length) parts.push(`Planned at the corners at its ends (not counted as this block's own work): ${endsP.map(e => `at ${niceName(e.at)}: ${e.ks.join(', ')}`).join('; ')}`);
-    if (cip.length) parts.push(`Money budgeted ${cip[0].y0 === cip[0].y1 ? 'in ' + cip[0].y0 : cip[0].y0 + '–' + cip[0].y1} for a project named for this street, “${cip[0].t}” (it may not reach this spot)`);
+    if (cip.length) parts.push(`Money budgeted ${cip[0].y0 === cip[0].y1 ? 'in ' + cip[0].y0 : cip[0].y0 + '–' + cip[0].y1} for a project named for ${cip[0].s ? esc(niceName(cip[0].s)) : 'this street'}, “${cip[0].t}” (it may not reach this spot)`);
     if (older.length) parts.push(`${recent.length ? 'Earlier' : 'Older work only'}: ${list(older)}`);
     const busNew = bus.filter(f => sinceWin(f.d));
     if (busNew.length) parts.push(`Bus lane (${when(busNew[0])}; SDOT's data doesn't list other changes made with it)`);
@@ -592,6 +609,7 @@
   // On a phone the credits fold into a small (i) button: open in full when the page loads, folded at the first touch
   // of the map (or after 8 seconds), and a tap on the button opens or folds them (links inside still work as links).
   // (The button sits next to Leaflet's credits box, not inside it: Leaflet rewrites the box when the base map changes.)
+  let foldCredits = () => {};   // also folded when a place opens over the map (a link straight to it never touches the map)
   { const at = map.attributionControl && map.attributionControl.getContainer();
     if (at) {
       at.id = 'mapCredits';
@@ -602,6 +620,7 @@
       show(true);
       // the first fold is automatic (first touch of the map, or 8 seconds); after that only the button opens or folds them
       const timer = setTimeout(() => show(false), 8000);
+      foldCredits = () => { clearTimeout(timer); show(false); };
       map.getContainer().addEventListener('pointerdown', e => {
         if (!at.contains(e.target) && e.target !== btn) { clearTimeout(timer); show(false); }
       }, { once: true });
@@ -1252,6 +1271,7 @@
   // The details just opened (or changed place). Called before the map moves, so `cover` is already the new height.
   function phoneDetailShown(wasHidden) {
     if (!isNarrow()) return;
+    foldCredits();
     const d = S.detail, leaving = detailEl.classList.contains('leaving');
     if (wasHidden || leaving) {
       const tap = Date.now() - lastTap.t < 2000 ? lastTap.where : 'map';
@@ -1976,7 +1996,7 @@
     if (from !== undefined && !keepFocus) opener = from;
     if (from !== undefined && !keepFocus && from !== document.getElementById('tabbtn-progress')) progReturn = null;
     current = p;
-    if (location.hash !== '#p=' + keyOf(p.location)) pushEntry({ sfPlace: 1, prev: location.hash }, '#p=' + keyOf(p.location));
+    shownHash = '#p=' + keyOf(p.location); pushEntry({ sfPlace: 1 }, shownHash);
     markCurrent();
     const li = document.querySelector(`#list li[data-id="${p.rank_ksi}"]`);
     // (desktop only: on a phone the list is either hidden under the details or already showing the card; scrolling it
@@ -2210,7 +2230,7 @@
     rememberView();
     current = { rank_ksi: s.rank, rank: null, lat: s.lat, lon: s.lon };
     if (!opener) opener = document.getElementById('search');
-    if (location.hash !== '#p=' + keyOf(s.name)) pushEntry({ sfPlace: 1, prev: location.hash }, '#p=' + keyOf(s.name));
+    shownHash = '#p=' + keyOf(s.name); pushEntry({ sfPlace: 1 }, shownHash);
     markCurrent();
     document.getElementById('detailTitle').innerHTML = `<span class="drank" title="${esc(rankTxt(s.rank))}">${rankTxt(s.rank, false)}</span> ${esc(niceName(s.name))}`;
     docTitle(niceName(s.name));
@@ -2241,23 +2261,30 @@
   let placeTitle = '';
   const docTitle = t => { if (t) placeTitle = t; const sh = openSheet(), suf = ' · Streets First Seattle';
     document.title = t ? t + suf : sh ? sh.querySelector('h2').textContent.trim() + suf : spotOpen() && placeTitle ? placeTitle + suf : BASE_TITLE; };
-  let skipHash = false;   // the next hashchange is our own history.back(): nothing to do
-  // Browser history. Opening a sheet, a bus or sidewalk view (phone) or a place adds an entry, so Back closes it. Closing
-  // one with a button takes its entry back, but only after this step: if something else opens in the same step (a sheet
-  // to the bus list, a place back to "Is it getting fixed?"), it takes over that entry instead. Going back right away
-  // raced with the next entry being added (a Back press that did nothing, or one that left the site with a sheet open).
-  let pendingBack = null, navIgnore = false, hashIgnoreUntil = 0, inNav = false;
-  function dropEntry(url) {
-    history.replaceState(history.state, '', url);
-    if (pendingBack || inNav) return;   // (during a Back press the browser has already moved: nothing to take back)
-    pendingBack = setTimeout(() => { pendingBack = null; navIgnore = true; history.back(); }, 0);
-  }
+  // Browser history, one rule each way:
+  //  - Opening a sheet, a bus or sidewalk view (phones), a place, a line or a found address adds an entry (pushEntry),
+  //    which remembers the address it was opened from.
+  //  - Back and Forward make the page match the address they land on (syncToUrl); they never add or change entries.
+  //  - A close button takes back the entry only when this page added it on top of what is showing again (closeEntry);
+  //    otherwise it just takes the closed thing out of the address. Whatever opens while that Back is on its way waits
+  //    for it (whenSettled), so it is added on top of the right entry.
+  let syncing = false, backPending = false, backQ = [], backTimer = null, shownHash = '';
+  const here = url => new URL(url, location.href).href;
+  function whenSettled(fn) { if (syncing) return; if (backPending) backQ.push(fn); else fn(); }
+  function backDone() { clearTimeout(backTimer); backPending = false; const q = backQ; backQ = []; q.forEach(f => f()); }
   function pushEntry(state, url) {
-    // (while handling a Back press, what reopens takes the entry the browser landed on: pushing would cut off Forward
-    // and leave a copy behind for a Back press that does nothing)
-    if (inNav) history.replaceState(state, '', url);
-    else if (pendingBack) { clearTimeout(pendingBack); pendingBack = null; history.replaceState(state, '', url); }
-    else history.pushState(state, '', url);
+    whenSettled(() => {
+      if (here(url) === location.href && !state.sfPin) return;
+      history.pushState({ ...state, sf: 1, prev: location.hash }, '', url);
+    });
+  }
+  // ours(state): the entry showing is this kind, added by this page on top of what shows once it's closed
+  function closeEntry(ours, url) {
+    whenSettled(() => {
+      const st = history.state;
+      if (st && st.sf && ours(st)) { backPending = true; backTimer = setTimeout(backDone, 1000); history.back(); }
+      else if (here(url) !== location.href) history.replaceState(null, '', url);
+    });
   }
   function closeDetail(restoreFocus) {
     mainEl.classList.remove('split'); clearFocus();
@@ -2275,8 +2302,11 @@
     // or it would close the sheet again)
     // (also when it was opened from a bus or sidewalk view's own link: going back returns to it, with no second copy left
     // behind for a Back press that does nothing)
-    if (location.hash && history.state && history.state.sfPlace && isViewHash(history.state.prev || '')) dropEntry(location.pathname + location.search + (history.state.prev || ''));
-    else { history.replaceState(history.state && (history.state.sfView || history.state.sfSheet) ? history.state : null, '', location.pathname + location.search); viewToUrl(); }   // (the bus or sidewalk view showing keeps its link)
+    // (a place opened from "Is it getting fixed?" goes back to its entry; one opened from another place leaves that
+    // place's entry for Back, with this one's address cleared)
+    const toProg = !!progReturn; shownHash = '';
+    closeEntry(st => st.sfPlace && (isViewHash(st.prev) || (toProg && /^#progress/i.test(st.prev))), location.pathname + location.search);
+    viewToUrl();   // (the bus or sidewalk view showing keeps its link)
     liteToken++; docTitle(null);
     if (restoreFocus && progReturn) { const n = progReturn; progReturn = null; opener = null; homeFocus = null; returnToProgress(n); return; }
     const hc = homeFocus != null && document.querySelector(`#detailBody [data-home="${homeFocus}"]`); homeFocus = null;
@@ -2290,7 +2320,7 @@
   document.getElementById('closeDetail').onclick = () => {
     if (!spotOpen() && placeG && detailEl.classList.contains('place')) { const pm = pinMarkerOf(placeG); if (pm) deselectPin(placeG, pm); else hidePlace(placeG);
       // a found address or school added a history entry: take it back, so the next Back press isn't a dead one
-      if (pinBack && history.state && history.state.sfPin) { pinBack = false; history.back(); } }
+      if (pinBack) { pinBack = false; closeEntry(st => st.sfPin, location.href); } }
     else closeDetail(true);
   };
   // picking a district (or going back to all of Seattle) frames its places
@@ -2480,7 +2510,7 @@
     if (!searchIdx.some(s => words.every(w => s.key.includes(w)))) {
       const fw = words.map(w => w.length < 4 || searchIdx.some(s => s.key.includes(w)) ? w : (nameWords().find(v => oneOff(w, v)) || w));
       if (fw.join(' ') !== words.join(' ') && searchIdx.some(s => fw.every(w => s.key.includes(w)))) {         // said in the words typed, with only the corrected word swapped ("mlk and rainier", not the index's "m l king rainier")
-        fixedTo = words.reduce((t, w, i) => fw[i] === w ? t : t.replace(new RegExp(`\\b${w.replace(/[^a-z0-9]/g, '')}\\b`, 'i'), m => m === m.toUpperCase() ? fw[i].toUpperCase() : /^[A-Z]/.test(m) ? fw[i][0].toUpperCase() + fw[i].slice(1) : fw[i]), sInput.value.trim());   // (in the case typed)
+        fixedTo = words.reduce((t, w, i) => fw[i] === w ? t : t.replace(new RegExp(`\\b${w.replace(/[^a-z0-9]/g, '')}\\b`, 'i'), m => m === m.toUpperCase() ? fw[i].toUpperCase() : /^[A-Z]/.test(m) ? (fw[i][0].toUpperCase() + fw[i].slice(1)).replace(/^Mc([a-z])/, (x, c) => 'Mc' + c.toUpperCase()) : fw[i]), sInput.value.trim());   // (in the case typed)
         words = fw; }
     }
     // Index is in rank order. Places whose street names hold every word come before neighborhood-only matches.
@@ -2791,7 +2821,7 @@
   function showAddress(g) {
     // On a phone the list sheet would cover the pin: drop it to its smallest height and put the keyboard away first.
     if (isNarrow()) { sInput.blur(); setSnap(S.list, 'peek', { instant: true }); }
-    if (!(history.state && history.state.sfPin)) { pushEntry({ sfPin: 1 }, location.href); pinBack = true; }
+    if (!pinBack) { pushEntry({ sfPin: 1 }, location.href); pinBack = true; }
     const same = samePin(g);
     if (same) { clearPreview(); openPin(same, true); return; }
     clearPreview();
@@ -3007,20 +3037,21 @@
     el.querySelector('h2').focus({ preventScroll: true });
     const h = SHEET_HASH[el.dataset.tab];
     // opened over the map: an entry of its own, so the phone's Back closes it instead of leaving the site
-    if (h && !location.hash.startsWith(h)) {
-      if (!cur && !(history.state && history.state.sfSheet)) pushEntry({ sfSheet: 1 }, location.pathname + location.search + h);
-      else history.replaceState(history.state, '', location.pathname + location.search + h);
-    }
+    if (h) whenSettled(() => {
+      if (location.hash.startsWith(h)) return;
+      if (!cur && !isSheetHash(location.hash)) pushEntry({ sfSheet: 1 }, location.pathname + location.search + h);
+      else history.replaceState(history.state, '', location.pathname + location.search + h);   // sheet to sheet
+    });
     docTitle(null);
   }
+  const isSheetHash = h => /^#(progress|budget|method)/i.test(h || '');
   const SHEET_HASH = { progress: '#progress', spending: '#budget', about: '#method' };
-  function hideSheets() {
+  // quiet: something opened from the sheet goes on top of its entry, so Back returns to the sheet
+  function hideSheets(quiet) {
     const cur = openSheet();
     if (!cur) return;
     cur.classList.remove('open'); document.body.classList.remove('sheet-open');
-    // closed with a button: take back the entry it added (the hashchange that follows has nothing left to do)
-    if (history.state && history.state.sfSheet) dropEntry(location.pathname + location.search);
-    else if (Object.values(SHEET_HASH).some(h => location.hash.startsWith(h))) history.replaceState(history.state, '', location.pathname + location.search);
+    if (!quiet) whenSettled(() => { if (isSheetHash(location.hash)) closeEntry(st => st.sfSheet || st.sfLink, location.pathname + location.search); });
     docTitle(null);
     [panelEl, detailEl, document.getElementById('map')].forEach(x => (x.inert = false));
     setTimeout(() => { if (!cur.classList.contains('open')) cur.hidden = true; }, reduceMotion ? 0 : 360);
@@ -3073,7 +3104,8 @@
   // lines (#b=, #s=) keep their own links.
   const VIEW_HASH = { bus: '#buses', busy: '#traffic', missing: '#sidewalks', poor: '#sidewalks=poor' };
   const isViewHash = h => !h || Object.values(VIEW_HASH).includes(h);
-  function viewToUrl() {
+  function viewToUrl() { whenSettled(viewToUrlNow); }
+  function viewToUrlNow() {
     if (!isViewHash(location.hash)) return;
     const t = lastTab && lastTab.dataset.tab, m = t === 'traffic' ? document.getElementById('tmode').value : t === 'walk' ? document.getElementById('smode').value : '';
     const h = VIEW_HASH[m] || '';
@@ -3081,16 +3113,15 @@
     // on a phone, a view picked from the menu gets an entry of its own, so Back returns to the crash list instead of
     // leaving the site (and going back to the crash list with a button takes that entry back)
     if (isNarrow() && h && !location.hash && !(history.state && history.state.sfView)) pushEntry({ sfView: 1 }, location.pathname + location.search + h);
-    else if (!h && history.state && history.state.sfView) dropEntry(location.pathname + location.search);
-    else if (pendingBack && h) pushEntry({ sfView: 1 }, location.pathname + location.search + h);   // (a sheet's entry, taken over)
+    else if (!h && history.state && history.state.sfView) closeEntry(() => true, location.pathname + location.search);
     else history.replaceState(history.state, '', location.pathname + location.search + h);
   }
-  function showTab(b) {
+  function showTab(b, quiet) {
     setTabState(b);
     if (isNarrow() && b.scrollIntoView) b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     const sh = sheets.find(x => x.dataset.tab === b.dataset.tab);
     if (sh) { if (sh.dataset.tab === 'progress') progressSync(); showSheet(sh); return; }
-    hideSheets(); lastTab = b;
+    hideSheets(quiet); lastTab = b;
     document.querySelectorAll('#panel .tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
     panelBanner();
     setLineView(b.dataset.tab === 'traffic' ? 'traffic' : b.dataset.tab === 'walk' ? 'walk' : null);
@@ -3501,7 +3532,7 @@
     document.getElementById('detailBody').innerHTML = M.detail(s);
     const lh = lineHash(V().modeEl.value, s);
     if (lh) {
-      if (location.hash !== lh) pushEntry({ sfPlace: 1, prev: location.hash }, lh);
+      shownHash = lh; pushEntry({ sfPlace: 1 }, lh);
       const w = document.querySelector('#detailBody .dhead .where');
       if (w) w.insertAdjacentHTML('beforeend', ` · <button type="button" class="linkbtn" id="copyLink">${canShare() ? 'Share' : 'Copy link'}</button>`);
     }
@@ -3711,11 +3742,11 @@
           the 3rd ${(k * g * g).toFixed(1)} (each × ${g} the last). This extra weight then goes through step 3 like all fatal/serious
           harm: at a spot with few crashes, most of it is replaced by the typical rate. That's why places where ${DEATHS} or more people
           died are also listed separately, whatever their rank.</li>
-        <li><b>Expected harm.</b> With only a few crashes, a spot's record can make it look much more or much less dangerous than it really is. So its fatal/serious harm is blended
+        <li><b>Expected harm.</b> With only a few crashes, a spot's share of crashes that killed or seriously hurt someone can make it look much more or much less dangerous than it really is. So its fatal/serious harm is blended
           with the typical rate for similar spots (same kind of location and street class), weighted by its crash count:
           own record × crashes ÷ (crashes + ${A}) + typical rate × ${A} ÷ (crashes + ${A}). A spot with 5 crashes leans ${Math.round(100 * A / (5 + A))}% on the typical
           rate; one with 60 leans ${Math.round(100 * 60 / (60 + A))}% on its own record. Every crash, even a fender-bender,
-          is evidence of how much conflict happens there. (This is similar to methods traffic engineers use, applied only to the share of crashes that kill or seriously hurt.)${bmax > 0 ? '' : ' The result is the "harm score" shown on the list and on each place.'}</li>
+          is evidence of how much conflict happens there. (This borrows the idea of empirical Bayes that traffic engineers use, in a simpler form: it blends only the share of crashes that kill or seriously hurt, not the number of crashes, and ${A} is a chosen number, not estimated from the data. The Highway Safety Manual's method blends a place's crash count with a model of similar places.)${bmax > 0 ? '' : ' The result is the "harm score" shown on the list and on each place.'}</li>
         ${bmax > 0 ? `<li><b>Repair boost.</b> Safety-related requests (${scored.map(r => esc(r.type)).join(', ')}) within
           ${ft(weight('request_radius_m'))} ft since ${monthYear(meta.requests_scored_from)} raise the score by up to
           +${Math.round(100 * bmax)}% (half that at ${bhalf} request points). Duplicate reports of the same thing in the same
@@ -3724,7 +3755,9 @@
         : `<li><b>Repair requests don't change the score.</b> Requests to the City within ${ft(weight('request_radius_m'))} ft are listed on each
           place's page, but how often people report a problem depends on who lives and travels there as much as on how dangerous
           the street is, so the ranking uses crashes only.</li>`}
-      </ol>`;
+      </ol>
+      <p class="note">Scores close together can't be told apart: a few crashes more or fewer would reorder them. Read the list in
+        groups (the top ${TOP}, the top ${LIST}), not as an exact order; a move of a few places since last month is mostly late reports and chance.</p>`;
     const risk = `
       <h3>Most dangerous for how busy it is</h3>
       <p>Expected harm per million vehicles over the ${WY} years: vehicles entering an intersection (the streets' weekday counts
@@ -3767,13 +3800,22 @@
           // Said from the numbers in the table, whichever way they fall.
           const pairs = [[`top ${TOP}`, [ex2.k50, two && ex2.b50], [cc.k50, two && cc.b50]], [`top ${LIST}`, [ex2.k200, two && ex2.b200], [cc.k200, two && cc.b200]]];
           const both = a => a.filter(x => x !== false && x != null).map(fmt).join(' and ');
-          const verdict = (a, b) => { const d = a.filter(x => x !== false && x != null).map((x, i) => x - b[i]);
-            // the two lists share most of their places, so only gaps over a tenth (and over 2) are called more or fewer
-            const small = d.some((x, i) => Math.abs(x) <= Math.max(2, 0.1 * b[i]));
-            return small ? 'about the same number' : d.every(x => x > 0) ? 'more' : d.every(x => x < 0) ? 'fewer' : 'about the same number'; };
-          return 'Against simply counting crashes, this site\'s ranking caught ' + pairs.map(([n, a, b]) =>
-            `${verdict(a, b)} in the ${n} (${both(a)}, against ${both(b)})`).join(', and ') +
-            `. The differences are a few crashes out of ${fmt(meta.test_ksi_total)}${two ? ' and ' + fmt(meta.test2_ksi_total) : ''}, and Test 1 was also used to choose the method, so read the ranking as a guide that does about as well as counting crashes, not a precise forecast.` +
+          // The two lists share most of their places, so they're compared on the places they don't share (build.sql,
+          // val_overlap): one is called better only when, in every test, the crashes caught by it alone outnumber the
+          // other's beyond chance (a two-sided sign test, p < 0.05).
+          const ov = meta.val_overlap || [];
+          const signP = (x, y) => { const n = x + y, k = Math.min(x, y); if (!n) return 1; let c = 1, s = 0;
+            for (let i = 0; i <= k; i++) { s += c; c = c * (n - i) / (i + 1); } return Math.min(1, 2 * s / Math.pow(2, n)); };
+          const verdict = n => { const rows = ov.filter(o => o.n === n && (two || o.test === 1));
+            if (!rows.length) return 'about the same number';
+            const sig = rows.map(o => signP(o.a_only, o.b_only) < 0.05 ? Math.sign(o.a_only - o.b_only) : 0);
+            return sig.every(s => s > 0) ? 'more' : sig.every(s => s < 0) ? 'fewer' : 'about the same number'; };
+          const sh = n => { const r = ov.filter(o => o.n === n && (two || o.test === 1)); return r.length ? `; the lists share ${r.map(o => fmt(o.shared)).join(' and ')} of their ${n} places` : ''; };
+          const sizes = [TOP, LIST];
+          const vv = sizes.map(verdict), same = vv.every(v => v === 'about the same number');
+          return 'Against simply counting crashes, this site\'s ranking caught ' + pairs.map(([n, a, b], i) =>
+            `${vv[i]} in the ${n} (${both(a)}, against ${both(b)}${sh(sizes[i])})`).join(', and ') +
+            `. ${same ? 'The gaps come from the places only one list has, and they\'re within chance. ' : ''}Test 1 was also used to choose the method, so read the ranking as a guide${same ? ' that does about as well as counting crashes' : ''}, not a precise forecast.` +
             (meta.unknown_from && meta.unknown_recent && meta.unknown_recent.n ? ` Test 1's later years include ${fmt(meta.unknown_recent.n)} crash reports from ${monthYear(meta.unknown_from)} on that don't list a severity.` : '');
         })()}</p>
       ${V.expected_split && V.expected ? `<p class="note">Intersections and stretches are ranked together in one list, so the top of the list
@@ -3781,8 +3823,9 @@
         Locations, and this site's rule until November 2026) caught ${one.k50}${two ? ' and ' + one.b50 : ''} in the top ${TOP}, against
         ${ex2.k50}${two ? ' and ' + ex2.b50 : ''} for one list, and ${one.k200}${two ? ' and ' + one.b200 : ''} in the top ${LIST}, against
         ${ex2.k200}${two ? ' and ' + ex2.b200 : ''}. Use "Show" to see intersections or stretches on their own, ranked again within that kind.</p>` : ''}
-      <p class="note">Test 1 was also used to choose the method, so it flatters it a little${two ? '; Test 2 was added afterwards as a check' : ''}. Spots that rank high after a bad few years usually improve somewhat on their own (regression to
-        the mean): the blending evens out the fatal/serious share where numbers are small, but not the crash count itself.</p>`;
+      <p class="note">Test 1 was also used to choose the method, so it flatters it a little${two ? '; Test 2 was added afterwards as a check' : ''}. ${(r => r && r.top_before && r.city_before
+          ? `In Test 1, the top ${TOP}'s fatal and serious crashes fell from ${fmt(r.top_before)} a year to ${fmt(r.top_after)} (down ${Math.round(100 * (1 - r.top_after / r.top_before))}%), while the city's fell ${Math.round(100 * (1 - r.city_after / r.city_before))}%. A high rank partly fades on its own (regression to the mean), so the top places can be expected to have fewer crashes next period even with no fix`
+          : 'Spots that rank high after a bad few years partly improve on their own (regression to the mean)')(meta.val_rtm)}: the blending evens out the fatal/serious share where numbers are small, but not the crash count itself.</p>`;
     // Other points per crash (made in build.sql): how many of this week's top places stay, and Test 1's later crashes caught.
     const wts = meta.weight_tests || [], wSite = wts.find(x => x.set === 'site');
     const wName = { site: 'This site', ksi_half: 'Fatal/serious weighed half as much', ksi_double: 'Fatal/serious weighed twice as much',
@@ -3796,7 +3839,7 @@
       return `
       <h3>Other weights</h3>
       <p>The same ranking redone with other points per crash (killed or seriously injured / other injury / property damage
-        only, × for walking or biking). <b>Stay</b>: how many of this week's top ${TOP} are also in that version's top ${TOP}.
+        only, × for walking or biking); the blending number (${A}) stays the same here, though it moves the list too. <b>Stay</b>: how many of this week's top ${TOP} are also in that version's top ${TOP}.
         <b>Caught</b>: fatal and serious crashes in that version's top ${TOP} in Test 1 above.</p>
       <table class="vtable"><thead><tr><th scope="col">Weights</th><th scope="col">Points</th><th scope="col">Stay</th><th scope="col">Caught</th></tr></thead><tbody>
         ${wts.map(x => `<tr class="${x === wSite ? 'total' : ''}"><td>${wName[x.set] || esc(x.set)}</td><td>${wPts(x)}</td><td>${fmt(x.stay)}</td><td>${fmt(x.k50)}</td></tr>`).join('')}
@@ -3874,7 +3917,7 @@
         ${stateRoutes() ? `Places WSDOT runs (freeways, ramps, the tunnel and state bridges, on parts of ${stateRoutes()}, from WSDOT's own data) are marked and counted apart. Where a state highway runs on a city street${cityHwys() ? `, as parts of ${cityHwys()} do,` : ''} the City runs it and it's counted as a city street.` : ''}</p>
       <p class="note"><b>Crash patterns with a known fix</b> (blue dashed tags): left-turn crashes at a signal with no protected
         left-turn arrow; people walking hit by turning drivers where there's no head-start walk signal (right turns count even where
-        no turn on red is in place: it only stops turns on a red light, and crash reports don't say what color the light was); many angle crashes at a signal (a pattern often reviewed with signal visibility and timing) or at a corner with no signal;
+        no turn on red is in place: it only stops turns on a red light, and crash reports don't say what color the light was); many angle crashes at a signal or at a corner with no signal;
         and, along a stretch, crashes with people walking away from the corners or many left-turn crashes, all according to SDOT's
         signal and Vision Zero data. They put a pattern next to a common fix; whether that
         fix suits the place is an engineering call.</p>
@@ -3921,8 +3964,7 @@
         <li>None of this changes the crash ranking.</li>
       </ul>
       <h3>Driver behavior</h3>
-      <p class="note">Crashes involving speeding stay in the score. Repeated speeding at one spot usually points to road design
-        (wide, straight streets invite speed), so it's flagged as context${speedEx() ? ` (for example "${esc(speedEx())}" at the highest-ranked place where it shows)` : ''} rather than excluded.</p>
+      <p class="note">Crashes the officer noted as speed-related stay in the score, and are shown on each place as context${speedEx() ? ` (for example "${esc(speedEx())}" at the highest-ranked place where it shows)` : ''} rather than excluded.</p>
       <h3>Known limits</h3>
       <ul>
         <li>SDOT also treats risk factors citywide, such as lower speed limits on arterials and head-start walk signals at many signals
@@ -3946,8 +3988,7 @@
         <li>Only places with a reported crash are scored. A street can be dangerous before anyone is hurt (wide, fast, no crossings).</li>
         <li>SDOT names each side of a divided street separately ${meta.merge_example ? ` (for example at ${esc(niceName(meta.merge_example))})` : ''}; those
           are merged into one place when they're within about ${cfg('merge_ft')} ft. Probable duplicate reports are counted once.</li>
-        <li>Longer blocks collect more crashes. Each block shows its length; the score isn't adjusted because doing so made
-          predictions worse in the test above.</li>
+        <li>Longer blocks collect more crashes. The score is per place, not per foot, so a long block ranks higher partly for its length; each block shows its length.</li>
         <li>Requests are counted within ${ft(weight('request_radius_m'))} ft of a point, which covers more of an intersection than of a long block.</li>
         <li>Traffic counts cover arterials only, and some are old or estimated.</li>
         <li>Find It Fix It status is often not updated (${reportedNote()}), so open and fixed requests count the same.</li>
@@ -3964,7 +4005,7 @@
     const s = searchIdx.find(x => x.name === name);
     if (!s) return false;
     const tabBtn = document.getElementById('tabbtn-progress');
-    showTab(document.getElementById('tabbtn-priorities'));
+    showTab(document.getElementById('tabbtn-priorities'), true);
     const p = byId.get(s.rank);
     if (p) select(p, true, tabBtn); else { opener = tabBtn; selectLite(s); }
     progReturn = name;
@@ -4095,7 +4136,7 @@
         <div class="stat-grid pg-stats">
           <div class="stat"><b>${G.fixed.a.length}</b><span>got a fix before ${y0(C.d0)}</span></div>
           <div class="stat"><b>${G.during.a.length}</b><span>got their first fix in ${cmpSpan}</span></div>
-          <div class="stat"><b>${G.none.a.length}</b><span>had no counted fix before ${cmpEnd + 1} in SDOT's published data</span></div>
+          <div class="stat"><b>${G.none.a.length}</b><span>had none of the fix types this site can date, before ${cmpEnd + 1}${(k => k ? ` (${k} of them stretches of street; most corridor work isn't among the fix types counted)` : '')(G.none.a.filter(x => x.t !== 'I').length)}</span></div>
           <div class="stat"><b>${still}</b><span>are in today's top ${TOP}</span></div>
         </div>
         ${(() => {
@@ -4777,34 +4818,54 @@
   }
   // Back and Forward: open the place in the address, or close it when the address has none.
   // Back/Forward across a district change: the list follows the district in the address.
+  // A link to a sheet, a view or a place on the page itself adds an entry, as its button would (a link from one part of
+  // a sheet to another only changes the address). Links to a note on the page (#pgNoneNote) are left to the browser.
+  const isRoute = h => /^#(progress|budget|method|p=|b=|s=|loc=|\d|buses|traffic|sidewalks)/i.test(h || '');
   document.addEventListener('click', e => {
-    const a = e.target.closest && e.target.closest('a[href^="#progress"]');
-    if (a && a.getAttribute('href') === location.hash) { e.preventDefault(); progressLink(location.hash); }
+    const a = e.target.closest && e.target.closest('a[href^="#"]');
+    if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
+    const h = a.getAttribute('href');
+    if (!isRoute(h)) return;
+    e.preventDefault();
+    if (h === location.hash) { syncToUrl(true); return; }
+    if (isSheetHash(h) && isSheetHash(location.hash) && openSheet()) history.replaceState(history.state, '', location.pathname + location.search + h);
+    else history.pushState({ sf: 1, sfLink: 1, prev: location.hash }, '', location.pathname + location.search + h);
+    syncToUrl(true);
   });
+  // Back and Forward (and links above): make the page match the address.
+  function syncToUrl(again) {
+    const h = location.hash;
+    if (h.length > 1 && !isRoute(h) && h !== '#selftest') return;   // a note on the page
+    syncing = true;
+    try {
+      const d = new URLSearchParams(location.search).get('d') || '', sel = document.getElementById('distFilter');
+      if ([...sel.options].some(o => o.value === d) && sel.value !== d) { sel.value = d; render(); refreshHome(); }
+      if (pinBack && !(history.state && history.state.sfPin)) {   // Back from a found address or school: close it
+        pinBack = false;
+        if (placeG && detailEl.classList.contains('place')) { const pm = pinMarkerOf(placeG); if (pm) deselectPin(placeG, pm); else hidePlace(placeG); }
+        clearPreview();
+      }
+      if (isSheetHash(h)) {
+        // a place opened from "Is it getting fixed?" closes, and the tab shows again at the same spot
+        if (spotOpen() && progReturn && /^#progress$/i.test(h)) { const pr = progReturn; progReturn = null; closeDetail(false); returnToProgress(pr); }
+        else openFromHash();
+        return;
+      }
+      if (openSheet()) hideSheets(true);
+      progReturn = null;
+      if (isViewHash(h)) {   // no place in the address: close what's open; the view in it, or the crash list
+        if (spotOpen()) closeDetail(false);
+        if (h) openFromHash();
+        else if (lastTab && lastTab.dataset.tab !== 'priorities') showTab(document.getElementById('tabbtn-priorities'));
+        return;
+      }
+      if (again || !spotOpen() || shownHash.toLowerCase() !== h.toLowerCase()) openFromHash();
+    } finally { syncing = false; docTitle(null); }
+  }
   window.addEventListener('popstate', () => {
-    if (navIgnore) { navIgnore = false; hashIgnoreUntil = Date.now() + 200; return; }   // our own taking back of an entry
-    inNav = true; setTimeout(() => { inNav = false; }, 0);
-    if (pinBack && !(history.state && history.state.sfPin)) {   // Back from a found address or school: close it
-      pinBack = false;
-      if (placeG && detailEl.classList.contains('place')) { const pm = pinMarkerOf(placeG); if (pm) deselectPin(placeG, pm); else hidePlace(placeG); }
-      clearPreview();
-    }
-    const d = new URLSearchParams(location.search).get('d') || '', sel = document.getElementById('distFilter');
-    if ([...sel.options].some(o => o.value === d) && sel.value !== d) { sel.value = d; render(); refreshHome(); }
-  });
-  window.addEventListener('hashchange', () => {
-    if (skipHash) { skipHash = false; return; }
-    if (Date.now() < hashIgnoreUntil) { hashIgnoreUntil = 0; return; }
-    inNav = true; setTimeout(() => { inNav = false; }, 0);
-    // Back to an address with no place in it (none, or a bus or sidewalk view's own): close what's open
-    // (a place opened from "Is it getting fixed?" goes back there, at the same spot, as its close button does)
-    if (isViewHash(location.hash) && spotOpen()) { const h = location.hash, pr = progReturn; closeDetail(false);
-      if (pr) { progReturn = null; returnToProgress(pr); }
-      else if (h) { history.replaceState(history.state, '', location.pathname + location.search + h); openFromHash(); } }
-    else if (!location.hash && openSheet() && lastTab) showTab(lastTab);   // Back from a sheet's link closes the sheet
-    // Back from a bus or sidewalk view to an address with none: the crash list
-    else if (!location.hash && lastTab && ['traffic', 'walk'].includes(lastTab.dataset.tab)) showTab(document.getElementById('tabbtn-priorities'));
-    else openFromHash();
+    // our own taking back of an entry: the page already shows what that entry says (the district may have changed since)
+    if (backPending) { backDone(); distToUrl(); return; }
+    syncToUrl();
   });
   // ---------- desktop overview: the details panel never closes; with nothing picked it shows where to start ----------
   let homeFocus = null;   // the overview card a spot was opened from, to return focus to it
@@ -5021,11 +5082,12 @@
     pins.forEach(drawPin);
     if (wasOpen != null && pinMarkers.get(wasOpen)) pinMarkers.get(wasOpen).openPopup();
     if (sInput.value.trim() && document.activeElement === sInput) runSearch();
-    if (location.hash && location.hash !== '#selftest' && !spotOpen() && openFromHash()) return;
+    if (location.hash && location.hash !== '#selftest' && !spotOpen() && openFirst()) return;
     refreshHome();
   });
+  const openFirst = () => { syncing = true; try { return openFromHash(); } finally { syncing = false; } };
   if (location.hash === '#selftest') { history.replaceState(null, '', location.pathname + location.search); selfTest(); }
-  else if (!openFromHash()) {
+  else if (!openFirst()) {
     refreshHome();
     if (layer.getLayers().length) map.fitBounds(layer.getBounds(), { paddingTopLeft: [leftPad() + 30, 30], paddingBottomRight: [isNarrow() ? 30 : detailEl.offsetWidth + 30, isNarrow() ? cover + 20 : 30], maxZoom: 15 });
   }

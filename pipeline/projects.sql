@@ -204,11 +204,12 @@ hits0 as (
 settled as (      -- an ambiguous name counts only when the rules above left places on one of its streets
   select pid, m from hits0 where amb group by pid, m having count(distinct f) = 1
 ),
-hits as (
-  select distinct location, pid, title, y0, y1 from hits0 h
+hits as (         -- s: the place's street the title was matched on (the page names it: a corner's budget line may be the cross street's)
+  select location, pid, title, y0, y1, min(full_s) as s from hits0 h
   where not amb or exists (select 1 from settled s where s.pid = h.pid and s.m = h.m)
+  group by all
 )
-select location, list({'c': pid, 't': title, 'y0': y0, 'y1': y1} order by y1 desc, pid) as cip
+select location, list({'c': pid, 't': title, 'y0': y0, 'y1': y1, 's': s} order by y1 desc, pid) as cip
 from hits group by location;
 
 create or replace table locations as

@@ -724,6 +724,40 @@ from val_split(ws(), (select a_test0 from validation_splits), (select a_test0 fr
 join val_split(ws(), (select b_mid::date from validation_splits), (select b_mid::date from validation_splits),
                (select b_end::date from validation_splits)) b using (method);
 
+-- 1a) The site's list against counting crashes, on the places the two lists don't share: the later fatal/serious
+--     crashes caught only by the site's list and only by the crash count. The two lists share most of their places, so
+--     the page calls one list better only when these differ beyond chance (a sign test, on the page).
+create or replace macro val_pair(t0, t1, v0, v1) as table
+with train as (select * from eb_in(t0, t1)),
+test as (select location, count(*) filter (where severity in ('Fatal Collision', 'Serious Injury Collision')) ksi
+         from collisions where date >= v0 and date < v1 group by location),
+r as (select location, row_number() over (order by round(expected_harm, 9) desc, crashes desc, location) as a,
+             row_number() over (order by crashes desc, harm desc, location) as b from train),
+x as (select r.*, coalesce(t.ksi, 0) as ksi from r left join test t using (location))
+select n, (count(*) filter (where a <= n and b <= n))::int as shared,
+  coalesce(sum(ksi) filter (where a <= n and b > n), 0)::int as a_only,
+  coalesce(sum(ksi) filter (where b <= n and a > n), 0)::int as b_only
+from x, (select unnest([top_n(), list_n()]) as n) group by n;
+create or replace table val_overlap as
+select 1 as test, * from val_pair(ws(), (select a_test0 from validation_splits), (select a_test0 from validation_splits), we())
+union all
+select 2, * from val_pair(ws(), (select b_mid::date from validation_splits), (select b_mid::date from validation_splits), (select b_end::date from validation_splits));
+
+-- 1a') Regression to the mean, measured: Test 1's top 50 (ranked on the earlier years) and the whole city, fatal and
+--      serious crashes a year before and after the split. A top place's count falls partly on its own.
+create or replace table val_rtm as
+with t as (select (select a_test0 from validation_splits) as a),
+top as (select location from (select location, row_number() over (order by round(expected_harm, 9) desc, crashes desc, location) rk
+                              from eb_in(ws(), (select a from t))) where rk <= top_n()),
+k as (select location, date from collisions where severity in ('Fatal Collision', 'Serious Injury Collision') and date >= ws() and date < we()),
+yrs as (select date_diff('day', ws(), (select a from t)) / 365.25 as y0, date_diff('day', (select a from t), we()) / 365.25 as y1)
+select
+  round((select count(*) from k where location in (select location from top) and date < (select a from t)) / y0, 1) as top_before,
+  round((select count(*) from k where location in (select location from top) and date >= (select a from t)) / y1, 1) as top_after,
+  round((select count(*) from k where date < (select a from t)) / y0, 1) as city_before,
+  round((select count(*) from k where date >= (select a from t)) / y1, 1) as city_after
+from yrs;
+
 -- 1b) Other points per crash. The weights are a judgment call, so the same expected-harm ranking is redone with other
 --     sets (fatal/serious weighed half and twice as much, other injuries twice as much, no extra for walking/biking):
 --     how many of this week's top 50 stay in each set's top 50, and how many later fatal/serious crashes each set's
@@ -1065,6 +1099,8 @@ copy (
     (select round(count(*) filter (where sdot_hin is not null) * 1.0 / count(*), 3) from locations where crashes >= busy_min_crashes()) as busy_share_on_hin,
     (select count(*) from locations where crashes >= busy_min_crashes())    as busy_locations,
     (select list({'method': method, 'k50': future_ksi_50, 'k200': future_ksi_200, 'b50': b_ksi_50, 'b200': b_ksi_200} order by future_ksi_50 desc, method) from validation) as validation,
+    (select list({'test': test, 'n': n, 'shared': shared, 'a_only': a_only, 'b_only': b_only} order by test, n) from val_overlap) as val_overlap,
+    (select {'top_before': top_before, 'top_after': top_after, 'city_before': city_before, 'city_after': city_after} from val_rtm) as val_rtm,
     (select list({'set': set, 'ksi': ksi, 'injury': injury, 'pdo': pdo, 'pb': ped_bike_mult, 'stay': stay_50, 'k50': future_ksi_50} order by o) from weight_tests) as weight_tests,
     (select b_mid::date from validation_splits)            as test2_from,
     ((select b_end from validation_splits) - interval 1 day)::date as test2_to,
