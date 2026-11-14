@@ -40,6 +40,7 @@ const PATTERNS = [
   /\b(19[5-9]\d|20[0-4]\d)\b/,                                                    // a year
   /\b\d+\s*[–-]\s*\d+\b/,                                                         // a typed range "51–150"
   /[½¼¾]/,
+  /\bof \d[\d,]*\b/,                                                      // "Tier 1 of 5"
 ];
 
 const problems = [];

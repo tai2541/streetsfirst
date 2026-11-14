@@ -58,19 +58,29 @@ from (
 -- (the block's own street line without its ends, loc_inner in traffic.sql: a long block isn't judged from its midpoint,
 -- and work at the corners at its ends or on a side street belongs to those, not to the block).
 
--- Speed humps and cushions go on side streets: near a major street (SDOT's arterial classes) they're listed but don't
--- count as planned work at that place (the page applies the same rule: humpsOff in app.js).
+-- Speed humps and cushions go on side streets: near a major street (SDOT's arterial classes) a project that is only
+-- traffic calming (no crossing, beacon, signal or sidewalk work) on another street is listed but doesn't count as planned
+-- work at that place (side_ids: the page marks the same projects). One that names the place's own street still counts.
+create or replace macro street_core(s) as
+  regexp_replace(regexp_replace(upper(trim(s)), '^(N|S|E|W|NE|NW|SE|SW) ', ''), ' (N|S|E|W|NE|NW|SE|SW)$', '');
 create or replace table loc_proj as
-select p.location, list(j.id order by j.stage = 'done', j.year nulls last, j.id) as proj_ids,
-       coalesce(bool_or(j.stage <> 'done' and j.work
-         and not (regexp_matches(coalesce(j.scope, ''), '(?i)speed (hump|cushion)') and coalesce(l.art_class, 0) between 1 and 5)), false) as proj_planned
-from loc_inner p join proj j on ST_DWithin(p.geom, j.geom, case when p.r = 40 then near_block_ft() else near_ix_ft() end)
-  and not on_structure(p.location)
-join locations l on l.location = p.location
-group by p.location;
+with pj as (
+  select p.location, j.id, j.stage, j.year, j.work,
+         regexp_matches(coalesce(j.scope, ''), '(?i)speed (hump|cushion)')
+           and not regexp_matches(coalesce(j.scope, '') || ' ' || coalesce(j.name, ''), '(?i)crossing|crosswalk|rrfb|beacon|signal|sidewalk')
+           and coalesce(l.art_class, 0) between 1 and 5
+           and len(list_filter(case when l.addr_type = 'B' then [split_part(p.location, ' BETWEEN ', 1)] else string_split(p.location, ' AND ') end,
+                   lambda s: strpos(upper(coalesce(j.name, '') || ' ' || coalesce(j.scope, '')), street_core(s)) > 0)) = 0 as side
+  from loc_inner p join proj j on ST_DWithin(p.geom, j.geom, case when p.r = 40 then near_block_ft() else near_ix_ft() end)
+    and not on_structure(p.location)
+  join locations l on l.location = p.location)
+select location, list(id order by stage = 'done', year nulls last, id) as proj_ids,
+       coalesce(list(id order by id) filter (where side), []) as side_ids,
+       coalesce(bool_or(stage <> 'done' and work and not side), false) as proj_planned
+from pj group by location;
 
 create or replace table locations as
-select l.*, coalesce(j.proj_ids, []::bigint[]) as proj_ids, coalesce(j.proj_planned, false) as proj_planned
+select l.*, coalesce(j.proj_ids, []::bigint[]) as proj_ids, coalesce(j.side_ids, []::bigint[]) as side_ids, coalesce(j.proj_planned, false) as proj_planned
 from locations l left join loc_proj j using (location);
 
 -- ---------------------------------------------------------------- budget projects named for a street

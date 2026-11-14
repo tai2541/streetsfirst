@@ -294,12 +294,17 @@ left join loc_bus b using (location) left join loc_bus_stretch bs using (locatio
 
 -- ---------------------------------------------------------------- council districts of each line
 -- The district shapes only (pipeline/context.sql adds the members, later): which districts each bus stretch and each
--- sidewalk block runs through, so those lists can follow the district picked. A line on a district boundary is in both.
+-- sidewalk block runs through, so those lists can follow the district picked: every district holding at least a fifth
+-- of its length, the rule places use (context.sql: segk), so a line on a district boundary is in both and one clipping a
+-- corner isn't.
 create or replace table council_shapes as
 select f.properties.C_DISTRICT::int as district, gj_geom(f.geometry) as geom
 from (select unnest(features) f from read_json('data/raw/council_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
-create or replace macro dists_of(g) as (select list(c.district order by c.district) from council_shapes c where ST_Intersects(c.geom, g));
+create or replace macro dists_of(g) as (
+  select list(district order by district) from (
+    select c.district, ST_Length(ST_Intersection(c.geom, g)) as len from council_shapes c where ST_Intersects(c.geom, g))
+  where len >= 0.2 * ST_Length(g) or ST_Length(g) = 0);
 
 -- ---------------------------------------------------------------- export for the Traffic view
 copy (

@@ -126,6 +126,8 @@ select
   -- a crash SDOT codes fatal or serious with no person listed in that column still had at least one (a few reports leave it 0)
   case when MAXSEVERITYDESC = 'Fatal Collision' then greatest(coalesce(FATALITIES, 0), 1) else coalesce(FATALITIES, 0) end as fatalities,
   case when MAXSEVERITYDESC = 'Serious Injury Collision' then greatest(coalesce(SERIOUSINJURIES, 0), 1) else coalesce(SERIOUSINJURIES, 0) end as serious_injuries,
+  -- (those counted as one person though SDOT's column says 0: the site says how many)
+  (MAXSEVERITYDESC = 'Fatal Collision' and coalesce(FATALITIES, 0) = 0) or (MAXSEVERITYDESC = 'Serious Injury Collision' and coalesce(SERIOUSINJURIES, 0) = 0) as ppl_assumed,
   coalesce(INJURIES, 0)                    as injuries,
   coalesce(VEHCOUNT, 0)                    as vehicles,
   coalesce(PERSONCOUNT, 0)                 as persons,
@@ -167,7 +169,8 @@ create or replace table collisions_unlocated as
 with raw as (select unnest(features, recursive := true) from read_json('data/raw/collisions_*.json', maximum_object_size = 50000000))
 select make_timestamp(INCDATE::bigint * 1000)::date as date, MAXSEVERITYDESC as severity,
        case when MAXSEVERITYDESC = 'Fatal Collision' then greatest(coalesce(FATALITIES, 0), 1) else coalesce(FATALITIES, 0) end as fatalities,
-       case when MAXSEVERITYDESC = 'Serious Injury Collision' then greatest(coalesce(SERIOUSINJURIES, 0), 1) else coalesce(SERIOUSINJURIES, 0) end as serious_injuries
+       case when MAXSEVERITYDESC = 'Serious Injury Collision' then greatest(coalesce(SERIOUSINJURIES, 0), 1) else coalesce(SERIOUSINJURIES, 0) end as serious_injuries,
+       (MAXSEVERITYDESC = 'Fatal Collision' and coalesce(FATALITIES, 0) = 0) or (MAXSEVERITYDESC = 'Serious Injury Collision' and coalesce(SERIOUSINJURIES, 0) = 0) as ppl_assumed
 from raw where LOCATION is null or coordinates is null;
 
 
@@ -426,7 +429,7 @@ left join (select location,
 -- ---------------------------------------------------------------- crash harm (any date range)
 create or replace macro harm_in(d0, d1) as table
 with c as (
-  select location, date, id, severity, peds, cyclists, road_cond, light_cond, speeding, fatalities, serious_injuries, coll_type,
+  select location, date, id, severity, peds, cyclists, road_cond, light_cond, speeding, fatalities, serious_injuries, ppl_assumed, coll_type,
     severity in ('Fatal Collision', 'Serious Injury Collision') as is_ksi,
     (case severity
        when 'Fatal Collision'                then wt('ksi')
@@ -460,6 +463,7 @@ select location,
   count(distinct year(date)) filter (where is_ksi)                as ksi_years,
   sum(fatalities)                                                 as killed,
   sum(serious_injuries)                                           as seriously_injured,
+  count(*) filter (where ppl_assumed)                             as people_assumed,
   count(*) filter (where peds + cyclists > 0)                     as pb_crashes,
   count(*) filter (where peds > 0)                                as ped_crashes,
   count(*) filter (where cyclists > 0)                            as bike_crashes,
@@ -847,12 +851,12 @@ create or replace table spot_export as
          volume, volume_streets, volume_year, volume_estimated,
          sdot_hin, sdot_hcl_years, sdot_hcl_types, ksi_after_hcl,
          lpi_status, lpi_installed, lpi_planned, ntor_status, ntor_installed, ntor_planned, ntor_approaches, ped_after_lpi, signalized, ped_signal, ped_audio, lt_protected, lt_installed,
-         confidence, crashes, unknown_sev, fatal, serious, injury, ksi, ksi_years, killed, seriously_injured,
+         confidence, crashes, unknown_sev, fatal, serious, injury, ksi, ksi_years, killed, seriously_injured, people_assumed,
          pb_crashes, ped_crashes, bike_crashes, speeding_crashes, ped_turn_after_lpi, left_turn_crashes, ped_turn_crashes, ped_right_crashes, typed_crashes, angle_crashes,
          wet_crashes, dark_crashes, unlit_crashes, road_known, light_known,
          first_crash, last_crash, requests, request_types,
          fixes, end_fixes, end_planned, vol_history, bus_trips, bus_routes, bus_stretch_id,
-         sw_missing_tier, sw_poor_ft, sw_poor_assessed, proj_ids, proj_planned, cip, signal_installed,
+         sw_missing_tier, sw_poor_ft, sw_poor_assessed, proj_ids, side_ids, proj_planned, cip, signal_installed,
          crosswalks, crosswalks_midblock, crosswalk_school, crosswalk_controls, curb_ramps, curb_ramps_poor, bike_facilities, lights_out, lights_out_major,
          school, school_ft, walk_zones, rse_quintile, rse_year, council_district, council_district2, council_member, council_url, before_after,
          rank_years, rank_month_ago, rank_year_ago
@@ -1071,6 +1075,12 @@ copy (
       + (select coalesce(sum(serious_injuries), 0) from collisions_unlocated where date >= ws() and date < we()) as city_serious,
     (select count(*) from collisions_unlocated where date >= ws() and date < we()
        and severity in ('Fatal Collision', 'Serious Injury Collision')) as city_ksi_unlocated,
+    -- the share of the scored crashes that came in the window's first year, citywide (a place far above it says so)
+    (select round(count(*) filter (where date < ws() + interval 1 year) / count(*), 3) from collisions where date >= ws() and date < we()) as city_first_year_share,
+    -- deaths and serious injuries counted as one person in crashes SDOT codes fatal or serious with 0 in that column
+    (select {'killed': count(*) filter (where severity = 'Fatal Collision'), 'hurt': count(*) filter (where severity = 'Serious Injury Collision')}
+       from (select severity, ppl_assumed, date from collisions union all select severity, ppl_assumed, date from collisions_unlocated)
+       where ppl_assumed and date >= ws() and date < we()) as city_assumed,
     (select count(*) from collisions where date >= ws() and date < we()
        and severity in ('Fatal Collision', 'Serious Injury Collision')) as city_ksi_located,
     (select count(*) from collisions where date >= ws() and date < we() and peds + cyclists > 0

@@ -305,11 +305,14 @@ from by_g b full join proj_g p using (dim, grp);
 -- Length: SDOT's street segments with the street's name, each block once (a split roadway's two sides are one block, as
 -- for crashes), so crashes per mile can be compared with safety plans that rank corridors that way.
 create or replace table street_totals as
--- (a block SDOT names for one side of a divided street, ER/WR/NR/SR, counts half: the other side runs beside it)
-with len as (select street, sum(ft * case when side then 0.5 else 1 end) / 5280.0 as miles from (
-    select road_norm(split_part(loc_name, ' BETWEEN ', 1)) as street, road_norm(loc_name) as blk,
-           regexp_matches(split_part(loc_name, ' BETWEEN ', 1), ' (WR|ER|NR|SR) ') as side, max(ST_Length(geom)) as ft
-    from streets where loc_name like '% BETWEEN %' group by all) group by street),
+-- (a divided street's two sides, named ER/WR/NR/SR, are one block: half their lengths added together, so a block where
+-- only one side is in SDOT's list under that name still counts its own half)
+with len as (select street, sum(ft) / 5280.0 as miles from (
+    select street, blk, greatest(coalesce(max(ft) filter (where not side), 0), 0.5 * coalesce(sum(ft) filter (where side), 0)) as ft
+    from (select road_norm(split_part(loc_name, ' BETWEEN ', 1)) as street, road_norm(loc_name) as blk, loc_name,
+                 regexp_matches(split_part(loc_name, ' BETWEEN ', 1), ' (WR|ER|NR|SR) ') as side, max(ST_Length(geom)) as ft
+          from streets where loc_name like '% BETWEEN %' group by all)
+    group by street, blk) group by street),
 sp as (
   select unnest(case when addr_type = 'B' then [road_norm(split_part(location, ' BETWEEN ', 1))]
                      else list_distinct(list_transform(string_split(location, ' AND '), lambda x: road_norm(x))) end) as street, *
@@ -455,7 +458,9 @@ copy (
       'recent_ksi': (select list({'loc': location, 'f': fatal, 'kd': killed, 's': serious, 'last': last_date, 'rank': rank}
                                  order by fatal desc, serious desc, last_date desc, location) from recent_ksi),
       'recent_ksi_total': (select {'f': sum(fatal), 'kd': sum(killed), 's': sum(serious), 'from': we(), 'to': max(last_date)} from recent_ksi),
-      'recent_fixes': (select list({'loc': location, 'k': k, 'd': d, 'yo': month(d) = 12 and day(d) >= 30, 'rank': rank} order by d desc, rank) from recent_fixes)
+      'recent_fixes': (select list({'loc': location, 'k': k, 'd': d, 'yo': month(d) = 12 and day(d) >= 30, 'rank': rank}
+                       -- newest first by real date; those SDOT dates with the year only (stored as 31 December) after them
+                       order by month(d) = 12 and day(d) >= 30, d desc, rank) from recent_fixes)
     },
     'district_line': (select {'n': count(*), 'ksi': coalesce(sum(ksi), 0), 'top': count(*) filter (where top50)} from place_work where council_district2 is not null),
     'need': (select list({'dim': dim, 'g': grp, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'top50': top50, 'top50_nothing': top50_nothing, 'top50_state': top50_state, 'top50_ends': top50_ends, 'top50_budget': top50_budget, 'sig': sig, 'sig_lpi': sig_lpi,
@@ -472,7 +477,8 @@ copy (
     'streets': (select list({'s': street, 'n': places, 'c': crashes, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'ped': ped, 'bike': bike,
                               't50': top50, 't100': top100, 't100_state': top100_state, 't100_none': top100_nothing,
                               'dist': districts, 'worst': worst, 'wr': worst_rank, 'mi': round(miles, 2), 'pm': round(ksi_per_mile, 1)} order by ksi desc, crashes desc, street)
-                 from (select * from street_totals order by ksi desc, crashes desc, street limit 30)),
+                 -- the 30 with the most, and every street tied with the last of them
+                 from (select * from street_totals qualify rank() over (order by ksi desc) <= 30)),
     'sidewalk': {
       'rows': (select list({'g': g, 'n': n, 'fixed': fixed, 'fast': fast, 'med': med, 'open': open, 'owner': owner, 'dup': dup, 'nowork': nowork,
                             'other': other, 'transferred': transferred, 'no_wo': no_wo} order by g) from sidewalk_wait),
