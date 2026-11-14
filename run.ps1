@@ -101,9 +101,9 @@ $ranks = Import-Csv (Join-Path $PSScriptRoot 'data\ranks_raw.csv') -Encoding UTF
 if ($ranks.Count -lt 1000) { throw "ranks_raw.csv has only $($ranks.Count) places" }
 $q = { param($v) $s = [string]$v; if ($s -match '[",\r\n]') { '"' + $s.Replace('"', '""') + '"' } else { $s } }
 $sb = New-Object Text.StringBuilder
-[void]$sb.AppendLine((@('Data as of', 'Rank', 'Type', "Place (SDOT's name)", 'Council district', 'Also in council district', 'Area', 'Neighborhood',
+[void]$sb.AppendLine((@('Data as of', 'Rank', 'Type', "Place (SDOT's name; the two sides of a divided street merged)", 'Council district', 'Also in council district', 'Area', 'Neighborhood',
   'All crashes', 'Crashes that killed or seriously hurt someone', 'Crashes that killed someone', 'People killed', 'People seriously injured',
-  'Crashes involving someone walking', 'Crashes involving someone on a bike', 'Run by WSDOT', 'Score (expected harm x repair-request boost)',
+  'Crashes involving someone walking', 'Crashes involving someone on a bike', 'Run by WSDOT', 'Score (expected harm)',
   'Crashes from', 'Crashes to', 'Link',
   'Latitude', 'Longitude', 'SDOT intersection key(s) (INTKEY)', 'SDOT street segment key(s) (COMPKEY, called SEGKEY in some layers)',
   'Block length (ft, longest segment)',
@@ -112,7 +112,7 @@ $sb = New-Object Text.StringBuilder
   'Score part: deaths and serious injuries typical for similar streets (the rest of the weight)',
   'Score part: crashes of unknown severity (typical harm)',
   "Weight on the place's own record (grows with its crash count)", 'Expected harm (the four parts added)',
-  'Repair-request boost (expected harm x this = score)') | ForEach-Object { & $q $_ }) -join ',')
+  'Repair-request boost (no longer used: always 1, repair requests do not change the score)') | ForEach-Object { & $q $_ }) -join ',')
 # The same list as a map layer (site/data/ranks.geojson): one point per place, for GIS tools.
 $gj = New-Object Text.StringBuilder
 [void]$gj.Append('{"type":"FeatureCollection","name":"streets-first-seattle-ranks","data_as_of":"' + $asOf + '","features":[')
@@ -165,7 +165,7 @@ Write-Host "Wrote site\data\top50_check.csv"
 # SDOT's location names and intersection keys, the data date and each place's link. An empty list is a valid week.
 $inc = @(Import-Csv (Join-Path $PSScriptRoot 'data\increases_raw.csv') -Encoding UTF8)
 $sb = New-Object Text.StringBuilder
-[void]$sb.AppendLine((@('Data as of', 'Fix', 'Fix went in', 'Crashes it targets', "Place (SDOT's name)", "SDOT's location names in the crash reports",
+[void]$sb.AppendLine((@('Data as of', 'Fix', 'Fix went in', 'Crashes it targets', "Place (SDOT's name; the two sides of a divided street merged)", "SDOT's location names in the crash reports",
   'SDOT intersection key (INTKEY)', 'Council district', 'Rank now', 'Targeted crashes before', 'Targeted crashes after',
   'Years counted on each side', 'Targeted crashes in the equal period before that', 'Link') | ForEach-Object { & $q $_ }) -join ',')
 foreach ($r in $inc) {

@@ -174,7 +174,8 @@ select make_timestamp(INCDATE::bigint * 1000)::date as date, MAXSEVERITYDESC as 
        case when MAXSEVERITYDESC = 'Fatal Collision' then greatest(coalesce(FATALITIES, 0), 1) else coalesce(FATALITIES, 0) end as fatalities,
        case when MAXSEVERITYDESC = 'Serious Injury Collision' then greatest(coalesce(SERIOUSINJURIES, 0), 1) else coalesce(SERIOUSINJURIES, 0) end as serious_injuries,
        MAXSEVERITYDESC = 'Fatal Collision' and coalesce(FATALITIES, 0) = 0 as killed_assumed,
-       MAXSEVERITYDESC = 'Serious Injury Collision' and coalesce(SERIOUSINJURIES, 0) = 0 as hurt_assumed
+       MAXSEVERITYDESC = 'Serious Injury Collision' and coalesce(SERIOUSINJURIES, 0) = 0 as hurt_assumed,
+       ADDRTYPE = 'Alley' or ADDRTYPE = 'A' as alley   -- SDOT gives alley crashes no location or map point
 from raw where LOCATION is null or coordinates is null;
 
 
@@ -226,7 +227,8 @@ create or replace temp table window_ok as select case when (select min(date) fro
 create or replace table collisions_dropped as   -- disclosed on the site: reports in the scored years with no location
 select count(*) n,
        count(*) filter (where severity in ('Fatal Collision', 'Serious Injury Collision')) ksi,
-       count(*) filter (where severity = 'Fatal Collision') fatal
+       count(*) filter (where severity = 'Fatal Collision') fatal,
+       count(*) filter (where alley) alley
 from collisions_unlocated where date >= ws() and date < we();
 
 -- ---------------------------------------------------------------- location context (spatial)
@@ -327,11 +329,12 @@ from volumes where street is not null;
 create or replace table loc_volume as
 with nearest as (
   select n.location, n.name,
-         -- within 100 ft (counts at one corner are drawn tens of feet apart): the newest count, then the nearest
+         -- within 100 ft (counts at one corner are drawn tens of feet apart): the newest count, then the nearest (to 5 ft),
+         -- then the smaller (the two sides of a corner often have counts of one year: the lower, as before)
          -- (a few feet shouldn't beat years: a 2019 count 28 ft away over a 2024 one 35 ft away)
          arg_min({'awdt': v.awdt, 'yr': v.count_year, 'est': v.quality = 'Estimate'},
                  {'d': case when ST_Distance(p.geom, v.geom) <= vol_near_ft() then 0 else round(ST_Distance(p.geom, v.geom) / 5) end,
-                  'y': -coalesce(v.count_year, 0), 'd2': ST_Distance(p.geom, v.geom), 'a': v.awdt}) as hit
+                  'y': -coalesce(v.count_year, 0), 'd2': round(ST_Distance(p.geom, v.geom) / 5), 'a': v.awdt}) as hit
   from loc_names n join loc_pts p using (location)
   join volumes_named v on v.street = n.name and v.awdt is not null and ST_DWithin(p.geom, v.geom, vol_ft())
   group by n.location, n.name
@@ -1100,6 +1103,7 @@ copy (
     (select n from collisions_dropped)                      as dropped_no_location,
     (select ksi from collisions_dropped)                    as dropped_ksi,
     (select fatal from collisions_dropped)                  as dropped_fatal,
+    (select alley from collisions_dropped)                  as dropped_alley,
     (select count(*) from requests)                         as requests,
     (select count(*) from locations)                        as locations_scored,
     (select count(*) from locations where addr_type = 'I')  as intersections_scored,

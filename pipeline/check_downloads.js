@@ -55,7 +55,7 @@ try {
   else {
     if (G.features.length !== R.length) problems.push(`ranks.geojson has ${G.features.length} places, ranks.csv ${R.length}`);
     const off = G.features.filter((f, i) => { const [lon, lat] = f.geometry.coordinates;
-      return !inCity(lat, lon) || f.properties.rank !== +R[i].Rank || f.properties.place !== R[i]["Place (SDOT's name)"]; });
+      return !inCity(lat, lon) || f.properties.rank !== +R[i].Rank || f.properties.place !== R[i]["Place (SDOT's name; the two sides of a divided street merged)"]; });
     if (off.length) problems.push(`ranks.geojson: ${off.length} places out of place or not matching ranks.csv (e.g. rank ${off[0].properties.rank})`);
   }
 

@@ -323,6 +323,8 @@ select street, count(*) as places, sum(crashes) as crashes, sum(ksi) as ksi, sum
   count(*) filter (where rank <= top_n()) as top50, count(*) filter (where rank <= wide_n()) as top100,
   count(*) filter (where rank <= wide_n() and state_route is not null) as top100_state,
   count(*) filter (where rank <= wide_n() and state_route is null and not fixed_recently and not proj_planned) as top100_nothing,
+  -- "planned" only because a budget line is named for the street (said beside the count)
+  count(*) filter (where rank <= wide_n() and state_route is null and not fixed_recently and budget_only) as top100_budget,
   list_sort(list_distinct(flatten(list(list_filter([district, council_district2::varchar], lambda x: x is not null and x <> 'none'))))) as districts,   -- both districts of a place on a line
   arg_min(location, rank) as worst, min(rank) as worst_rank,
   any_value(len.miles) as miles, case when any_value(len.miles) >= street_min_mi() then sum(ksi) / any_value(len.miles) end as ksi_per_mile
@@ -330,9 +332,10 @@ from sp left join len using (street) where street <> '' group by street;
 
 -- Every street with a crash that killed or seriously hurt someone, as a spreadsheet (site/data/streets.csv).
 copy (
-  select street as "Street (SDOT's name)", array_to_string(districts, ' and ') as "Council district(s)",
+  select fetched() as "Data as of",
+    street as "Street (SDOT's name; the two sides of a divided street merged)", array_to_string(districts, ' and ') as "Council district(s)",
     round(miles, 2) as "Length (miles, SDOT street segments)", places as "Places with crashes", crashes as "All crashes",
-    ksi as "Crashes that killed or seriously hurt someone", round(ksi_per_mile, 2) as "Of those, per mile",
+    ksi as "Crashes that killed or seriously hurt someone (a crash at a corner counts for each street there: don't add streets up)", round(ksi_per_mile, 2) as "Of those, per mile",
     fatal as "Crashes that killed someone", killed as "People killed", hurt as "People seriously injured",
     ped as "Crashes involving someone walking", bike as "Crashes involving someone on a bike",
     worst_rank as "Highest-ranked place: rank", worst as "Highest-ranked place",
@@ -484,7 +487,7 @@ copy (
                              order by k, a - b desc, a desc, rank nulls last, location) from working_places)
     },
     'streets': (select list({'s': street, 'n': places, 'c': crashes, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'ped': ped, 'bike': bike,
-                              't50': top50, 't100': top100, 't100_state': top100_state, 't100_none': top100_nothing,
+                              't50': top50, 't100': top100, 't100_state': top100_state, 't100_none': top100_nothing, 't100_bud': top100_budget,
                               'dist': districts, 'worst': worst, 'wr': worst_rank, 'mi': round(miles, 2), 'pm': round(ksi_per_mile, 1)} order by ksi desc, crashes desc, street)
                  -- the 30 with the most, and every street tied with the last of them
                  from (select * from street_totals qualify rank() over (order by ksi desc) <= 30)),
