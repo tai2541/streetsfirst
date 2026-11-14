@@ -12,6 +12,7 @@ if (!top) throw new Error('share_image: no top_n setting in meta.json');
 const fetched = fs.readFileSync(fetchedFile, 'utf8').trim().slice(0, 10);
 const asOf = new Date(fetched + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 const icon = fs.readFileSync(path.join(site, 'favicon.svg'), 'utf8');
+const mY = d => new Date(String(d).slice(0, 10) + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
 
 // Map area: the right part of the card. Equirectangular, scaled for Seattle's latitude.
 const W = 1200, H = 630, box = { x: 700, y: 30, w: 470, h: 570 };
@@ -36,7 +37,7 @@ const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
   .brand svg { width: 64px; height: 64px; }
   h1 { font-size: 58px; line-height: 1.08; margin: 44px 0 26px; font-weight: 800; }
   p { font-size: 27px; line-height: 1.35; margin: 0; color: #d6deec; }
-  .date { position: absolute; left: 64px; bottom: 56px; font-size: 22px; color: #f2b632; font-weight: 600; }
+  .date { position: absolute; left: 64px; bottom: 40px; font-size: 20px; color: #f2b632; font-weight: 600; width: 700px; line-height: 1.35; }
   .map { position: absolute; left: 0; top: 0; }
 </style></head><body>
   <svg class="map" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
@@ -47,7 +48,7 @@ const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     <h1>Where streets hurt people most</h1>
     <p>And whether it's getting fixed. Red dots: the ${top} places with the highest expected harm, estimated from police-reported crashes, weighted by how badly people were hurt.</p>
   </div>
-  <div class="date">Data as of ${asOf} · rebuilt every week</div>
+  <div class="date">Crashes ${mY(meta.window_from)} – ${mY(meta.window_to)} (police reports in SDOT's data)<br>Updated ${asOf} · independent, not the City of Seattle</div>
 </body></html>`;
 fs.writeFileSync(out, html);
 console.log(`Share image page: ${topPlaces.length} top places, data as of ${asOf}`);

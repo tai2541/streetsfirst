@@ -1544,7 +1544,7 @@
           <b aria-hidden="true">${c.r ? rankTxt(c.r, false) : '–'}</b><span aria-hidden="true">${c.l}</span></li>`).join('')}
       </ol>
       <div class="note">${in50 ? `Among the top ${TOP} in ${in50} of these ${cells.length} periods. ` : ''}${m
-        ? (mv === 0 ? 'Same overall rank as a month ago. ' : `Overall rank ${mv > 0 ? 'up' : 'down'} ${plural(Math.abs(mv), 'place', 'places')} since last month (was ${rankTxt(m)}). `) : ''}
+        ? (mv === 0 ? 'Same overall rank as a month ago. ' : `Overall rank ${mv > 0 ? 'up' : 'down'} ${plural(Math.abs(mv), 'place', 'places')} since last month (was ${rankTxt(m)}; ranks this close can move with a single crash). `) : ''}
         ${recent.length ? 'Fixes: ' + recent.map(f => `${esc(f.k)} (${fixDate(f.d)})`).join(', ') + '. ' : ''}
         Each period is ranked the same way as today, on its own ${WY} years of crashes. "–": no crashes in those years.</div>`;
   }
@@ -1991,19 +1991,21 @@
     const longTxt = p.addr_type !== 'I' && p.block_ft && meta.median_block_ft && p.block_ft >= 2 * meta.median_block_ft
       ? ` This is a stretch of street ${fmt(p.block_ft)} ft long, about ${Math.round(p.block_ft / meta.median_block_ft)} times a typical Seattle block (${fmt(meta.median_block_ft)} ft); longer stretches collect more crashes, so compare it with other stretches, not with single corners.` : '';
     // (a place where no one was killed or seriously hurt is in the top list on the estimate alone: said as an estimate)
-    const s1 = `${rk <= TOP ? (p.ksi ? `#${fmt(rk)} of the ${TOP} places in Seattle where someone is likeliest to be killed or seriously hurt in a crash`
-      : `#${fmt(rk)} of the top ${TOP} on this site's harm estimate`) : `Ranks #${fmt(rk)} of Seattle's ${fmt(kindCount(rk))} places with crashes for how likely someone is to be killed or seriously hurt there`} (estimated from past crashes).${longTxt} ${hurt.replace(/^./, c => c.toUpperCase())} since ${since}.${why}${nextToDeath(p)}${lateTxt}`;
+    // (it stands alone when quoted: the place, the date, "estimate", and counts with both ends of their years)
+    const asOf = asOfShort(), est = `this site's estimate from past crashes${asOf ? `, as of ${asOf}` : ''}`;
+    const lowWhy = p.killed >= DEATHS && rk > TOP ? ` It ranks this low only because, with ${plural(p.crashes, 'crash', 'crashes')} in total, the estimate leans partly on what's typical for similar streets; a place where people died is always added to the lists, so it isn't overlooked.` : '';
+    const s1 = `${p.name || niceName(p.location)} ${rk <= TOP ? (p.ksi ? `is #${fmt(rk)} of the ${TOP} places in Seattle where someone is likeliest to be killed or seriously hurt in a crash (${est})`
+      : `is #${fmt(rk)} of the top ${TOP} on ${est}`) : `ranks #${fmt(rk)} of Seattle's ${fmt(kindCount(rk))} places with crashes for how likely someone is to be killed or seriously hurt there (${est})`}.${longTxt} ${hurt.replace(/^./, c => c.toUpperCase())} from ${since} to ${monthYear(meta.window_to)}.${why}${lowWhy}${nextToDeath(p)}${lateTxt}`;
     // a stretch: work at the corners at its ends doesn't count as its own, but say it's there
     const block = p.addr_type !== 'I', endDone = block && (p.end_fixes || []).some(f => sinceWin(f.d)), endPlan = block && endPlanned(p).length > 0;
     const corner = endDone && endPlan ? '; the corners at its ends have some, with more planned there'
       : endDone ? '; the corners at its ends have some' : endPlan ? '; work is planned at a corner at its end' : '';
-    // budget lines named for a bus route (build.sql, cip_route_lines) can't be matched to a street by name: said where buses run
-    // (only where the line's route runs on the street it's planned along: build.sql, route_line_map)
-    const rl = (meta.cip_route_lines || []).filter(x => x && x.route && (p.bus_routes || []).map(String).includes(x.route) && ` ${p.location} `.includes(` ${x.street} `))
-      .map(x => ` Money is budgeted ${x.y0 === x.y1 ? x.y0 : x.y0 + '–' + x.y1} for the ${esc(x.t)}, planned along ${niceName(x.street)} (route ${esc(x.route)} today); the budget doesn't say which blocks it changes, so it isn't counted here.`).join('');
+    // (now matched in the build as a budget line, like a street's: projects.sql route_line_map; said through cipTxt)
+    const rl = '';
     // a budget line matched only by the street's name: say so, not "planned" (the budget data doesn't say where on the street)
     const c0 = (p.cip || [])[0];
-    const cipTxt = c0 ? `a budget line is named for ${c0.s ? niceName(c0.s) : 'this street'} (“${c0.t}”, ${c0.y0 === c0.y1 ? c0.y0 : c0.y0 + '–' + c0.y1}); the budget data doesn't say whether it reaches this ${block ? 'block' : 'corner'}` : '';
+    const cipTxt = !c0 ? '' : c0.rt ? `money is budgeted ${c0.y0 === c0.y1 ? c0.y0 : c0.y0 + '–' + c0.y1} for the ${c0.t}, planned along ${niceName(c0.s)} (route ${c0.rt} today); the budget data doesn't say which blocks it changes`
+      : `a budget line is named for ${c0.s ? niceName(c0.s) : 'this street'} (“${c0.t}”, ${c0.y0 === c0.y1 ? c0.y0 : c0.y0 + '–' + c0.y1}); the budget data doesn't say whether it reaches this ${block ? 'block' : 'corner'}`;
     const s2 = p.state_route ? `WSDOT runs this place, so changes here are WSDOT's to make.`
       : w.cls === 'done' ? `SDOT has made safety changes here since ${since}${w.text.includes('Planned') ? ', and has more planned' : cipTxt ? `; ${cipTxt}` : ''}.`
       : w.budgetOnly && w.busNew ? `SDOT added a bus lane here in ${w.busNew}. SDOT's bus-lane data doesn't list other changes made with it, so this site doesn't count it as safety work. Apart from that, no work ${block ? 'on the block itself' : 'here'} since ${since}${endDone ? ' (the corners at its ends have some)' : ''}. ${cipTxt.replace(/^./, c => c.toUpperCase())}.`
@@ -4376,7 +4378,7 @@
         <div class="stat-grid pg-stats">
           <div class="stat"><b>${G.fixed.a.length}</b><span>got a fix before ${y0(C.d0)}</span></div>
           <div class="stat"><b>${G.during.a.length}</b><span>got their first fix in ${cmpSpan}</span></div>
-          <div class="stat"><b>${G.none.a.length}</b><span>had none of the fix types this site can date, before ${cmpEnd + 1}${((k, stS, stI) => k || stI ? ` (${[stI ? `${stI} of them intersections run by WSDOT, not SDOT` : '', k ? `${k} of them stretches of street${stS ? `, including ${stS} run by WSDOT, not SDOT` : ''}; most corridor work isn't among the fix types counted` : ''].filter(Boolean).join('; ')})` : '')(G.none.a.filter(x => x.t !== 'I').length, G.none.a.filter(x => x.state && x.t !== 'I').length, G.none.a.filter(x => x.state && x.t === 'I').length)}</span></div>
+          <div class="stat"><b>${G.none.a.length}</b><span>had none of the fix types this site can date, before ${cmpEnd + 1}${((k, stS, stI, nI, nS) => ` (${[`${G.none.a.length - k} of the ${nI} intersections${stI ? `, ${stI} of them run by WSDOT, not SDOT` : ''}`, nS ? `${k} of the ${nS} stretches of street${stS ? `, ${stS} of them run by WSDOT` : ''}: these fix types are mostly intersection work, and corridor projects aren't among them` : ''].filter(Boolean).join('; ')})`)(G.none.a.filter(x => x.t !== 'I').length, G.none.a.filter(x => x.state && x.t !== 'I').length, G.none.a.filter(x => x.state && x.t === 'I').length, L.filter(x => x.t === 'I').length, L.filter(x => x.t !== 'I').length)}</span></div>
           <div class="stat"><b>${still}</b><span>are in today's top ${TOP}</span></div>
         </div>
         ${(() => {
@@ -4446,7 +4448,8 @@
         <p class="lead">The ranking now covers crashes through <b>${throughMonth(M.d_now)}</b>. A month ago it went through
           ${throughMonth(M.d_before)}: each month the newest month of crash reports is added and the oldest drops off.
           Last month's ranks here are worked out again with today's method and today's copy of SDOT's data (late reports included),
-          so they can differ from the list this site published then.</p>
+          so they can differ from the list this site published then. A move up or down means a place's crash record changed a little
+          against places ranked near it (ranks this close can move with a single crash), not that it became that much more or less dangerous.</p>
         <div class="pg-grid">
           ${group(`New in the top ${TOP}`, ins, 'No changes.')}
           ${group(`Left the top ${TOP}`, outs, 'No changes.')}
@@ -4735,7 +4738,7 @@
         csv(`seattle-worst-${WN}-${pick}.csv`, [[`Streets First (Seattle), from SDOT's police-reported crash data and SDOT's published records; data as of ${asOf}`],
           [`Ranked on crashes from ${then}; compared with ${cmpSpan}. Intersections and stretches are ranked together in one list.`],
           [`Rank in ${pick} (crashes only)`, 'Type', 'Place', 'Council district', `All crashes ${then}`, `Killed or seriously hurt crashes ${then}`,
-          `Killed or seriously hurt crashes ${cmpSpan}`, 'Fix group', 'Fixes (year)', 'Rank today (crashes only)', 'Run by WSDOT', 'Link'],
+          `Killed or seriously hurt crashes ${cmpSpan}`, 'Fix group', 'Fixes (year)', 'Rank now (crashes only)', 'Run by WSDOT', 'Link'],
           ...Y.places.map(x => [x.r, typeWord(x.t), niceName(x.loc), x.d ? [x.d, x.d2].filter(Boolean).join(' and ') : '', x.c, x.ksi, x.ksi_cmp,
             fixedBy(x) ? `Fixed before ${y0(C.d0)}` : x.g === 'none' ? `No fix before ${cmpEnd + 1} in the SDOT data this site reads` : `First fix in ${cmpSpan}`,
             (x.fx || []).map(f => `${f.k} (${f.y}${f.y > cmpEnd ? ', after the comparison years' : ''})`).join('; '),
@@ -4974,15 +4977,16 @@
       ['Rank in this list', `Citywide rank (${sel('mode').selectedOptions[0].text.toLowerCase()})`, 'Type', 'Place', "SDOT's name (the two sides of a divided street merged)", 'Council district', 'Also in council district (on the line)', 'Area', 'Neighborhood', 'All crashes', 'Crashes that killed or seriously hurt someone',
        'Crashes that killed someone', 'People killed', 'People seriously injured', 'Run by WSDOT', 'SDOT work recorded or planned', 'Link',
        'Latitude', 'Longitude', 'SDOT intersection key (INTKEY, most crash reports)', 'Block length (ft, longest segment)',
-       'Expected harm', 'Score (expected harm)',
+       'Expected harm (the score)',
        'For how busy it is: expected harm per million vehicles (that ranking)', 'Vehicles a weekday (SDOT count; at a corner, its streets added)',
+       'Vehicles a weekday used in that rate (counts under the floor are raised to it)',
        'Count year (oldest of the streets)', 'Includes an SDOT estimate', 'Streets with a count'],
       ...all.map(p => [p.dr ?? (rows.includes(p) ? p.rank : ''), p.rank ?? '', p.addr_type === 'I' ? 'Intersection' : 'Stretch', p.name, p.location, p.council_district || '', p.council_district2 || '',
         p.area || '', p.neighborhood || '', p.crashes, p.ksi, p.fatal, p.killed, p.seriously_injured, p.state_route || '', workSummary(p).text,
         location.origin + location.pathname + '#p=' + keyOf(p.location),
         p.lat ?? '', p.lon ?? '', p.addr_type === 'I' ? p.intkey ?? '' : '', p.addr_type === 'I' ? '' : p.block_ft ?? '',
-        p.expected_harm ?? '', p.score_ksi ?? '',
-        p.score_risk ?? '', p.volume ?? '', p.volume_year ?? '', p.volume ? (p.volume_estimated ? 'yes' : 'no') : '', p.volume ? p.volume_streets ?? '' : ''])];
+        p.expected_harm ?? '',
+        p.score_risk ?? '', p.volume ?? '', p.volume ? Math.max(p.volume, weight('risk_vol_floor')) : '', p.volume_year ?? '', p.volume ? (p.volume_estimated ? 'yes' : 'no') : '', p.volume ? p.volume_streets ?? '' : ''])];
     // (with a byte-order mark, so Excel reads it as UTF-8 and shows "·" and "–" as written)
     const url = URL.createObjectURL(new Blob(['﻿' + lines.map(r => r.map(q).join(',')).join('\n')], { type: 'text/csv' }));
     const a = Object.assign(document.createElement('a'), { href: url, download: `streets-first-seattle${dist ? '-district-' + dist : ''}.csv` });
