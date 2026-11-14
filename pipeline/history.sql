@@ -146,7 +146,7 @@ f as (
 )
 select t.yr, t.rk as rank_then, t.location, t.crashes as crashes_then, t.ksi as ksi_then,
   r.rank_noboost as rank_now, r.state_route, r.structure,   -- rank today on crashes only, like the past years beside it
-  coalesce(r.lat, hp.lat) as lat, coalesce(r.lon, hp.lon) as lon, r.council_district as district,
+  coalesce(r.lat, hp.lat) as lat, coalesce(r.lon, hp.lon) as lon, r.council_district as district, r.council_district2 as district2,
   f.fixes,
   case when f.first_fix is null or f.first_fix >= w.c1 then 'none'
        when f.first_fix < t.d1 then 'then'
@@ -450,7 +450,7 @@ copy (
                 'ref': (select {'n': count(*), 'ksi': sum(w.ksi_then), 'ksi_cmp': sum(w.ksi_cmp)} from worst_then w
                         where w.yr = p.yr and w.rank_then between worst_n() + 1 and worst_ref_to()),
                 'places': (select list({'r': w.rank_then, 'loc': w.location, 'ksi': w.ksi_then, 'c': w.crashes_then,
-                                        'now': w.rank_now, 'ksi_cmp': w.ksi_cmp, 'c_cmp': w.crashes_cmp, 'd': w.district,
+                                        'now': w.rank_now, 'ksi_cmp': w.ksi_cmp, 'c_cmp': w.crashes_cmp, 'd': w.district, 'd2': w.district2,
                                         'state': w.state_route, 'g': w.fix_group, 'fx': w.fixes,
                                         -- a stretch's dated fixes at the corners at its ends since that year: listed, not counted as its own
                                         'ex': (select list(distinct {'k': f.k, 'y': f.y}) from block_ends e join place_fixes f on f.location = e.ix

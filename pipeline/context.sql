@@ -39,13 +39,14 @@ select try_cast(make_timestamp(f.properties.INSTALL_DATE::bigint * 1000) as date
 from (select unnest(features) f from read_json('data/raw/circles_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
--- Crosswalks: within 100 ft of an intersection, or along the block (its street line without the ends, 40 ft; the
+-- Crosswalks: within 100 ft of an intersection, or along the block (its street line without the ends, 40 ft, and only those SDOT marks mid-block; the
 -- crosswalks at its end corners belong to those intersections). Curb ramps: intersections.
 create or replace table loc_street_ctx as
 with cw as (
   select s.location, count(*) as n, count(*) filter (where c.midblock) as midblock, bool_or(c.school) as school,
          list(distinct c.control order by c.control) filter (where c.control is not null) as controls
   from loc_inner s join crosswalks c on ST_DWithin(s.geom, c.geom, case when s.r = 40 then near_block_ft() else near_ix_ft() end) and not on_structure(s.location)
+    and (s.r <> 40 or c.midblock)   -- on a block, only mid-block crosswalks (SDOT marks the ones at its end corners as not mid-block)
   group by s.location),
 rp as (
   select p.location, count(*) as n, count(*) filter (where r.cond in ('POOR', 'VERY-POOR')) as poor

@@ -68,6 +68,8 @@ create or replace macro near_ix_ft() as 100;        -- "nearby" an intersection:
 create or replace macro near_block_ft() as 40;      -- "nearby" a block: within this of its street line
 create or replace macro near_light_ft() as 75;      -- a streetlight along a block: poles stand at the curb, up to half a wide street from its center line
 create or replace macro school_ft() as 1000;        -- the nearest public school is shown within this
+create or replace macro vol_ft() as 300;          -- a street's traffic count: the nearest SDOT count on it within this,
+create or replace macro vol_near_ft() as 100;     --   or the newest within this (counts at one corner are drawn tens of feet apart)
 create or replace macro merge_dlat() as 0.00055;    -- the two sides of a divided street merge within this (degrees of
 create or replace macro merge_dlon() as 0.0008;     --   latitude and longitude: about 60 m each way)
 create or replace macro hist_from_year() as 2018;   -- past rankings: 1 January of each year from this one
@@ -325,11 +327,13 @@ from volumes where street is not null;
 create or replace table loc_volume as
 with nearest as (
   select n.location, n.name,
-         -- ties (within 5 ft: counts on one block are drawn a hair apart): the newest count
+         -- within 100 ft (counts at one corner are drawn tens of feet apart): the newest count, then the nearest
+         -- (a few feet shouldn't beat years: a 2019 count 28 ft away over a 2024 one 35 ft away)
          arg_min({'awdt': v.awdt, 'yr': v.count_year, 'est': v.quality = 'Estimate'},
-                 {'d': round(ST_Distance(p.geom, v.geom) / 5), 'y': -v.count_year, 'a': v.awdt}) as hit
+                 {'d': case when ST_Distance(p.geom, v.geom) <= vol_near_ft() then 0 else round(ST_Distance(p.geom, v.geom) / 5) end,
+                  'y': -coalesce(v.count_year, 0), 'd2': ST_Distance(p.geom, v.geom), 'a': v.awdt}) as hit
   from loc_names n join loc_pts p using (location)
-  join volumes_named v on v.street = n.name and v.awdt is not null and ST_DWithin(p.geom, v.geom, 300)
+  join volumes_named v on v.street = n.name and v.awdt is not null and ST_DWithin(p.geom, v.geom, vol_ft())
   group by n.location, n.name
 )
 select location, sum(hit.awdt)::int as volume, count(*) as volume_streets,
@@ -899,8 +903,14 @@ create or replace table spot_export as
          sw_missing_tier, sw_poor_ft, sw_poor_assessed, proj_ids, side_ids, proj_planned, cip, signal_installed,
          crosswalks, crosswalks_midblock, crosswalk_school, crosswalk_controls, curb_ramps, curb_ramps_poor, bike_facilities, lights_out, lights_out_major,
          school, school_ft, walk_zones, rse_quintile, rse_year, council_district, council_district2, council_member, council_url, before_after,
-         rank_years, rank_month_ago, rank_year_ago
-  from ranked left join place_history using (location) left join end_fixes using (location) left join end_planned using (location);
+         rank_years, rank_month_ago, rank_year_ago, merged
+  from ranked left join place_history using (location) left join end_fixes using (location) left join end_planned using (location)
+  -- a place made of SDOT intersections on each side of a divided street: SDOT's names and their crashes in the years shown
+  left join (select location, list({'name': sdot_location, 'n': n} order by n desc, sdot_location) as merged
+             from (select location, sdot_location, count(*) as n
+                   from collisions where location in (select location from loc_merge where raw <> location)
+                     and date >= ws() and date < we() group by location, sdot_location)
+             group by location having count(*) > 1) using (location);
 
 copy (
   select * from spot_export where location in (select location from export_set()) order by rank
@@ -1171,7 +1181,7 @@ copy (
     -- The settings at the top of this file, for the page's text: it reads them from here rather than typing them in.
     {'window_months': window_months(), 'window_years': window_years(), 'lag_months': lag_months(), 'top_n': top_n(),
      'list_n': list_n(), 'busy_min_crashes': busy_min_crashes(), 'near_ix_ft': near_ix_ft(), 'near_block_ft': near_block_ft(), 'near_light_ft': near_light_ft(), 'station_area_ft': station_area_ft(),
-     'school_ft': school_ft(), 'merge_ft': round(merge_dlat() * 111320 / 0.3048, -1)::int, 'hist_from_year': hist_from_year(),
+     'school_ft': school_ft(), 'vol_near_ft': vol_near_ft(), 'vol_ft': vol_ft(), 'merge_ft': round(merge_dlat() * 111320 / 0.3048, -1)::int, 'hist_from_year': hist_from_year(),
      'worst_n': worst_n(), 'worst_ref_to': worst_ref_to(), 'recent_fix_days': recent_fix_days(), 'ba_min_days': ba_min_days(),
      'ba_max_days': ba_max_days(), 'inc_min_crashes': inc_min_crashes(), 'inc_min_days': inc_min_days(), 'wide_n': wide_n(),
      'cmp_lag_months': cmp_lag_months(), 'move_min': move_min(), 'print_cip_n': print_cip_n(), 'no_drop_skip': no_drop_skip(), 'street_min_mi': street_min_mi(), 'chg_min': chg_min(), 'ask_up_min': ask_up_min(), 'ba_few_dates': ba_few_dates(), 'ba_cluster_dates': ba_cluster_dates(), 'bus_min_mi': bus_min_mi(),
