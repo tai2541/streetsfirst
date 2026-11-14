@@ -53,7 +53,7 @@
     {
       "id": "sidewalk-repair-owner",
       "what": "In Seattle, adjacent property owners are responsible for sidewalk repair",
-      "says": ["adjacent property is often responsible for sidewalk repair"],
+      "says": ["adjacent property is generally responsible for sidewalk repair"],
       "source": "https://www.seattle.gov/transportation/projects-and-programs/programs/maintenance-and-paving/sidewalk-repair-program",
       "expect": ["adjacent property owners keep their sidewalk", "repairs to the sidewalks"]
     }
