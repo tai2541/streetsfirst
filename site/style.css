@@ -1143,4 +1143,6 @@ td.nowrap .sub2 { white-space: normal; max-width: 7em; }
 @media (min-width: 761px) {
   main.cover #detail { left: 16px; right: auto; width: calc(var(--panel-w, 416px) - 16px) !important; z-index: 1200; }
   main.cover #panelEdge, main.cover #expandDetail { display: none; }
+  /* nothing open in a narrow window: the overview steps aside so the map has room beside the list */
+  main.tight #detail.home:not(.place) { display: none; }
 }

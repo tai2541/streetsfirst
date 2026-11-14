@@ -108,6 +108,7 @@
       .replace(/\bSr (\d)/g, 'SR $1')
       .replace(/\bWy\b/g, 'Way').replace(/\bBr\b/g, 'Bridge')
       .replace(/\b(On|Off)-[Rr]amp\b/g, m => m.toLowerCase()).replace(/\bRamp\b/g, 'ramp')
+      .replace(/\((North|South|East|West) Crossing\)/g, m => m.toLowerCase())
       .replace(/\((\w+bound)\)/gi, (m, d) => '(' + d.toLowerCase() + ')').replace(/\b(Northbound|Southbound|Eastbound|Westbound)\b/g, m => m.toLowerCase())
       .replace(/\b(?:M|Martin) ?[Ll] King Jr (?:[A-Z][a-z] )?(?:([NS]) )?Way\b/g, (m, d) => 'Martin Luther King Jr Way' + (d ? ' (' + d + ')' : ''));
     return t;
@@ -638,7 +639,7 @@
     // (the part that decides it: a planned project, else a budget line, else "nothing planned"; corner work never decides it)
     // (both a plan and a budget line when there are both)
     const rest = parts.slice(plan0), plans = rest.filter(x => /^Planned here|^Money budgeted/.test(x)),
-      planParts = plans.length ? plans : rest.filter(x => /^nothing/.test(x)).slice(0, 1);
+      planParts = plans.length ? plans : rest.filter(x => /^(nothing|no (other )?project on the SDOT maps)/.test(x)).slice(0, 1);
     // ...and a recent bus lane or work in place with no date, so a card never reads as if nothing is there when the page
     // says otherwise
     // (and work planned at a block's end corners, which "nothing else planned" refers to, and older work, so a card never
@@ -1150,7 +1151,8 @@
   const DEFAULT_COLLAPSED = { math: true };
   let collapsed = { ...DEFAULT_COLLAPSED }, collapsedFor = null;
   try { localStorage.removeItem('ipm.collapsed'); } catch { /* ignore */ }
-  const widths = store.get('widths', { normal: 440, expanded: null });
+  const DETAIL_W0 = 440;   // the details panel's default width (the narrow-window test uses it, whatever width someone set)
+  const widths = store.get('widths', { normal: DETAIL_W0, expanded: null });
   let expanded = store.get('expanded', false);
   let renderGraphs = () => {};
   // Redraw the graphs to fit when the detail panel is resized or widened.
@@ -1165,7 +1167,7 @@
   const pickLine = (t, fly) => (spotOpen() && tSel === t ? closeDetail(true) : selectTraffic(t, fly));
   // The part of the map not under the floating list.
   // the width the details panel takes from the map (none while it covers the list)
-  function detW() { const d = document.getElementById("detail"); return document.querySelector("main").classList.contains("cover") ? 0 : d.offsetWidth; }
+  function detW() { const d = document.getElementById("detail"); const m = document.querySelector("main").classList; return m.contains("cover") || (m.contains("tight") && d.classList.contains("home") && !d.classList.contains("place")) ? 0 : d.offsetWidth; }
   const mapW = () => (document.getElementById('map').offsetWidth || window.innerWidth) - leftPad();
   const maxW = () => Math.max(340, mapW() - 90);
   const defaultExpanded = () => Math.max(800, Math.round(mapW() * 0.66));
@@ -1209,10 +1211,13 @@
     // covers the list (the list is back when it closes), and the list can't be reached by Tab behind it.
     // (the width it would have beside the list, as just set: the cover's own CSS narrows it, and measuring that flipped it back;
     // an address card, "home place", covers like a place)
-    const cover = !split && !detailEl.hidden && (!detailEl.classList.contains('home') || detailEl.classList.contains('place'))
-      && mapW() - (parseFloat(detailEl.style.width) || detailEl.offsetWidth) < 300;
+    // (only a narrow window: decided from the default width, so details someone widened or dragged on a wide screen never cover)
+    const tight = mapW() - DETAIL_W0 < 300;
+    const cover = !split && !detailEl.hidden && (!detailEl.classList.contains('home') || detailEl.classList.contains('place')) && tight;
+    // with nothing open, the overview steps aside in a narrow window (it left the map a sliver beside the list)
+    mainEl.classList.toggle('tight', tight && detailEl.classList.contains('home') && !detailEl.classList.contains('place'));
     mainEl.classList.toggle('cover', cover); panelEl.inert = cover;
-    mainEl.style.setProperty('--detail-w', (detailEl.hidden || cover ? 0 : detailEl.offsetWidth) + 'px');
+    mainEl.style.setProperty('--detail-w', (detailEl.hidden || cover || mainEl.classList.contains('tight') ? 0 : detailEl.offsetWidth) + 'px');
     sheetFit();
     const b = document.getElementById('expandDetail');
     // Same control as the list's edge tab: the arrow points the way the edge will move.
@@ -1853,7 +1858,9 @@
     // (SDOT's signal records: at least one signal here has a push button with sound and vibration)
     if (p.signalized && p.ped_audio) items.push('Accessible pedestrian signal (a push button with sound and vibration) at one or more crossings here, in SDOT\'s signal data.');
     (p.fixes || []).forEach(f => {
-      if (f.s !== 'Built') items.push(`${esc(f.k)} <b>${esc(f.s.toLowerCase())}</b>.`);
+      // (an "under construction" record more than two years old: said with its date, and that it isn't counted as planned)
+      if (f.s === 'Under construction' && f.d && +f.d.slice(0, 4) < +meta.window_to.slice(0, 4) - 2) items.push(`${esc(f.k)}: listed as <b>under construction</b> in SDOT's records since ${fixDate(f.d)} <span class="muted">(not counted as planned)</span>.`);
+      else if (f.s !== 'Built') items.push(`${esc(f.k)} <b>${esc(f.s.toLowerCase())}</b>.`);
       else items.push(`<b>${esc(f.k)}</b>${f.n > 1 ? ` (${f.n})` : ''}${f.d ? (f.u ? ` (one section dated ${fixDate(f.d)}; SDOT gives no date for the rest)` : ' since ' + fixDate(f.d)) : ''}${f.d1 ? `, newest section ${fixDate(f.d1)}` : ''}.`);
     });
     endPlanned(p).forEach(e => items.push(`At the corner with ${esc(niceName(e.at))}: ${esc(e.ks.join(', '))} <b>planned</b> <span class="muted">(at the end of this block, so not counted as its own work)</span>.`));
@@ -2054,15 +2061,16 @@
     const cipTxt = (p.cip || []).map(cipOne).join('; ');
     const s2 = p.state_route ? `WSDOT runs this place, so changes here are WSDOT's to make.`
       : w.cls === 'done' ? `SDOT has made safety changes here since ${since}${w.text.includes('Planned') ? ', and has more planned' : cipTxt ? `; ${cipTxt}` : ''}.`
-      : w.budgetOnly && w.busNew ? `${w.busSaid}. Bus lanes often come with other safety changes, but SDOT's bus-lane data doesn't list them, so this site doesn't count it as safety work. Apart from that, no work ${block ? 'on the block itself' : 'here'} since ${since} in the SDOT data this site reads${endDone ? ' (the corners at its ends have some)' : ''}. ${cipTxt.replace(/^./, c => c.toUpperCase())}.`
-      : w.budgetOnly ? `Nothing built ${block ? 'on the block itself' : 'here'} since ${since} in the SDOT data this site reads${endDone ? ' (the corners at its ends have some)' : ''}${endPlan ? (endDone ? '; work is planned at a corner at its end' : ' (work is planned at a corner at its end)') : ''}. ${cipTxt.replace(/^./, c => c.toUpperCase())}.`
+      : w.budgetOnly && w.busNew ? `${w.busSaid}. Bus lanes often come with other safety changes, but SDOT's bus-lane data doesn't list them, so this site doesn't count it as safety work. Apart from that, no work ${block ? 'on the block itself' : 'here'} since ${since}${endDone ? ' (the corners at its ends have some)' : ''}, in the SDOT data this site reads. ${cipTxt.replace(/^./, c => c.toUpperCase())}.`
+      : w.budgetOnly ? `Nothing built ${block ? 'on the block itself' : 'here'} since ${since}${endDone ? ' (the corners at its ends have some)' : ''}${endPlan ? (endDone ? '; work is planned at a corner at its end' : ' (work is planned at a corner at its end)') : ''}, in the SDOT data this site reads. ${cipTxt.replace(/^./, c => c.toUpperCase())}.`
       // (SDOT's bus-lane layer lists the lane only: other changes built with it, like crossings, aren't in it)
       : w.busNew ? `${w.busSaid}. Bus lanes often come with other safety changes, but SDOT's bus-lane data doesn't list them, so this site doesn't count it as safety work. Apart from that, no work ${block ? 'on the block itself' : 'here'} since ${since}${w.cls === 'planned' ? ' in the SDOT data this site reads, but SDOT has work planned or budgeted' : ` and none planned, in the SDOT data this site reads${corner}`}.`
-      : w.cls === 'planned' ? `Nothing built ${block ? 'on the block itself' : 'here'} since ${since} in the SDOT data this site reads${endDone ? ' (the corners at its ends have some)' : ''}, but SDOT has work planned or budgeted.`
+      : w.cls === 'planned' ? `Nothing built ${block ? 'on the block itself' : 'here'} since ${since}${endDone ? ' (the corners at its ends have some)' : ''}, in the SDOT data this site reads, but SDOT has work planned or budgeted.`
       : `No safety work ${block ? 'on the block itself' : 'here'} since ${since}, when these crash counts start${w.olderTxt ? ` (earlier: ${w.olderTxt})` : ''}, and none planned, in the SDOT data this site reads${corner}.`;
     // the first SDOT a reader meets on a place's page says what it is
     // the first SDOT the summary names says what it is, wherever it comes in the sentence
-    const gloss = t => { const m = t.match(/in the SDOT data this site reads|SDOT's data|SDOT\b(?!')/); if (!m) return t;
+    // (\b: not the SDOT inside "WSDOT", the state's department)
+    const gloss = t => { const m = t.match(/in the SDOT data this site reads|\bSDOT's data|\bSDOT\b(?!')/); if (!m) return t;
       return t.slice(0, m.index) + (m[0] === 'in the SDOT data this site reads' ? "in the data this site reads from SDOT, the City's transportation department"
         : m[0] === "SDOT's data" ? "the data of SDOT (the City's transportation department)" : "SDOT (the City's transportation department)") + t.slice(m.index + m[0].length); };
     return `<p class="inshort"><b>In short:</b> ${esc(s1)} ${esc(gloss(s2))}${rl}</p>`;   // (the R Line, whatever SDOT has done here)
@@ -3557,7 +3565,7 @@
         <div class="where">${esc(TMODES.bus.sub(s))} · ${copyLoc(stretchName(s))}</div>
         <p class="verdict">${Math.round(100 * s.slower) ? `${hourSpan(s).replace(/^./, c => c.toUpperCase())} on a weekday, the timetable gives ${s.routes.length > 1 && s.rt ? `its busiest route here, ${esc(rtName(s.rt))},` : 'buses'} <b>${s.peak} minutes</b> for this
           ${s.mi}-mile stretch, compared with ${s.base} minutes in its quickest hours (often late night or early morning, when traffic is lightest): <b>${Math.round(100 * s.slower)}% slower</b>.`
-          : `On a weekday, the timetable gives ${s.routes.length > 1 && s.rt ? `its busiest route here, ${esc(rtName(s.rt))},` : 'buses'} <b>${s.peak} minutes</b> for this ${s.mi}-mile stretch: <b>hardly any slower</b> at its slowest hours.`}
+          : `On a weekday, the timetable gives ${s.routes.length > 1 && s.rt ? `its busiest route here, ${esc(rtName(s.rt))},` : 'buses'} <b>${s.peak} minutes</b> for this ${s.mi}-mile stretch: <b>hardly any slower</b> at its slowest hours${s.routes.length > 1 && s.rt ? ` (the other routes here may slow more)` : ''}.`}
           ${fmt(s.trips)} buses run it each weekday; together they lose ${s.lost < 0.5 ? '' : 'about '}<b>${lostTxt(s.lost)} a day</b> here.
           <span class="muted">(Counted: the routes Metro times at both of these stops; other buses on this street, timed at other stops, aren't in these numbers.)</span></p>
         <div class="stat-grid">
@@ -4054,9 +4062,10 @@
           harm: at a spot with few crashes, most of it is replaced by the typical rate. That's why places where ${DEATHS} or more people
           died are also listed separately, whatever their rank.</li>
         <li><b>Expected harm.</b> With only a few crashes, a spot's share of crashes that killed or seriously hurt someone can make it look much more or much less dangerous than it really is. So its fatal/serious harm is blended
-          with the typical rate for similar spots (same kind of location, intersection or stretch, and the same street class:
-          an intersection takes the highest class of the streets meeting there, a stretch its own street's class, and state routes
-          and freeways are a class of their own), weighted by its crash count:
+          with the typical rate for similar spots (same kind of location, intersection or stretch, and the same SDOT street class:
+          a stretch takes its own street's class, an intersection the first of its streets' classes in the order principal arterial,
+          minor arterial, collector, state route or freeway, neighborhood street; SDOT classes most of SR 99, the Aurora Bridge
+          included, as a principal arterial), weighted by its crash count:
           its own fatal/serious points × crashes ÷ (crashes + ${A}) + the typical points per crash × its crashes × ${A} ÷ (crashes + ${A}). A spot with 5 crashes leans ${Math.round(100 * A / (5 + A))}% on the typical
           rate; one with 60 leans ${Math.round(100 * 60 / (60 + A))}% on its own record. Every crash, even a fender-bender,
           is evidence of how much conflict happens there. (This borrows the idea of empirical Bayes that traffic engineers use, in a simpler form: it blends only the share of crashes that kill or seriously hurt, not the number of crashes, and ${A} is a chosen number, not estimated from the data. The Highway Safety Manual's method blends a place's crash count with a model of similar places.)${bmax > 0 ? '' : ' The result is the "harm score" shown on the list and on each place.'} Places with equal scores are ordered by more crashes first, then by SDOT's name, A to Z.</li>
