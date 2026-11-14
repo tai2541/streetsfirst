@@ -98,7 +98,10 @@ where f.geometry is not null;
 -- (at worst, the district shows without a name for a few days).
 create or replace table council_now as
 select lower(trim(OfficeRecordFullName)) as n, trim(OfficeRecordFullName) as full_name,
-       try_cast(OfficeRecordStartDate as timestamp)::date as started
+       try_cast(OfficeRecordStartDate as timestamp)::date as started,
+       -- a seat ending off the regular Dec 31 term end (an appointment until an election is certified): the page says until when
+       case when month(try_cast(OfficeRecordEndDate as timestamp)) * 100 + day(try_cast(OfficeRecordEndDate as timestamp)) <> 1231
+            then try_cast(OfficeRecordEndDate as timestamp)::date end as until
 from read_json('data/raw/legistar_council.json', columns = {'OfficeRecordFullName': 'VARCHAR', 'OfficeRecordEndDate': 'VARCHAR', 'OfficeRecordStartDate': 'VARCHAR'})
 where OfficeRecordEndDate is null or try_cast(OfficeRecordEndDate as timestamp) is null
    or try_cast(OfficeRecordEndDate as timestamp) >= current_date + interval 7 day;
@@ -108,6 +111,7 @@ select f.properties.C_DISTRICT::int as district,
             then f.properties.Name end as member,
        -- in office since: the start of the City Clerk's current record for them (one record covers a continuous stint)
        (select min(started) from council_now where n = lower(trim(f.properties.Name))) as since,
+       (select max(until) from council_now where n = lower(trim(f.properties.Name))) as until,
        -- the district map's link, when it is a council page (one district's has been a stray file link); else the council's own page
        case when regexp_matches(f.properties.Website, '^https://(www\.)?seattle\.gov/council/[a-z]')
             then f.properties.Website else 'https://www.seattle.gov/council' end as url, gj_geom(f.geometry) as geom

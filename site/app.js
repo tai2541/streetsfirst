@@ -101,7 +101,7 @@
       .replace(/\bWy\b/g, 'Way').replace(/\bBr\b/g, 'Bridge')
       .replace(/\b(On|Off)-[Rr]amp\b/g, m => m.toLowerCase()).replace(/\bRamp\b/g, 'ramp')
       .replace(/\((\w+bound)\)/gi, (m, d) => '(' + d.toLowerCase() + ')').replace(/\b(Northbound|Southbound|Eastbound|Westbound)\b/g, m => m.toLowerCase())
-      .replace(/\bM L King Jr (?:[A-Z][a-z] )?(?:([NS]) )?Way\b/g, (m, d) => 'Martin Luther King Jr Way' + (d ? ' (' + d + ')' : ''));
+      .replace(/\bM ?[Ll] King Jr (?:[A-Z][a-z] )?(?:([NS]) )?Way\b/g, (m, d) => 'Martin Luther King Jr Way' + (d ? ' (' + d + ')' : ''));
     return t;
   }
   // Plain street names (addresses.sql): a SDOT name with a roadway code ("N 107TH S ST", "BEACON WR AVE S") is shown
@@ -112,9 +112,13 @@
     return plainNames.keep.has(s) ? null : plainNames.parts; };
   // A name that keeps a roadway code (it would match another without it) says the roadway in words instead:
   // "S GENESEE S ST" -> "S Genesee St (south roadway)". The same pattern the build reads (addresses.sql, plain_parts).
-  const ROADWAY = { WR: 'west', ER: 'east', NR: 'north', SR: 'south', W: 'west', E: 'east', N: 'north', S: 'south' };
-  const roadwayRe = /^(\S.*) (WR|ER|NR|SR|N|S|E|W) (ST|AVE|AV|WAY|WY|PL|DR|RD|BLVD|CT|LN|TER|PKWY|CIR|LOOP)( (?:N|S|E|W|NE|NW|SE|SW))?$/;
-  const roadwayPart = u => { const r = u.trim().match(roadwayRe); return r ? nicePart0(`${r[1]} ${r[3]}${r[4] || ''}`) + ` (${ROADWAY[r[2]]} roadway)` : nicePart0(u); };
+  // Every code is put in words: two-letter codes are roadways, one letter a part of the street ("MERCER S SR ST" ->
+  // "Mercer St (south part, south roadway)"), so two places SDOT tells apart never read the same.
+  const ROADWAY = { WR: 'west roadway', ER: 'east roadway', NR: 'north roadway', SR: 'south roadway', CR: 'center roadway',
+                    W: 'west part', E: 'east part', N: 'north part', S: 'south part' };
+  const roadwayRe = /^(\S.*?)((?: (?:WR|ER|NR|SR|CR|N|S|E|W))+) (ST|AVE|AV|WAY|WY|PL|DR|RD|BLVD|BV|CT|LN|TER|PKWY|CIR|LOOP)( (?:N|S|E|W|NE|NW|SE|SW))?$/;
+  const roadwayPart = u => { const r = u.trim().match(roadwayRe);
+    return r ? nicePart0(`${r[1]} ${r[3]}${r[4] || ''}`) + ` (${r[2].trim().split(' ').map(c => ROADWAY[c]).join(', ')})` : nicePart0(u); };
   // the name as SDOT writes it, when the page shows it differently (else '')
   const sdotSpelling = s => { const m = plainOf(s) || {};
     return s.split(/ BETWEEN | AND /).map(u => u.trim()).some(u => Object.hasOwn(m, u) || roadwayRe.test(u) || / ?ALASKAN WY VI /.test(` ${u} `)) ? s : ''; };
@@ -176,13 +180,13 @@
     ['Curb ramp or accessibility barrier', 'https://www.seattle.gov/transportation/projects-and-programs/programs/ada-program/make-an-ada-request', 'SDOT ADA request'],
     ['Something else', 'https://seattle-cwiprod.motorolasolutions.com/cwi/select', 'Full list of City request types']
   ];
-  const resItem = ([t, u, w]) => `<li><a class="res-link" href="${u}" target="_blank" rel="noopener">${t} ↗</a><span>${w}</span></li>`;
+  const resItem = ([t, u, w]) => `<li><a class="res-link" href="${u}" target="_blank" rel="noopener">${t} <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a><span>${w}</span></li>`;
   const resourceList = () => `<ul class="res-list">${RESOURCES.map(([t, u, w]) =>
-    `<li><a class="res-link" href="${u}" target="_blank" rel="noopener">${t} ↗</a><span>${w}</span></li>`).join('')}</ul>
+    `<li><a class="res-link" href="${u}" target="_blank" rel="noopener">${t} <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a><span>${w}</span></li>`).join('')}</ul>
     <p class="res-more"><b>Street flooding or a sewer backup right now?</b> Call Seattle Public Utilities, 24/7: <a href="tel:+12063861800">(206) 386-1800</a>.
       Danger to life: call 911.<br>Not sure? Call the City at <a href="tel:+12066842489">(206) 684-2489</a> (weekdays 8 to 5),
-      use the <a href="https://www.seattle.gov/customer-service-bureau/find-it-fix-it-mobile-app" target="_blank" rel="noopener">Find It, Fix It app ↗</a>,
-      or see <a href="${REPORT_URL}" target="_blank" rel="noopener">all popular services ↗</a>.</p>`;
+      use the <a href="https://www.seattle.gov/customer-service-bureau/find-it-fix-it-mobile-app" target="_blank" rel="noopener">Find It, Fix It app <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>,
+      or see <a href="${REPORT_URL}" target="_blank" rel="noopener">all popular services <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>.</p>`;
   // The City's forms can't be pre-filled from a link (they only read the request type), so opening one copies the spot instead.
   const reportBox = place => `<div class="report" data-loc="${esc(place)}">
       <div><b>See a problem here?</b> Reports are how problems get on the City's repair list. Opening a form also copies
@@ -216,15 +220,17 @@
   // Capitals at the start of each word only ("Int'l", not "Int'L"); K-8 stays as written.
   const schoolName = n => String(n).toLowerCase().replace(/(^|[\s-])\w/g, c => c.toUpperCase()).replace(/\bK-8\b/i, 'K-8');
   // ", in office since Nov 2025": from the City Clerk's records (Legistar), fetched weekly
-  const sinceTxt = d => d ? `, in office since ${monthYear(d.slice(0, 10))}` : '';
+  // (a seat ending off the regular term end, e.g. an appointment until an election is certified, says until when)
+  const untilTxt = u => u ? `, until ${new Date(u.slice(0, 10) + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : '';
+  const sinceTxt = (d, u) => d ? `, in office since ${monthYear(d.slice(0, 10))}${untilTxt(u)}` : '';
   // The council member for a place, the City's equity index (spots only), and a print button.
   function civicBox(c, rse) {
     if (!c) return '';
     return `<div class="civic">
       <div><b>Bigger fixes</b> (redesigns, signals, sidewalks) are paid for through the City budget, which the City Council
         votes on. SDOT itself is a City department, so it answers to the Mayor (the Mayor directs and controls all City offices and departments).
-        The council member for this district: <b>${esc(c.member || '—')}</b> (District ${c.d}${sinceTxt(c.since)})${c.url
-          ? (/^https:\/\//.test(c.url) ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">Their page ↗</a>` : '') : ''}.${(CTX.citywide || []).length ? ` Citywide council member${CTX.citywide.length === 1 ? '' : 's'} (elected by the whole city): ${CTX.citywide.map(x => typeof x === 'string' ? esc(x) : esc(x.n) + (x.since ? ` (${sinceTxt(x.since).slice(2)})` : '')).join(' and ')}.` : ''}${c.d2 ? ` This place is on the line between District ${c.d} and District ${c.d2}
+        The council member for this district: <b>${esc(c.member || '—')}</b> (District ${c.d}${sinceTxt(c.since, c.until)})${c.url
+          ? (/^https:\/\//.test(c.url) ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">Their page <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>` : '') : ''}.${(CTX.citywide || []).length ? ` Citywide council member${CTX.citywide.length === 1 ? '' : 's'} (elected by the whole city): ${CTX.citywide.map(x => typeof x === 'string' ? esc(x) : esc(x.n) + (x.since ? ` (${sinceTxt(x.since).slice(2)})` : '')).join(' and ')}.` : ''}${c.d2 ? ` This place is on the line between District ${c.d} and District ${c.d2}
         (the boundary runs along or across it), so it's listed and counted in both districts: added up, the district totals come to more than the citywide total.` : ''}
         <a href="#progress=d${c.d}">Is it getting fixed in District ${c.d}?</a></div>
       ${rse && rse.q ? `<div class="note">How the City ranks this neighborhood for investment (its Race and Social Equity Index, by census tract): <b>${esc(({ 'Highest Equity Priority': 'highest equity priority',
@@ -313,7 +319,7 @@
   const copyLoc = place => `<button type="button" class="linkbtn copyloc" data-loc="${esc(place)}">Copy this location</button>`;
   document.addEventListener('click', e => {
     const b = e.target.closest && e.target.closest('.copyloc'); if (!b) return;
-    const done = () => { b.textContent = 'Location copied'; setTimeout(() => (b.textContent = 'Copy this location'), 1800); };
+    const done = () => { b.textContent = 'Location copied'; say('Location copied'); setTimeout(() => (b.textContent = 'Copy this location'), 1800); };
     if (navigator.clipboard) navigator.clipboard.writeText(b.dataset.loc + ', Seattle').then(done, () => prompt('Copy this location:', b.dataset.loc));
     else prompt('Copy this location:', b.dataset.loc);
   });
@@ -2039,7 +2045,7 @@
     document.getElementById('detailBody').innerHTML = `
       <div class="dhead">
         ${p.neighborhood ? `<div class="where">${esc(p.neighborhood)}${p.area && p.area !== p.neighborhood ? ` <span class="muted">· ${esc(p.area)}</span>` : ''}</div>` : ''}
-        <div class="note">${kind} · <a href="${sv}" target="_blank" rel="noopener">Street View ↗</a> ·
+        <div class="note">${kind} · <a href="${sv}" target="_blank" rel="noopener">Street View <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a> ·
           <span class="nowrap"><button type="button" class="linkbtn" id="copyLink">${canShare() ? 'Share' : 'Copy link'}</button> · ${copyLoc(p.name)}</span></div>
         ${sdotSpelling(p.location) ? `<div class="note">SDOT's name: ${esc(p.location)} (it names each side of a divided street separately)</div>` : ''}
         ${verdict(p, det0)}
@@ -2060,7 +2066,7 @@
         ${whyRank(p)}
         <div class="chips dchips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</div>
         ${reportBox(p.name)}
-        ${civicBox(p.council_district ? { d: p.council_district, member: p.council_member, url: p.council_url, d2: p.council_district2, since: ((CTX.council || []).find(x => String(x.d) === String(p.council_district) && x.member === p.council_member) || {}).since } : councilAt(p.lat, p.lon),
+        ${civicBox(p.council_district ? { d: p.council_district, member: p.council_member, url: p.council_url, d2: p.council_district2, ...(({ since, until }) => ({ since, until }))((CTX.council || []).find(x => String(x.d) === String(p.council_district) && x.member === p.council_member) || {}) } : councilAt(p.lat, p.lon),
                    { q: p.rse_quintile, y: p.rse_year })}
       </div>
       <div id="graphs" class="graphs"></div>
@@ -2238,7 +2244,7 @@
       <div class="dhead">
         ${s.hood ? `<div class="where">${esc(s.hood)}${s.area && s.area !== s.hood ? ` <span class="muted">· ${esc(s.area)}</span>` : ''}</div>` : ''}
         <div class="note">${{ I: 'Intersection', B: 'Stretch between intersections', A: 'Alley' }[s.type] || 'Location'} ·
-          <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${s.lat},${s.lon}" target="_blank" rel="noopener">Street View ↗</a> · ${copyLoc(niceName(s.name))}</div>
+          <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${s.lat},${s.lon}" target="_blank" rel="noopener">Street View <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a> · ${copyLoc(niceName(s.name))}</div>
         ${reportBox(niceName(s.name))}
         <p class="verdict">${plural(s.crashes, 'crash', 'crashes')} from ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}${s.ksi ? `; ${s.ksi} killed or seriously injured someone` : ''}${s.pb ? `; ${s.pb} involved people walking or biking` : ''}.</p>
         <p class="verdict2">Ranks <b>#${fmt(s.rank)}</b> of ${fmt(kindCount(s.rank))} places with crashes (${topShare(s.rank)}).</p>
@@ -2271,6 +2277,8 @@
   let syncing = false, backPending = false, backQ = [], backTimer = null, shownHash = '';
   const here = url => new URL(url, location.href).href;
   function whenSettled(fn) { if (syncing) return; if (backPending) backQ.push(fn); else fn(); }
+  // a step that leaves history alone (what opens next adds its entry on top of the current one)
+  function quietly(fn) { const was = syncing; syncing = true; try { fn(); } finally { syncing = was; } }
   function backDone() { clearTimeout(backTimer); backPending = false; const q = backQ; backQ = []; q.forEach(f => f()); }
   function pushEntry(state, url) {
     whenSettled(() => {
@@ -2907,7 +2915,7 @@
   // The pin's buttons, in the details panel (the bottom sheet on phones).
   function pinActions(g) {
     return g.preview
-      ? `<div class="pin-actions"><button type="button" class="report-btn pin-add">📍 Add to my pins</button>
+      ? `<div class="pin-actions"><button type="button" class="report-btn pin-add"><span aria-hidden="true">📍</span> Add to my pins</button>
           <button type="button" class="linkbtn pin-copy">${g.school ? 'Copy name' : 'Copy address'}</button>
           <button type="button" class="linkbtn pin-dismiss">Clear</button></div>`
       : `<div class="pin-actions"><button type="button" class="linkbtn pin-copy">${g.school ? 'Copy name' : 'Copy address'}</button>
@@ -3033,7 +3041,10 @@
     if (!cur) void el.offsetWidth;   // first one: start the slide from below
     el.classList.add('open'); el.querySelector('.bs-body').scrollTop = 0;
     document.body.classList.add('sheet-open');
-    if (isNarrow()) [panelEl, detailEl, document.getElementById('map')].forEach(x => (x.inert = true));
+    // what opened it gets focus back when it closes (a place's "Is it getting fixed in District 5?" link, a tab)
+    if (!cur) { const ae = document.activeElement; sheetOpener = ae && ae !== document.body && !ae.closest('.sheet') ? ae : null; }
+    // what the sheet covers can't be reached by keyboard or screen reader (on desktop the list beside it stays usable)
+    [...(isNarrow() ? [panelEl] : []), detailEl, document.getElementById('map')].forEach(x => (x.inert = true));
     el.querySelector('h2').focus({ preventScroll: true });
     const h = SHEET_HASH[el.dataset.tab];
     // opened over the map: an entry of its own, so the phone's Back closes it instead of leaving the site
@@ -3128,10 +3139,14 @@
     viewToUrl();
   }
   const focusTab = () => { if (lastTab.offsetParent) lastTab.focus(); else { const m = document.getElementById('viewMenuBtn'); if (m) m.focus(); } };
-  sheets.forEach(sh => (sh.querySelector('.bs-close').onclick = () => { showTab(lastTab); focusTab(); }));
+  let sheetOpener = null;
+  const focusAfterSheet = () => { const o = sheetOpener; sheetOpener = null;
+    if (o && document.contains(o) && o.offsetParent && !o.closest('.sheet')) o.focus({ preventScroll: true }); else focusTab(); };
+  const closeSheet = () => { showTab(lastTab); focusAfterSheet(); };
+  sheets.forEach(sh => (sh.querySelector('.bs-close').onclick = closeSheet));
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape' || !openSheet() || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
-    e.stopPropagation(); showTab(lastTab); focusTab();
+    e.stopPropagation(); closeSheet();
   }, true);
   // The city box's "Why they differ": the method, at the paragraph comparing these totals with SDOT's own.
   document.addEventListener('click', e => {
@@ -3258,7 +3273,7 @@
       sub: s => `${s.routes.length === 1 ? 'Route' : 'Routes'} ${s.routes.slice(0, 8).join(', ')}${s.routes.length > 8 ? '…' : ''} · ${s.mi} mi, about ${Math.round(s.lpm / 60)} h a day per mile`,
       score: s => `${(s.lost / 60).toFixed(1)} h <small>a day</small>`,
       chips: s => [
-        { cls: 'serious', text: `+${(s.peak - s.base).toFixed(1)} min a bus ${hourSpan(s)} (${Math.round(100 * s.slower)}% slower)` },
+        { cls: 'serious', text: `+${(s.peak - s.base).toFixed(1)} min a bus${s.routes.length > 1 && s.rt ? ` on route ${esc(s.rt)}` : ''} ${hourSpan(s)} (${Math.round(100 * s.slower)}% slower)` },
         { cls: 'ped', text: `${fmt(s.trips)} buses a weekday` },
         { cls: 'state', text: `Buses lose ${(s.lost / 60).toFixed(1)} hours a day here` }],
       note: `Metro sets each trip's scheduled time from how long buses really take at that hour, so busy-hour times include
@@ -3268,7 +3283,7 @@
       detail: s => `
       <div class="dhead">
         <div class="where">${esc(TMODES.bus.sub(s))} · ${copyLoc(stretchName(s))}</div>
-        <p class="verdict">${hourSpan(s).replace(/^./, c => c.toUpperCase())} on a weekday, Metro gives buses <b>${s.peak} minutes</b> for this
+        <p class="verdict">${hourSpan(s).replace(/^./, c => c.toUpperCase())} on a weekday, Metro gives ${s.routes.length > 1 && s.rt ? `its busiest route here, route ${esc(s.rt)},` : 'buses'} <b>${s.peak} minutes</b> for this
           ${s.mi}-mile stretch, compared with ${s.base} minutes in the quickest (usually late-night) hours: <b>${Math.round(100 * s.slower)}% slower</b>.
           ${fmt(s.trips)} buses run it each weekday; together they lose about <b>${(s.lost / 60).toFixed(1)} hours a day</b> here.</p>
         <div class="stat-grid">
@@ -3547,7 +3562,8 @@
       if (e.target.id === 'copyLink') { shareLink(e.target); return; }
       const o = e.target.closest('[data-open]'); if (!o) return;
       const p = byId.get(+o.dataset.open); if (!p) return;
-      showTab(document.getElementById('tabbtn-priorities')); select(p, true, null);
+      // the place goes on top of the stretch's entry: Back returns to the stretch, then its list
+      quietly(() => showTab(document.getElementById('tabbtn-priorities'))); select(p, true, null);
     };
     document.getElementById('detailBody').onchange = null;
     setTimeout(() => document.getElementById('detailTitle').focus({ preventScroll: true }), isNarrow() ? 50 : 0);
@@ -3732,7 +3748,7 @@
           property damage only ${weight('pdo')}, × ${weight('ped_bike_mult')} when someone walking or biking was involved and someone was hurt.
           One death is weighed like a serious injury: whether a serious crash turns fatal often depends on things
           beyond the street itself, like the person's age, the vehicle, or how quickly help arrives. ${meta.unknown_from && meta.unknown_recent && meta.unknown_recent.share
-          ? `Since ${monthYear(meta.unknown_from)} about 1 in ${Math.round(1 / meta.unknown_recent.share)} reports has no severity`
+          ? `From ${monthYear(meta.unknown_from)} to ${monthYear(meta.window_to)} about 1 in ${Math.round(1 / meta.unknown_recent.share)} reports has no severity`
           : 'Some reports have no severity'}; those
           aren't treated as harmless: each gets the typical non-fatal/serious harm for similar streets.
           These points are a judgment, not a published standard: they put a death or serious injury far above a minor injury
@@ -3815,7 +3831,7 @@
           const vv = sizes.map(verdict), same = vv.every(v => v === 'about the same number');
           return 'Against simply counting crashes, this site\'s ranking caught ' + pairs.map(([n, a, b], i) =>
             `${vv[i]} in the ${n} (${both(a)}, against ${both(b)}${sh(sizes[i])})`).join(', and ') +
-            `. ${same ? 'The gaps come from the places only one list has, and they\'re within chance. ' : ''}Test 1 was also used to choose the method, so read the ranking as a guide${same ? ' that does about as well as counting crashes' : ''}, not a precise forecast.` +
+            `. ${same ? 'The gaps come from the places only one list has, and they\'re within chance. ' : ''}Read the ranking as a guide${same ? ' that does about as well as counting crashes' : ''}, not a precise forecast.` +
             (meta.unknown_from && meta.unknown_recent && meta.unknown_recent.n ? ` Test 1's later years include ${fmt(meta.unknown_recent.n)} crash reports from ${monthYear(meta.unknown_from)} on that don't list a severity.` : '');
         })()}</p>
       ${V.expected_split && V.expected ? `<p class="note">Intersections and stretches are ranked together in one list, so the top of the list
@@ -3894,7 +3910,7 @@
         (a free account is needed). Corrections that come from the City's own data are fixed in the next rebuild.</p>
       <p class="note" id="vz-differ">Totals here can differ from SDOT's Vision Zero reports: SDOT's official figures count people, from crash data
         after WSDOT's review. This site counts police reports in SDOT's open collision data
-        for the ${WY} years shown, leaves out freeway crashes, and places each crash at the intersection or block SDOT assigns it to.
+        for the ${WY} years shown (SDOT's data has few freeway crashes: SR 99 and the bridges are in it; I-5 and I-90 themselves aren't, only their ramps), and places each crash at the intersection or block SDOT assigns it to.
         The most recent months may still be filling in as reports arrive.</p>
       ${sourcesHtml()}
       <p class="note"><b>Privacy.</b> No accounts, cookies or analytics. The map images come from Esri, which sees the area you're viewing.
@@ -4090,7 +4106,7 @@
       const a = Object.assign(document.createElement('a'), { href: url, download: name });
       document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     };
-    const linkBtn = h => `<button type="button" class="linkbtn pg-link" data-link="${h}">Copy link to this</button>`;
+    const linkBtn = (h, what) => `<button type="button" class="linkbtn pg-link" data-link="${h}"${what ? ` aria-label="Copy link to ${esc(what)}"` : ''}>Copy link to this</button>`;
     const tableWrap = (label, html) => `<div class="tablewrap" tabindex="0" role="region" aria-label="${esc(label)}">${html}</div>`;
 
     // ---- 1. the worst places of a past year, now
@@ -4164,7 +4180,7 @@
           SDOT's data doesn't say how much of that is a real change and how much is a change in how injuries are recorded.</p>
         <div class="pg-tools">
           <label class="tag"><input type="checkbox" id="pgNone" ${onlyNone ? 'checked' : ''}>Only places with no counted fix before ${cmpEnd + 1}</label>
-          <button type="button" class="linkbtn" id="pgCsv">Download this list (CSV)</button> · ${linkBtn('progress=' + pick)}
+          <button type="button" class="linkbtn" id="pgCsv">Download this list (CSV)</button> · ${linkBtn('progress=' + pick, 'this year\'s list (' + pick + ')')}
         </div>
         ${isNarrow()
           // phones: one card per place, read top to bottom (a 6-column table runs off the screen)
@@ -4230,7 +4246,7 @@
     // ---- 3. where serious crashes are vs where SDOT's published work is
     let dim = 'district', open = null, openFromList = null;
     const RSE_ORDER = ['Highest Equity Priority', 'Second Highest', 'Middle', 'Second Lowest', 'Lowest', 'none'];
-    const member = g => { const c = (CTX.council || []).find(x => String(x.d) === g); return c && c.member ? esc(c.member) + (c.since ? ` <small class="pg-n">(since ${monthYear(c.since.slice(0, 10))})</small>` : '') : ''; };
+    const member = g => { const c = (CTX.council || []).find(x => String(x.d) === g); return c && c.member ? esc(c.member) + (c.since ? ` <small class="pg-n">(since ${monthYear(c.since.slice(0, 10))}${untilTxt(c.until)})</small>` : '') : ''; };
     const gName = (g, short) => g === 'none' ? (dim === 'district' ? 'No district (city-limit streets)' : 'No tract (city-limit streets)')
       : dim === 'district' ? `District ${g}` : g === 'Highest Equity Priority' ? 'Highest priority' : g;
     function needPart() {
@@ -4253,7 +4269,7 @@
         + (x.state ? `. ${x.state}: run by WSDOT` : '')
         + (x.line ? `. On the line with District ${x.line} (the boundary runs along or across it; counted in both districts)` : '')
         + (x.k === 0 ? '. No one killed or seriously hurt here in these years: ranked on its other crashes' : '')); };
-      const openList = () => `<div class="pg-open" id="pgOpen"><h4>${esc(gName(sel.g))}: places in the citywide top ${TOP} ${dim === 'district' ? linkBtn('progress=d' + sel.g) : ''}</h4>
+      const openList = () => `<div class="pg-open" id="pgOpen"><h4>${esc(gName(sel.g))}: places in the citywide top ${TOP}</h4>${dim === 'district' ? `<p class="pg-linkrow">${linkBtn('progress=d' + sel.g, gName(sel.g) + "'s list")}</p>` : ''}
           ${(sel.list || []).length ? `<ul class="pg-list">${sel.list.map(x => `<li><span class="pg-l1"><span class="pg-rk">${rankTxt(x.r)}<small> citywide</small></span> ${placeBtn(x.loc)}</span>
             <span class="pg-l2">${x.k ? `<b>${plural(x.k, 'crash', 'crashes')} that killed or seriously hurt someone.</b> ` : ''}${status(x)}</span></li>`).join('')}</ul>` : `<p class="note">None of today's top ${TOP} are here.</p>`}</div>`;
       // On a phone the wide table needs sideways scrolling, so each group is a card instead: a bar for each share (all on
@@ -4348,7 +4364,7 @@
           another report about the same spot was handled), no work done, and no work order.
           ${fmt(city.other)} reports with only other work, or sent elsewhere or cancelled${city.transferred ? ` (${fmt(city.transferred)} of them passed to another City department)` : ''},
           are counted only in the total. Reports are matched to work orders by report number only, so "no work order" doesn't mean nothing was done.
-          Only reports at least ${age} days old on the data date are counted, so each had time for a fix. Districts are the ones Find It Fix It records.
+          Only reports at least ${age} days old on the data date are counted, so each had time for a fix. Each report is counted in today's council district by where it is (Find It Fix It's own district field keeps the lines of the day it was filed).
           This doesn't show why one district's reports wait longer: the kind of damage reported can differ. From ${fmt(W.wo)} SDOT work orders
           made from these reports.</p>
       </section>`;
@@ -4568,7 +4584,7 @@
       ${meta.city_assumed && meta.city_assumed.killed + meta.city_assumed.hurt ? `<div class="cs-note">Includes one person for each crash SDOT codes fatal but lists no one killed in (${fmt(meta.city_assumed.killed)}),
         or serious but lists no one seriously injured in (${fmt(meta.city_assumed.hurt)}).</div>` : ''}
       <div class="cs-note">Not SDOT's official Vision Zero counts: different years, police reports only, each crash at the place SDOT assigns it. <a href="#method" class="vz-why">Why they differ</a></div>
-      ${meta.unknown_from && meta.unknown_recent && meta.unknown_recent.n ? `<div class="cs-note">Since ${monthYear(meta.unknown_from)}, ${fmt(meta.unknown_recent.n)} crash reports
+      ${meta.unknown_from && meta.unknown_recent && meta.unknown_recent.n ? `<div class="cs-note">From ${monthYear(meta.unknown_from)} to ${monthYear(meta.window_to)}, ${fmt(meta.unknown_recent.n)} crash reports
         (about 1 in ${Math.round(1 / meta.unknown_recent.share)}) don't say how badly people were hurt, so the newest counts may be low.</div>` : ''}
       <div class="cs-foot"><b class="cs-hi">About 1 in ${oneIn}</b> of the crashes that killed or seriously hurt someone
         (${fmt(meta.top50_ksi)} of ${fmt(ksiAll)}) happened at just <b class="cs-hi">${meta.top50_intersections != null ? `${meta.top50_intersections} intersections and ${TOP - meta.top50_intersections} stretches of street` : `${TOP} places`}</b>${meta.top50_stretch_miles ? ` (the stretches add up to about ${meta.top50_stretch_miles} miles)` : ''}, out of
@@ -4825,7 +4841,12 @@
     const a = e.target.closest && e.target.closest('a[href^="#"]');
     if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
     const h = a.getAttribute('href');
-    if (!isRoute(h)) return;
+    if (!isRoute(h)) {   // a note on the page: go to it without changing the address (closing the sheet would leave it there)
+      const t = h.length > 1 && document.getElementById(h.slice(1));
+      if (t) { e.preventDefault(); t.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
+        if (!t.hasAttribute('tabindex') && !/^(A|BUTTON|INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) t.tabIndex = -1; t.focus({ preventScroll: true }); }
+      return;
+    }
     e.preventDefault();
     if (h === location.hash) { syncToUrl(true); return; }
     if (isSheetHash(h) && isSheetHash(location.hash) && openSheet()) history.replaceState(history.state, '', location.pathname + location.search + h);
@@ -4851,10 +4872,11 @@
         else openFromHash();
         return;
       }
-      if (openSheet()) hideSheets(true);
+      const hadSheet = !!openSheet();
+      if (hadSheet) { hideSheets(true); focusAfterSheet(); }
       progReturn = null;
       if (isViewHash(h)) {   // no place in the address: close what's open; the view in it, or the crash list
-        if (spotOpen()) closeDetail(false);
+        if (spotOpen()) closeDetail(!hadSheet);   // (focus back to the card it was opened from, as its close button does)
         if (h) openFromHash();
         else if (lastTab && lastTab.dataset.tab !== 'priorities') showTab(document.getElementById('tabbtn-priorities'));
         return;

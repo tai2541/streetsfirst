@@ -107,9 +107,11 @@ select location, kind, case when d >= date '1990-01-01' then d end as d, status 
       select s.location, fl.kind, fl.d, fl.status, ST_Length(s.geom) as len,
              ST_Length(ST_Intersection(s.geom, ST_Buffer(fl.geom, 30))) as piece
       from loc_shape s join fix_lines fl on ST_DWithin(s.geom, fl.geom, 30) where s.r = 40
-        -- (a kind already found on the block's own key is taken from there; a lane SDOT keys to another segment is that
-        -- segment's: nearly always the cross street, or the next block)
-        and (fl.segkey is null or fl.segkey not in (select compkey from streets))
+        -- (a kind already found on the block's own key is taken from there; a lane SDOT keys to a segment of another
+        -- street is that street's: the cross street. One keyed to the next block of the same street runs on along this one.)
+        and (fl.segkey is null or not exists (select 1 from streets k where k.compkey = fl.segkey)
+             or exists (select 1 from streets k where k.compkey = fl.segkey
+                        and name_key(split_part(k.unitdesc, ' BETWEEN ', 1)) = name_key(split_part(s.location, ' BETWEEN ', 1))))
         and not exists (select 1 from streets k join fix_lines f2 on f2.segkey = k.compkey where k.loc_name = s.location and f2.kind = fl.kind))
     where piece >= 0.25 * greatest(len, 1))
   where along > 0.5 * greatest(len, 1)
@@ -237,7 +239,7 @@ rbase as (select a, b, route_id, avg(med) as base
           where k <= 2 group by a, b, route_id),
 dom as (select a, b, arg_max(route_id, {'n': n, 'r': route_id}) as route_id
         from (select a, b, route_id, count(*) as n from gtfs_legs group by all) group by a, b),
-base as (select a, b, r.base from rbase r join dom using (a, b, route_id)),
+base as (select a, b, r.base, r.route_id from rbase r join dom using (a, b, route_id)),
 peak as (select a, b, arg_max(hr, {'m': med, 'h': -hr}) as peak_hr, max(med) as peak
          from h join dom using (a, b, route_id) where n >= 2 and hr in (7, 8, 15, 16, 17) group by a, b),
 -- the daytime hours about as slow as the slowest (within 30 seconds): a long plateau is "7 am to 5 pm", not "at 7 am"
@@ -255,6 +257,7 @@ select row_number() over (order by tot.lost_min desc, a, b) as id, a, b,
        sa.stop_name as from_stop, sb.stop_name as to_stop,
        base / 60.0 as base_min, peak / 60.0 as peak_min, peak_hr, span.hr_lo, span.hr_hi,
        (peak - base) * 1.0 / base as slower,
+       (select g.route_short_name from gtfs_routes g where g.route_id = base.route_id) as main_route,   -- whose minutes these are
        trips, lost_min, ST_Length(ST_Transform(geo.line, 'EPSG:4326', 'EPSG:2926')) / 5280 as miles, routes,
        ST_Transform(geo.line, 'EPSG:4326', 'EPSG:2926') as geom, geo.line as line_ll
 from base join peak using (a, b) join tot using (a, b) join geo using (a, b) left join span using (a, b)
@@ -330,7 +333,7 @@ copy (
     'weekday': (select strptime(d, '%Y%m%d')::date from gtfs_day),
     'stretches': (select list({
         'id': id, 'from': from_stop, 'to': to_stop, 'base': round(base_min, 1), 'peak': round(peak_min, 1),
-        'hr': peak_hr, 'hr0': hr_lo, 'hr1': hr_hi, 'slower': round(slower, 3), 'trips': trips, 'lost': round(lost_min), 'mi': round(miles, 2),
+        'hr': peak_hr, 'hr0': hr_lo, 'hr1': hr_hi, 'slower': round(slower, 3), 'rt': main_route, 'trips': trips, 'lost': round(lost_min), 'mi': round(miles, 2),
         'lpm': round(lost_per_mile), 'rank': rank_bus, 'routes': routes, 'ds': dists_near(geom),
         'pts': [[round(ST_Y(x.geom), 5), round(ST_X(x.geom), 5)] for x in ST_Dump(ST_Points(ST_SimplifyPreserveTopology(line_ll, 0.00005)))]
       } order by id) from bus_stretch where lost_per_mile is not null),

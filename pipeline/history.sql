@@ -407,9 +407,16 @@ select f.properties.EXTREFNO::varchar as id, f.properties.PROBLEMDESC::varchar a
 from (select unnest(features) f from read_json('data/raw/reportwo_*.json', maximum_object_size = 100000000))
 where f.properties.EXTREFNO is not null;
 
+-- Each report goes in today's council district by where it is (as the crash counts do): Find It Fix It's own district
+-- field keeps the district lines of the day it was filed, and the lines changed in 2024.
 create or replace table sidewalk_wait as
-with rep as (
-  select r.id, r.date, coalesce(r.council_district::varchar, 'none') as district, count(w.id) as n_wo,
+with sw_req as (
+  select r.*, coalesce((select min(c.district) from council_shapes c
+                        where ST_Contains(c.geom, ST_Transform(ST_Point(r.lon, r.lat), 'EPSG:4326', 'EPSG:2926')))::varchar,
+                       r.council_district::varchar) as dnow
+  from requests r where r.type = 'Damaged Sidewalk' and r.date <= fetched() - sw_min_age_days()),
+rep as (
+  select r.id, r.date, coalesce(r.dnow, 'none') as district, count(w.id) as n_wo,
          coalesce(any_value(r.status) like 'Transferred%', false) as transferred,
          min(w.closed) filter (where not w.cancelled and w.closed is not null and sw_work(w.problem)
                                and w.result in ('Completed as specified', 'Temporary repair completed', 'Different work completed')) as fixed,
@@ -417,8 +424,7 @@ with rep as (
          coalesce(bool_or(w.result like '%property owner%' or w.problem like '%property owner%'), false) as owner,
          coalesce(bool_or(w.result like 'Duplicate%'), false) as dup,
          coalesce(bool_or(w.result like 'No work%' or w.result like 'Field Check%'), false) as nowork
-  from requests r left join report_wo w on w.id = r.id
-  where r.type = 'Damaged Sidewalk' and r.date <= fetched() - sw_min_age_days()
+  from sw_req r left join report_wo w on w.id = r.id
   group by all),
 d as (select *, case when fixed is not null then greatest(0, fixed - date) end as days,
              case when fixed is not null then 'fixed' when open then 'open' when owner then 'owner' when dup then 'dup'

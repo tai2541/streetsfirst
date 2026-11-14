@@ -655,8 +655,9 @@ main.split .sheet { z-index: 1200; padding-right: 0; }
 .leaflet-control.zoomout-btn:focus-visible { outline: 2px solid #2f55c7; outline-offset: 2px; }
 @media (max-width: 760px) { .leaflet-control.zoomout-btn { margin-right: 10px; margin-top: 10px; } }
 
-/* ---- desktop: the details panel stays open (no close button); the overview shows when nothing is picked ---- */
-@media (min-width: 761px) { #closeDetail { display: none; } }
+/* ---- desktop: the details panel stays open; the overview shows when nothing is picked. A place's × (or Esc) goes
+   back to the overview; the overview itself has nothing to close. ---- */
+@media (min-width: 761px) { #detail.home:not(.place) #closeDetail { display: none; } }
 .home-wrap { padding: 4px 0 8px; }
 .home-lead { margin: 0 0 12px; padding: 10px 12px; background: #f3f6fd; border: 1px solid #dbe3f5; border-radius: 10px; color: #24304a; }
 .hsec { --c: #7a8597; border: 1px solid #e3e7ee; border-left: 4px solid var(--c); border-radius: 10px; background: #fff;
@@ -1074,3 +1075,6 @@ main { overflow: hidden; overflow: clip; }
 .city-summary .cs-foot a { display: inline-block; padding: 8px 0; }
 #searchResults li.school-opt { flex-direction: column; align-items: flex-start; gap: 2px; }
 #searchResults li.school-opt small { white-space: normal; }
+
+/* the copy-link button under a district list's heading (outside it, so the heading reads on its own) */
+.pg-linkrow { margin: -4px 0 6px; font-size: 13px; }
