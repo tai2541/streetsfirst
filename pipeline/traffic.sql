@@ -305,6 +305,13 @@ create or replace macro dists_of(g) as (
   select list(district order by district) from (
     select c.district, ST_Length(ST_Intersection(c.geom, g)) as len from council_shapes c where ST_Intersects(c.geom, g))
   where len >= 0.2 * ST_Length(g) or ST_Length(g) = 0);
+-- Bus routes are drawn a few feet off the street's center line, where district lines run: a stretch along a district
+-- line counts in a district holding a fifth of its length within 50 ft of it, so it is in both.
+create or replace table council_shapes50 as select district, ST_Buffer(geom, 50) as geom from council_shapes;
+create or replace macro dists_near(g) as (
+  select list(district order by district) from (
+    select c.district, ST_Length(ST_Intersection(c.geom, g)) as len from council_shapes50 c where ST_Intersects(c.geom, g))
+  where len >= 0.2 * ST_Length(g) or ST_Length(g) = 0);
 
 -- ---------------------------------------------------------------- export for the Traffic view
 copy (
@@ -313,7 +320,7 @@ copy (
     'stretches': (select list({
         'id': id, 'from': from_stop, 'to': to_stop, 'base': round(base_min, 1), 'peak': round(peak_min, 1),
         'hr': peak_hr, 'hr0': hr_lo, 'hr1': hr_hi, 'slower': round(slower, 3), 'trips': trips, 'lost': round(lost_min), 'mi': round(miles, 2),
-        'lpm': round(lost_per_mile), 'rank': rank_bus, 'routes': routes, 'ds': dists_of(geom),
+        'lpm': round(lost_per_mile), 'rank': rank_bus, 'routes': routes, 'ds': dists_near(geom),
         'pts': [[round(ST_Y(x.geom), 5), round(ST_X(x.geom), 5)] for x in ST_Dump(ST_Points(ST_SimplifyPreserveTopology(line_ll, 0.00005)))]
       } order by id) from bus_stretch where lost_per_mile is not null),
     'segments': (select list({

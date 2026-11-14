@@ -59,21 +59,32 @@ from (
 -- and work at the corners at its ends or on a side street belongs to those, not to the block).
 
 -- Speed humps and cushions go on side streets: near a major street (SDOT's arterial classes) a project that is only
--- traffic calming (no crossing, beacon, signal or sidewalk work) on another street is listed but doesn't count as planned
--- work at that place (side_ids: the page marks the same projects). One that names the place's own street still counts.
+-- traffic calming (no crossing, beacon, signal or sidewalk work) is listed but doesn't count as planned work at that
+-- place (side_ids: the page marks the same projects), unless it is on one of the place's major streets: the street the
+-- project's name puts it on (the words before "between", "btwn" or "from"; a street named as an end doesn't count).
 create or replace macro street_core(s) as
-  regexp_replace(regexp_replace(upper(trim(s)), '^(N|S|E|W|NE|NW|SE|SW) ', ''), ' (N|S|E|W|NE|NW|SE|SW)$', '');
+  regexp_replace(regexp_replace(regexp_replace(upper(trim(s)), ' (ER|WR|NR|SR) ', ' ', 'g'), '^(N|S|E|W|NE|NW|SE|SW) ', ''), ' (N|S|E|W|NE|NW|SE|SW)$', '');
+-- the place's streets that are major streets right there (SDOT's segments within 50 ft: a street can be a major street
+-- in one part of the city and a side street in another)
+create or replace table loc_art as
+  select p.location, list(distinct regexp_replace(upper(trim(split_part(s.loc_name, ' BETWEEN ', 1))), ' (ER|WR|NR|SR) ', ' ', 'g')) as arts
+  from loc_inner p join streets s on ST_DWithin(p.geom, s.geom, 50)
+  where s.loc_name like '% BETWEEN %' and s.artclass between 1 and 5 group by p.location;
 create or replace table loc_proj as
 with pj as (
   select p.location, j.id, j.stage, j.year, j.work,
          regexp_matches(coalesce(j.scope, ''), '(?i)speed (hump|cushion)')
-           and not regexp_matches(coalesce(j.scope, '') || ' ' || coalesce(j.name, ''), '(?i)crossing|crosswalk|rrfb|beacon|signal|sidewalk')
+           -- (the street Beacon Ave S isn't a flashing beacon)
+           and not regexp_matches(regexp_replace(coalesce(j.scope, '') || ' ' || coalesce(j.name, ''), '(?i)beacon (ave|hill|way)', '', 'g'),
+                                  '(?i)crossing|crosswalk|rrfb|beacon|signal|sidewalk')
            and coalesce(l.art_class, 0) between 1 and 5
            and len(list_filter(case when l.addr_type = 'B' then [split_part(p.location, ' BETWEEN ', 1)] else string_split(p.location, ' AND ') end,
-                   lambda s: strpos(upper(coalesce(j.name, '') || ' ' || coalesce(j.scope, '')), street_core(s)) > 0)) = 0 as side
+                   lambda s: list_contains(coalesce(a.arts, []), regexp_replace(upper(trim(s)), ' (ER|WR|NR|SR) ', ' ', 'g'))
+                     and strpos(upper(regexp_replace(coalesce(j.name, ''), '(?i)\s+(between|btwn|from)\s.*$', '')), street_core(s)) > 0)) = 0 as side
   from loc_inner p join proj j on ST_DWithin(p.geom, j.geom, case when p.r = 40 then near_block_ft() else near_ix_ft() end)
     and not on_structure(p.location)
-  join locations l on l.location = p.location)
+  join locations l on l.location = p.location
+  left join loc_art a on a.location = p.location)
 select location, list(id order by stage = 'done', year nulls last, id) as proj_ids,
        coalesce(list(id order by id) filter (where side), []) as side_ids,
        coalesce(bool_or(stage <> 'done' and work and not side), false) as proj_planned

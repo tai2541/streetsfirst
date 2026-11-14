@@ -417,6 +417,7 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 }
 @media (max-width: 760px) {
   .cs-nums b { font-size: 20px; }
+  .cs-nums span, .cs-foot, .cs-note { font-size: 12.5px; }   /* the district and city cards readable on a phone */
   header { padding: 10px 14px 13px; }
 }
 .controls select, #reqType { appearance: none; -webkit-appearance: none; border: 1px solid #d6dce6; border-radius: 8px; background: #fff
