@@ -345,7 +345,7 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 
 /* list panel */
 #panel { background: var(--bg); border-right: 1px solid #e1e5ec; }
-.searchbox input { border-radius: 10px !important; border: 1px solid #d6dce6 !important; box-shadow: var(--lift); transition: box-shadow .15s, border-color .15s; }
+.searchbox input { border-radius: 10px !important; border: 1px solid #8a94a6 !important; box-shadow: var(--lift); transition: box-shadow .15s, border-color .15s; }
 .searchbox input:focus { border-color: #2f55c7 !important; box-shadow: 0 0 0 3px rgba(47,85,199,.18); outline: none; }
 
 /* citywide summary */
@@ -420,7 +420,7 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
   .cs-nums span, .cs-foot, .cs-note, .city-summary .cs-note { font-size: 12.5px; }   /* the district and city cards readable on a phone */
   header { padding: 10px 14px 13px; }
 }
-.controls select, #reqType { appearance: none; -webkit-appearance: none; border: 1px solid #d6dce6; border-radius: 8px; background: #fff
+.controls select, #reqType { appearance: none; -webkit-appearance: none; border: 1px solid #8a94a6; border-radius: 8px; background: #fff
   url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235b6576' stroke-width='1.6'/%3E%3C/svg%3E") no-repeat right 9px center;
   padding: 4px 26px 4px 9px; color: var(--ink); font-weight: 500; cursor: pointer; box-shadow: var(--lift); }
 .controls select:focus-visible, #reqType:focus-visible { outline: 2px solid #2f55c7; outline-offset: 2px; border-color: #2f55c7; }
@@ -560,7 +560,7 @@ header nav { flex: none; }
 .map-legend .lg-proj { display: none; }
 body.proj-on .map-legend .lg-proj { display: flex; }
 .lg-pline { display: inline-block; width: 22px; height: 0; border-top: 3px dashed #5b3fd1; vertical-align: middle; margin-right: 6px; }
-.lg-pline.done { border-top-style: solid; opacity: .5; }
+.lg-pline.done { border-top-style: solid; border-top-color: #8a73df; }
 .lg-ppt { display: inline-block; width: 9px; height: 9px; border: 2px solid #5b3fd1; border-radius: 50%; background: #fff; vertical-align: middle; margin: 0 9px 0 4px; }
 /* ---- "My pins" list (map control, shown once there's a pin) ---- */
 .pinlist[hidden] { display: none; }
@@ -664,7 +664,7 @@ main.split .sheet { z-index: 1200; padding-right: 0; }
   padding: 10px 12px 12px; margin-bottom: 12px; }
 .hsec h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #5b6576; }
 .hsec-top { --c: #b3141b; } .hsec-common { --c: #2f55c7; } .hsec-where { --c: #3a4f86; }
-.hsec-pins { --c: #d0457a; } .hsec-tips { --c: #1baf7a; }
+.hsec-pins { --c: #d0457a; } .hsec-tips { --c: #128a5f; }
 .home-top, .home-pins, .home-tips { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .home-card, .home-pin { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; font: inherit; color: inherit;
   background: #fafbfc; border: 1px solid #e3e7ee; border-radius: 10px; padding: 8px 10px; cursor: pointer;
