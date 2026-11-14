@@ -345,28 +345,33 @@ from nearest group by location;
 
 create or replace table loc_context as
 with
-s as (select p.location,
-        -- (on a bridge or tunnel, the streets around it are not its street: no speed rather than theirs)
-        -- (a piece of the street that runs to a ramp carries the ramp's speed: "S HOLDEN ST BETWEEN HOLDEN ST OFF RP AND
-        -- WEST MARGINAL WAY S" is 60 mph at a 35 mph corner; such pieces count only when nothing else does, or the place is a ramp)
-        coalesce(max(s.speed) filter (where own.name is not null and not (s.rp_end and not regexp_matches(p.location, ' RP( |$)'))),
-                 case when not on_structure(p.location) then max(s.speed) filter (where not (s.rp_end and not regexp_matches(p.location, ' RP( |$)'))) end,
-                 max(s.speed) filter (where own.name is not null), case when not on_structure(p.location) then max(s.speed) end) as speed_limit,
+-- the street pieces at each place (a freeway or ramp passing over or beside a place isn't its street: it gave downtown
+-- corners I-5's 60 mph; unless the place is that ramp)
+sx as (select p.location, s.speed, s.artclass, s.pci, own.name as own_name,
+              regexp_matches(s.unitdesc, ' BETWEEN .* RP( |$)') and not regexp_matches(p.location, ' RP( |$)') as rp_end
+      from loc_pts p join streets s on ST_DWithin(p.geom, s.geom, 60)
+      left join loc_names own on own.location = p.location and own.name = name_key(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''))
+      where ST_Distance(p.geom, s.geom) <= p.r
+        and (s.loc_name = p.location
+             or not regexp_matches(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''), '^(I ?5|I ?90|I ?405|SR ?[0-9]+)( |$)| RP( |$)'))),
+-- each of the place's own streets: its speed, from its pieces that don't run to a ramp when it has any (a piece that runs
+-- to a ramp can carry the ramp's speed: "S HOLDEN ST BETWEEN HOLDEN ST OFF RP AND WEST MARGINAL WAY S" is 60 mph where
+-- S Holden St is 25), else from those that do (1st Ave S at Olson Pl SW has only such pieces, at its own 35)
+own_sp as (select location, own_name, coalesce(max(speed) filter (where not rp_end), max(speed)) as sp
+      from sx where own_name is not null group by all),
+s as (select x.location,
+        -- (at a corner, the higher of its own streets' limits; on a bridge or tunnel, the streets around it are not its
+        -- street: no speed rather than theirs)
+        coalesce(any_value(o.sp), case when not on_structure(x.location) then max(x.speed) end) as speed_limit,
         -- (a stretch's own street segment gives its class when it has one: the SR 99 tunnel isn't 1st Ave above it)
         -- (even when its own segment is a neighborhood street: a local block crossing an arterial isn't that arterial;
         -- the SR 99 tunnel's junctions: below)
-        case when p.location like '% BETWEEN %' and bool_or(own.name is not null)
-               then coalesce(min(s.artclass) filter (where s.artclass between 1 and 5 and own.name is not null), 0)
-             else min(s.artclass) filter (where s.artclass between 1 and 5) end as art_class,
-        min(s.pci) as pavement_min
-      from loc_pts p join (select *, regexp_matches(unitdesc, ' BETWEEN .* RP( |$)') as rp_end from streets) s on ST_DWithin(p.geom, s.geom, 60)
-      left join loc_names own on own.location = p.location and own.name = name_key(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''))
-      where ST_Distance(p.geom, s.geom) <= p.r
-        -- a freeway or ramp passing over or beside a place isn't its street (it gave downtown corners I-5's 60 mph),
-        -- unless the place is that ramp
-        and (s.loc_name = p.location
-             or not regexp_matches(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''), '^(I ?5|I ?90|I ?405|SR ?[0-9]+)( |$)| RP( |$)'))
-      group by p.location),
+        case when x.location like '% BETWEEN %' and bool_or(x.own_name is not null)
+               then coalesce(min(x.artclass) filter (where x.artclass between 1 and 5 and x.own_name is not null), 0)
+             else min(x.artclass) filter (where x.artclass between 1 and 5) end as art_class,
+        min(x.pci) as pavement_min
+      from sx x left join (select location, max(sp) as sp from own_sp group by location) o using (location)
+      group by x.location),
 len as (select loc_name as location, max(ST_Length(geom)) as block_ft from streets group by loc_name),
 h as (select p.location, min(case h.priority when 'High' then 1 when 'Mid' then 2 when 'Low' then 3 end) as hin_level
       from loc_pts p join hin h on ST_DWithin(p.geom, h.geom, 60) group by p.location),
@@ -1056,8 +1061,9 @@ group by m.location;
 
 copy (
   with q as (
-    -- Accessibility (ADA) and Safe Routes to School requests can point to a resident (a disabled person, a family), so
-    -- the page shows those as the hundred block ("9200 block of 31ST AVE SW") at about 11 m; scoring keeps exact points.
+    -- A request's address is often the home of the person who made it (and ADA and Safe Routes to School requests can point
+    -- to a disabled person or a family), so the page shows every request by hundred block ("9200 block of 31ST AVE SW") at
+    -- about 11 m; scoring keeps exact points.
     select q.cell, list(to_json([to_json(r.date), to_json(r.type), to_json(r.status),
                                  to_json(case when r.sensitive and regexp_matches(r.address, '^\d+[A-Z]?(-\d+)?\s+\S')
                                    then ((regexp_extract(r.address, '^(\d+)', 1)::bigint // 100) * 100)::varchar || ' block of '
@@ -1065,7 +1071,7 @@ copy (
                                    else r.address end),
                                  to_json(round(r.lat, case when r.sensitive then 4 else 6 end)),
                                  to_json(round(r.lon, case when r.sensitive then 4 else 6 end))]) order by q.qi) as q
-    from more_req_ids q join (select *, type ilike 'ADA%' or type ilike '%Safe Routes%' as sensitive from requests) r on r.id = q.id group by q.cell
+    from more_req_ids q join (select *, true as sensitive from requests) r on r.id = q.id group by q.cell
   ),
   rows as (
     select m.cell,
