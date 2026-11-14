@@ -283,7 +283,7 @@ by_g as (
     count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null) as top50_nothing,
     count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null and ends_fixed) as top50_ends,
     -- planned work at the corners at a stretch's ends (listed, not counted as the block's own): said beside "nothing planned"
-    count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null and ends_planned) as top50_endplan,
+    count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null and ends_planned and not ends_fixed) as top50_endplan,
     count(*) filter (where top50 and state_route is not null) as top50_state,
     count(*) filter (where top50 and not fixed_recently and budget_only and state_route is null) as top50_budget,
     count(*) filter (where sig) as sig, count(*) filter (where sig_lpi) as sig_lpi,

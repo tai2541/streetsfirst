@@ -1117,3 +1117,6 @@ td.nowrap .sub2 { white-space: normal; max-width: 7em; }
 /* the checked chip's mark is drawn, not read (it was read as part of the checkbox's name) */
 .tag:has(input:checked)::before { content: "\2713" / ""; }
 .rep-h { display: inline; font-size: inherit; margin: 0; font-weight: 700; }
+/* Round 25: the report box's heading reads as its bold lead-in, not as a section label */
+#detail .rep-h, .rep-h { display: inline; font-size: inherit; margin: 0; font-weight: 700; text-transform: none; letter-spacing: 0; color: inherit; }
+.nw { white-space: nowrap; }

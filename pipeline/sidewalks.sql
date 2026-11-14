@@ -71,8 +71,9 @@ create or replace macro sw_pts(g) as
 
 -- Each block's council districts (traffic.sql: dists_of); the export has the top 400 citywide and each district's own top
 -- 100, so the list filtered to one district is complete to that many.
-create or replace table sw_missing_ds as select id, dists_of(geom) as ds from sw_missing_blocks;
-create or replace table sw_poor_ds as select id, dists_of(geom) as ds from sw_poor_blocks;
+-- (a block along the city limit runs on the district shapes' outer edge: within 50 ft of them, as bus stretches are)
+create or replace table sw_missing_ds as select id, coalesce(nullif(dists_of(geom), []), dists_near(geom)) as ds from sw_missing_blocks;
+create or replace table sw_poor_ds as select id, coalesce(nullif(dists_of(geom), []), dists_near(geom)) as ds from sw_poor_blocks;
 create or replace macro sw_keep(t) as table
   select id from (select id, unnest(ds) as d from query_table(t)) qualify row_number() over (partition by d order by id) <= 100;
 copy (

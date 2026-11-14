@@ -256,8 +256,8 @@
       <div><b>Bigger fixes</b> (redesigns, signals, sidewalks) are paid for through the City budget, which the City Council
         votes on. SDOT itself is a City department, so it answers to the Mayor (the Mayor directs and controls all City offices and departments).
         The council member for this district: <b>${esc(c.member || '—')}</b> (District ${c.d}${sinceTxt(c.since, c.until)})${c.url
-          ? (/^https:\/\//.test(c.url) ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.member)}'s council page <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>` : '') : ''}.${(CTX.citywide || []).length ? ` Citywide council member${CTX.citywide.length === 1 ? '' : 's'} (elected by the whole city): ${CTX.citywide.map(x => typeof x === 'string' ? esc(x) : esc(x.n) + (x.since ? ` (${sinceTxt(x.since).slice(2)})` : '')).join(' and ')}.` : ''}${c.d2 ? ` This place is on the line between District ${c.d} and District ${c.d2}
-        (the boundary runs along or across it), so it's listed and counted in both districts: added up, the district totals come to more than the citywide total.${(m2 => m2 && m2.member ? ` The council member for District ${c.d2}: <b>${esc(m2.member)}</b>${m2.since ? ` (${sinceTxt(m2.since, m2.until).slice(2)})` : ''}${/^https:\/\//.test(m2.url || '') ? ` · <a href="${esc(m2.url)}" target="_blank" rel="noopener">${esc(m2.member)}'s council page <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>` : ''}.` : '')((CTX.council || []).find(x => String(x.d) === String(c.d2)))}` : ''}
+          ? (/^https:\/\//.test(c.url) ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">${/\/council\/?$/.test(c.url) ? "the City Council's page" : esc(c.member) + "'s council page"} <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>` : '') : ''}.${(CTX.citywide || []).length ? ` Citywide council member${CTX.citywide.length === 1 ? '' : 's'} (elected by the whole city): ${CTX.citywide.map(x => typeof x === 'string' ? esc(x) : esc(x.n) + (x.since ? ` (${sinceTxt(x.since).slice(2)})` : '')).join(' and ')}.` : ''}${c.d2 ? ` This place is on the line between District ${c.d} and District ${c.d2}
+        (the boundary runs along or across it), so it's listed and counted in both districts: added up, the district totals come to more than the citywide total.${(m2 => m2 && m2.member ? ` The council member for District ${c.d2}: <b>${esc(m2.member)}</b>${m2.since ? ` (${sinceTxt(m2.since, m2.until).slice(2)})` : ''}${/^https:\/\//.test(m2.url || '') ? ` · <a href="${esc(m2.url)}" target="_blank" rel="noopener">${/\/council\/?$/.test(m2.url) ? "the City Council's page" : esc(m2.member) + "'s council page"} <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>` : ''}.` : '')((CTX.council || []).find(x => String(x.d) === String(c.d2)))}` : ''}
         <a href="#progress=d${c.d}">Is it getting fixed in District ${c.d}?</a>${c.d2 ? ` · <a href="#progress=d${c.d2}">In District ${c.d2}?</a>` : ''}</div>
       ${rse && rse.q ? `<div class="note">How the City ranks this neighborhood for investment (its Race and Social Equity Index, by census tract): <b>${esc(({ 'Highest Equity Priority': 'highest equity priority',
           'Second Highest': 'second-highest equity priority', 'Middle': 'middle', 'Second Lowest': 'second-lowest equity priority',
@@ -360,7 +360,7 @@
 
   // ---------- ranking modes ----------
   const MODES = {
-    ksi: { label: 'Most likely to hurt people', short: `An estimate of where people are likeliest to be killed or seriously hurt, from ${WY} years of crashes weighted by how badly people were hurt; places with few crashes are pulled toward what's typical for similar streets. Harm score: higher means more likely; ▲ ▼: moved since last month.`, hint: `The places with the highest expected harm: an estimate, from ${WY} years of every crash (not only the worst), of where people are likeliest to be killed or seriously hurt next. The score adds up every crash here, weighted by how badly people were hurt; the list is rebuilt every week (late crash reports can move it), and ▲ and ▼ show places that moved since last month's list. Scores close together can't be told apart, so read it in groups (the top ${TOP}), not as an exact order. Start here.`, unit: 'score' },
+    ksi: { label: 'Most likely to hurt people', short: `An estimate of where people are likeliest to be killed or seriously hurt, from ${WY} years of crashes weighted by how badly people were hurt; for places with few crashes, the share that killed or seriously hurt someone is pulled toward what's typical for similar streets. Harm score: higher means more likely; ▲ ▼: moved since last month.`, hint: `The places with the highest expected harm: an estimate, from ${WY} years of every crash (not only the worst), of where people are likeliest to be killed or seriously hurt (in this site's tests it picks out future crashes about as well as counting crashes does). The score adds up every crash here, weighted by how badly people were hurt; the list is rebuilt every week (late crash reports can move it), and ▲ and ▼ show places that moved since last month's list. Scores close together can't be told apart, so read it in groups (the top ${TOP}), not as an exact order. Start here.`, unit: 'score' },
     risk: { label: 'Most dangerous for how busy it is', short: 'Crash harm for every million vehicles that pass through. Often quieter streets.', hint: '', unit: 'per million vehicles' }
   };
   let mode = (() => { try { return JSON.parse(localStorage.getItem('ipm.mode')) || 'ksi'; } catch { return 'ksi'; } })();
@@ -417,7 +417,7 @@
     // ranked for how busy it is: say when the traffic it's divided by is an SDOT estimate, one street's count, or the floor
     if (mode === 'risk' && p.score_risk != null) {
       const vq = [p.volume_estimated ? 'traffic includes an SDOT estimate' : '', p.addr_type === 'I' && p.volume_streets === 1 ? 'only one street counted' : '',
-        p.volume < weight('risk_vol_floor') ? `under ${fmt(weight('risk_vol_floor'))} vehicles, counted as ${fmt(weight('risk_vol_floor'))}` : ''].filter(Boolean);
+        p.volume < weight('risk_vol_floor') ? `under ${fmt(weight('risk_vol_floor'))} vehicles a weekday, counted as ${fmt(weight('risk_vol_floor'))}` : ''].filter(Boolean);
       if (vq.length) out.push({ cls: 'state', text: vq.join('; ') });
     }
     const still = stillDangerous(p);
@@ -435,7 +435,7 @@
     if (p.speeding_crashes >= 2 && pct(p.speeding_crashes, p.crashes) >= 15)
       out.push({ cls: 'cond', text: `speed-related: ${p.speeding_crashes} of ${p.crashes}` });
     if (p.state_route) out.push({ cls: 'state', text: `${p.state_route}: run by WSDOT` });
-    if (!p.ksi) out.push({ cls: 'conf', text: 'no one killed or seriously hurt here in these years: ranked on its other crashes' });
+    if (!p.ksi) out.push({ cls: 'conf', text: 'no one killed or seriously hurt here in these years: scored on its other crashes plus the fatal/serious risk typical for similar streets' });
     if (p.confidence !== 'high')
       out.push({ cls: 'conf', text: `only ${plural(p.crashes, 'crash', 'crashes')}, so less certain` });
     return out;
@@ -2038,8 +2038,9 @@
     const ownPart = w * own;
     const parts = [other >= fs
       ? `most of the score comes from its ${plural(p.crashes, 'crash', 'crashes')} of all kinds, each counted by how badly people were hurt`
-      : p.ksi && (ownPart < other || ownPart < fs - ownPart) ? `the score comes from its ${plural(p.crashes, 'crash', 'crashes')} of all kinds and its ${plural(p.ksi, 'crash', 'crashes')} that killed or seriously hurt someone together`
-      : p.ksi ? `most of the score comes from its ${plural(p.ksi, 'crash', 'crashes')} that killed or seriously hurt someone`
+      // "most" only past half the score; the largest of the three parts says "the largest part", with its share
+      : p.ksi && (ownPart < other || ownPart < fs - ownPart) ? `the score comes both from its ${plural(p.crashes, 'crash', 'crashes')} of all kinds and from the ${p.ksi === 1 ? 'one' : fmt(p.ksi)} among them that killed or seriously hurt someone`
+      : p.ksi ? `${ownPart > 0.5 * p.expected_harm ? 'most of the score' : 'the largest part of the score'} (${Math.round(100 * ownPart / p.expected_harm)}%) comes from its ${plural(p.ksi, 'crash', 'crashes')} that killed or seriously hurt someone`
       : `none of its crashes killed or seriously hurt anyone; most of the score is the risk of that which is typical for ${groupName(p.ref_group)} with ${plural(p.crashes, 'crash', 'crashes')}`];
     if (p.ksi && w < 0.9 && Math.abs(own - typ) > 0.2 * Math.max(own, typ, 1))
       parts.push(`deaths and serious injuries are rare, so the score also uses what happens on similar streets. That makes this place's score
@@ -2062,7 +2063,7 @@
         : `<p><b>Score ${fmt(Math.round(p.score_ksi))}</b> = expected harm. Repair requests nearby are listed on this page but don't change the score.</p>`}`;
     const riskLine = p.score_risk != null
       ? `<p><b>Risk ${p.score_risk.toFixed(1)} per million vehicles</b> = expected harm ${fmt(Math.round(p.expected_harm))} ÷
-          (${fmt(Math.max(p.volume, weight('risk_vol_floor')))} vehicles a weekday × 365 × ${WY} years ÷ 1 million)${p.volume < weight('risk_vol_floor') ? `; its ${fmt(p.volume)} vehicles a weekday are under the ${fmt(weight('risk_vol_floor'))} floor, so ${fmt(weight('risk_vol_floor'))} is used` : ''}${p.volume_estimated ? ' (the traffic includes an SDOT estimate, not a count)' : ''}.${p.addr_type === 'I' && p.volume_streets === 1
+          (${fmt(Math.max(p.volume, weight('risk_vol_floor')))} vehicles a weekday${p.volume_estimated && p.volume >= weight('risk_vol_floor') ? ' (includes an SDOT estimate, not a count)' : ''} × 365 × ${WY} years ÷ 1 million)${p.volume < weight('risk_vol_floor') ? `; its ${fmt(p.volume)} vehicles a weekday${p.volume_estimated ? ' (includes an SDOT estimate, not a count)' : ''} are under the ${fmt(weight('risk_vol_floor'))} floor, so ${fmt(weight('risk_vol_floor'))} is used` : ''}.${p.addr_type === 'I' && p.volume_streets === 1
             ? ' Only one of its streets has an SDOT count, so the traffic through this corner is undercounted and this rate is too high.' : ''}</p>`
       : `<p class="note">Not ranked for risk: ${p.volume ? `fewer than ${weight('risk_min_crashes')} crashes` : 'no SDOT traffic count'}.</p>`;
     const ranks = `<p class="note">Ranks${asOfShort() ? ` as of ${asOfShort()}` : ''}: ${rankTxt(p.rank_ksi)} for expected harm · ${p.rank_risk ? '#' + p.rank_risk : 'unranked'} for how busy it is.
@@ -3291,8 +3292,13 @@
     // (and a table with no caption is named by the heading above it, so a screen reader's table list says what each is)
     const name = () => document.querySelectorAll('table:not([aria-label]):not([aria-labelledby])').forEach(t => {
       if (t.querySelector('caption')) return;
-      let n = t.closest('.tablewrap, .tc-wrap') || t; while (n && !(n.previousElementSibling && /^H[2-5]$/.test(n.previousElementSibling.tagName))) { n = n.previousElementSibling ? n.previousElementSibling : null; }
-      const h = n && n.previousElementSibling; if (h) t.setAttribute('aria-label', h.textContent.trim());
+      // the nearest heading before it: its earlier siblings, then its parent's, up to the panel
+      let n = t, h = null;
+      while (n && !h && n !== document.body && !/^(detail|panelBody)$/.test(n.id)) {
+        if (n.previousElementSibling) { n = n.previousElementSibling; h = /^H[2-5]$/.test(n.tagName) ? n : [...n.querySelectorAll('h2, h3, h4, h5')].pop() || null; }
+        else n = n.parentElement;
+      }
+      if (h) t.setAttribute('aria-label', h.textContent.trim());
     });
     let q = 0; const all = () => { if (q) return; q = requestAnimationFrame(() => { q = 0; document.querySelectorAll(sel).forEach(upd); name(); }); };
     document.addEventListener('scroll', e => { if (e.target.matches && e.target.matches(sel)) upd(e.target); }, true);
@@ -3378,14 +3384,18 @@
   const sdotPlain = n => { const [a, b] = n.split(' BETWEEN '); return b ? `${roadwayPart(a)} between ${b.split(' AND ').map(roadwayPart).join(' and ')}` : a.split(' AND ').map(roadwayPart).join(' & '); };
   // a street's counts from the stretch counted most recently (SDOT counts different blocks in different years; k is the stretch)
   // (keys are the stretch's middle to 100 ft: SDOT's redrawn lines can land in the next square, so neighbouring keys count as the same)
-  const kNear = (a, b) => { const [ax, ay] = String(a).split(':').map(Number), [bx, by] = String(b).split(':').map(Number); return Math.abs(ax - bx) <= 1 && Math.abs(ay - by) <= 1; };
-  function sameStretch(h) { const k = h.length && h[h.length - 1].k; return k ? h.filter(x => x.k && kNear(x.k, k)) : h; }
-  function trendText(h, quiet) {
-    h = sameStretch(cleanHist(h)).filter(x => !pandemic(x.y));
-    if (h.length < 2 || h[h.length - 1].y - h[0].y < 4) return null;
+  // The counts of one counted stretch (k: its middle, to 100 ft; exact, so a neighbouring block is never taken for it):
+  // the stretch of `own` (a traffic segment's own count) or else of the newest count
+  const stretchKey = (h, own) => { const o = own && h.find(x => x.y === own.y && x.v === own.v); return (o || h[h.length - 1] || {}).k; };
+  function sameStretch(h, own) { const k = stretchKey(h, own); return k ? h.filter(x => x.k === k) : h; }
+  function trendText(h, quiet, own) {
+    const all = cleanHist(h).filter(x => !pandemic(x.y));
+    h = sameStretch(all, own);
+    const span = x => x.length >= 2 && x[x.length - 1].y - x[0].y >= 4;
+    if (!span(h)) return !quiet && span(all) && all.some(x => x.k && x.k !== stretchKey(all, own)) ? 'Counts from different stretches of the street over the years, so no trend is given' : null;
+    // a count far off its neighbours (more than double or under half) is likely another roadway or a one-off: no trend
+    if (h.some((x, i) => i && (x.v > 2.5 * h[i - 1].v || x.v < h[i - 1].v / 2.5))) return quiet ? null : 'Counts jump between years, so no trend is given';
     const a = h[0], b = h[h.length - 1], c = Math.round(100 * (b.v - a.v) / a.v);
-    // the first and last counts on different counted stretches of the street (SDOT counts different blocks in different years): no trend
-    if (a.k && b.k && !kNear(a.k, b.k)) return quiet ? null : 'Counts from different stretches of the street over the years, so no trend is given';
     return Math.abs(c) < 5 ? `About the same as ${a.y}` : `${c > 0 ? 'Up' : 'Down'} ${Math.abs(c)}% since ${a.y}`;
   }
   // Distance in meters from a point to a polyline [[lat, lon], ...] (flat-earth, fine at city scale).
@@ -3466,16 +3476,16 @@
       sub: s => (s.hood ? s.hood + ' · ' : '') + (s.est || !s.yr ? `SDOT estimate${s.yr ? ' from ' + s.yr : ''}, not a measured count` : `SDOT count from ${s.yr}`),
       score: s => `${fmt(Math.round(s.awdt / 1000))}k <small>a day</small>`,
       chips: s => [{ cls: 'ped', text: `${fmt(s.awdt)} vehicles a weekday` }]
-        .concat(trendText(s.hist, true) ? [{ cls: 'state', text: trendText(s.hist, true) }] : []),
+        .concat(trendText(s.hist, true, { y: s.yr, v: s.awdt }) ? [{ cls: 'state', text: trendText(s.hist, true, { y: s.yr, v: s.awdt }) }] : []),
       note: `Counts are weekday averages from SDOT's yearly traffic counts. ${countAge() ? countAge() + '; t' : 'T'}rends use real counts
          only and skip ${PANDEMIC.join('–')} (pandemic traffic).`,
       detail: s => `
       <div class="dhead">
         <div class="where">${esc(TMODES.busy.sub(s))} · ${copyLoc(niceName(s.street))}</div>
         <p class="verdict"><b>${fmt(s.awdt)} vehicles</b> on an average weekday${s.est ? ' (an SDOT estimate, not a count)' : ''}.
-          ${trendText(s.hist) ? esc(trendText(s.hist)) + (/^Counts from/.test(trendText(s.hist)) ? '.' : ' (real counts only).') : ''}</p>
+          ${(t => t ? esc(t) + (/no trend/.test(t) ? '.' : ' (real counts only).') : '')(trendText(s.hist, false, { y: s.yr, v: s.awdt }))}</p>
       </div>
-      ${trafficHistChart(s.hist) ? `<h3>Traffic counts over the years</h3>${trafficHistChart(s.hist)}
+      ${trafficHistChart(s.hist, { y: s.yr, v: s.awdt }) ? `<h3>Traffic counts over the years</h3>${trafficHistChart(s.hist, { y: s.yr, v: s.awdt })}
         <div class="note">Each dot is a real SDOT count. Streets are recounted every few years.</div>` : ''}
       ${reportBox(niceName(s.street), false, true)}
       <h3>Safety spots along this street</h3>${safetyList(safetyAlong(s.pts))}`
@@ -3503,7 +3513,7 @@
         ${fmt(SW.counts.tier1_blocks || 0)} of ${fmt(SW.counts.missing_blocks || 0)} blocks with a missing sidewalk are Tier 1.`,
       items: () => SW.missing, byDist: true, rank: s => s.id, name: s => blockName(s.name),
       sub: s => [s.hood, s.art && s.art !== 'Not Designated' ? stType(s.art[0] + s.art.slice(1).toLowerCase()) : 'Neighborhood street'].filter(Boolean).join(' · '),
-      score: s => `Tier ${s.tier} <small>need score ${outOf(s.score, 'score')}</small>`,
+      score: s => `Tier ${s.tier} <small><span class="nw">need score</span> <span class="nw">${outOf(s.score, 'score')}</span></small>`,
       chips: s => [
         { cls: 'serious', text: s.sides === 2 ? 'No sidewalk on either side' : 'No sidewalk on one side' },
         ...(s.safety ? [{ cls: 'fatal', text: `safety points ${outOf(s.safety, 'safety')}` }] : []),
@@ -3544,7 +3554,7 @@
         ${SW.counts.poor_assessed_median || 'past'} surveys, so some may have been fixed since.`,
       items: () => SW.poor, byDist: true, rank: s => s.id, name: s => blockName(s.name),
       sub: s => [s.hood, s.y1 ? `rated ${s.y0 === s.y1 ? s.y1 : s.y0 + '–' + s.y1}` : ''].filter(Boolean).join(' · '),
-      score: s => `${ftText(s.vp + s.p)} <small>poor or worse</small>`,
+      score: s => `<span class="nw">${ftText(s.vp + s.p)}</span> <small class="nw">poor or worse</small>`,
       chips: s => [
         ...(s.vp ? [{ cls: 'fatal', text: `${ftText(s.vp)} very poor` }] : []),
         ...(s.p ? [{ cls: 'serious', text: `${ftText(s.p)} poor` }] : [])],
@@ -3624,20 +3634,22 @@
     document.getElementById(V().note).innerHTML = M.note;
   }
 
-  function trafficHistChart(hist) {
-    const all = cleanHist(hist), h = sameStretch(all);
+  // Every count is a dot; only the counts of one counted stretch (see sameStretch) are joined by a line, and the others
+  // are hollow, so counts of different blocks never draw a trend
+  function trafficHistChart(hist, own) {
+    const h = cleanHist(hist), mine = sameStretch(h, own), k = stretchKey(h, own);
     if (h.length < 2) return '';
-    const left = all.length - h.length;
+    const other = x => k && x.k !== k, left = h.filter(other).length;
     const W = 300, H = 90, L0 = 44, R = 10, y0 = Math.min(...h.map(x => x.y)), y1 = Math.max(...h.map(x => x.y));
     const max = Math.max(...h.map(x => x.v)) * 1.1;
     const X = y => L0 + (W - L0 - R) * (y1 === y0 ? 0.5 : (y - y0) / (y1 - y0)), Y = v => 8 + (H - 26) * (1 - v / max);
     return `<svg class="tchart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img"
-        aria-label="${esc('Traffic counts: ' + h.map(x => `${x.y}: ${fmt(x.v)}`).join(', '))}">
+        aria-label="${esc('Traffic counts: ' + h.map(x => `${x.y}: ${fmt(x.v)}${other(x) ? ' (another stretch of the street)' : ''}`).join(', '))}">
       <line x1="${L0}" x2="${W - R}" y1="${Y(0)}" y2="${Y(0)}" stroke="#c3c2b7"/>
       <text x="${L0 - 6}" y="${Y(max / 1.1) + 4}" text-anchor="end" class="tc-ax">${fmt(Math.round(max / 1.1 / 1000))}k</text>
       <text x="${L0 - 6}" y="${Y(0) + 4}" text-anchor="end" class="tc-ax">0</text>
-      <path d="${h.map((x, i) => (i ? 'L' : 'M') + X(x.y) + ' ' + Y(x.v)).join(' ')}" fill="none" stroke="#2f55c7" stroke-width="2"/>
-      ${h.map(x => `<circle cx="${X(x.y)}" cy="${Y(x.v)}" r="4" fill="#2f55c7" stroke="#fff" stroke-width="2" data-tip="${esc(`<b>${x.y} count</b><br>${fmt(x.v)} vehicles a weekday`)}"/>`).join('')}
+      ${mine.length > 1 ? `<path d="${mine.map((x, i) => (i ? 'L' : 'M') + X(x.y) + ' ' + Y(x.v)).join(' ')}" fill="none" stroke="#2f55c7" stroke-width="2"/>` : ''}
+      ${h.map(x => `<circle cx="${X(x.y)}" cy="${Y(x.v)}" r="4" fill="${other(x) ? '#fff' : '#2f55c7'}" stroke="${other(x) ? '#2f55c7' : '#fff'}" stroke-width="2" data-tip="${esc(`<b>${x.y} count</b>${other(x) ? ' (another stretch of the street)' : ''}<br>${fmt(x.v)} vehicles a weekday`)}"/>`).join('')}
       ${(() => {      // year labels: always the first and last; others only where they don't touch a neighbor
         const n = h.length, endX = X(h[n - 1].y);
         let prev = -99;
@@ -3649,7 +3661,7 @@
           return `<text x="${anchor === 'end' ? Math.min(W - 2, lx + 12) : anchor === 'start' ? Math.max(2, lx - 12) : lx}" y="${H - 4}" text-anchor="${anchor}" class="tc-ax">${x.y}</text>`;
         }).join('');
       })()}
-    </svg>${left ? `<div class="note">The counts of the stretch counted most recently; ${plural(left, 'count', 'counts')} from other stretches of this street left out.</div>` : ''}`;
+    </svg>${left ? `<div class="note">Filled dots${mine.length > 1 ? ', joined by the line,' : ''} are counts of ${own && h.some(x => x.y === own.y && x.v === own.v) ? 'this' : 'the most recently counted'} stretch; ${plural(left, 'hollow dot is a count', 'hollow dots are counts')} of other stretches of the street.</div>` : ''}`;
   }
 
   const safetyList = list => list.length
@@ -3927,7 +3939,7 @@
           died are also listed separately, whatever their rank.</li>
         <li><b>Expected harm.</b> With only a few crashes, a spot's share of crashes that killed or seriously hurt someone can make it look much more or much less dangerous than it really is. So its fatal/serious harm is blended
           with the typical rate for similar spots (same kind of location and street class), weighted by its crash count:
-          own record × crashes ÷ (crashes + ${A}) + typical rate × ${A} ÷ (crashes + ${A}). A spot with 5 crashes leans ${Math.round(100 * A / (5 + A))}% on the typical
+          its own fatal/serious points × crashes ÷ (crashes + ${A}) + the typical points per crash × its crashes × ${A} ÷ (crashes + ${A}). A spot with 5 crashes leans ${Math.round(100 * A / (5 + A))}% on the typical
           rate; one with 60 leans ${Math.round(100 * 60 / (60 + A))}% on its own record. Every crash, even a fender-bender,
           is evidence of how much conflict happens there. (This borrows the idea of empirical Bayes that traffic engineers use, in a simpler form: it blends only the share of crashes that kill or seriously hurt, not the number of crashes, and ${A} is a chosen number, not estimated from the data. The Highway Safety Manual's method blends a place's crash count with a model of similar places.)${bmax > 0 ? '' : ' The result is the "harm score" shown on the list and on each place.'}</li>
         ${bmax > 0 ? `<li><b>Repair boost.</b> Safety-related requests (${scored.map(r => esc(r.type)).join(', ')}) within
@@ -4008,7 +4020,7 @@
         ${ex2.k50}${two ? ' and ' + ex2.b50 : ''} for one list, and ${one.k200}${two ? ' and ' + one.b200 : ''} in the top ${LIST}, against
         ${ex2.k200}${two ? ' and ' + ex2.b200 : ''}. Use "Show" to see intersections or stretches on their own, ranked again within that kind.</p>` : ''}
       <p class="note">Test 1 was also used to choose the method, so it flatters it a little${two ? '; Test 2 was added afterwards as a check' : ''}. ${(r => r && r.top_before && r.city_before
-          ? `In Test 1, the top ${TOP}'s fatal and serious crashes fell from ${fmt(r.top_before)} a year to ${fmt(r.top_after)} (down ${Math.round(100 * (1 - r.top_after / r.top_before))}%), while the city's fell ${Math.round(100 * (1 - r.city_after / r.city_before))}%. A high rank partly fades on its own (regression to the mean), so the top places can be expected to have fewer crashes next period even with no fix`
+          ? `In Test 1, the top ${TOP}'s fatal and serious crashes fell from ${fmt(r.top_before)} a year to ${fmt(r.top_after)} (down ${Math.round(100 * (1 - r.top_after / r.top_before))}%), while the city's fell ${Math.round(100 * (1 - r.city_after / r.city_before))}% (the city's later years hold more recent reports with no severity recorded yet, so its fall may be a little smaller). A high rank partly fades on its own (regression to the mean), so the top places can be expected to have fewer crashes next period even with no fix`
           : 'Spots that rank high after a bad few years partly improve on their own (regression to the mean)')(meta.val_rtm)}: the blending evens out the fatal/serious share where numbers are small, but not the crash count itself.</p>`;
     // Other points per crash (made in build.sql): how many of this week's top places stay, and Test 1's later crashes caught.
     const wts = meta.weight_tests || [], wSite = wts.find(x => x.set === 'site');
@@ -4448,7 +4460,7 @@
         : x.fixed ? 'Work since ' + P.since_d : x.planned ? 'Planned or budgeted' : 'No dated work since ' + P.since_d + ' or planned project in the layers this site reads')
         + (x.state ? `. ${x.state}: run by WSDOT` : '')
         + (x.line ? `. On the line with District ${x.line} (the boundary runs along or across it; counted in both districts)` : '')
-        + (x.k === 0 ? '. No one killed or seriously hurt here in these years: ranked on its other crashes' : '')); };
+        + (x.k === 0 ? '. No one killed or seriously hurt here in these years: scored on its other crashes plus the fatal/serious risk typical for similar streets' : '')); };
       const openList = () => `<div class="pg-open" id="pgOpen"><h4>${esc(gName(sel.g))}: places in the citywide top ${TOP}</h4>${dim === 'district' ? `<p class="pg-linkrow">${linkBtn('progress=d' + sel.g, gName(sel.g) + "'s list")}</p>` : ''}
           ${(sel.list || []).length ? `<ul class="pg-list">${sel.list.map(x => `<li><span class="pg-l1"><span class="pg-rk">${rankTxt(x.r)}<small> citywide</small></span> ${placeBtn(x.loc)}</span>
             <span class="pg-l2">${x.k ? `<b>${plural(x.k, 'crash', 'crashes')} that killed or seriously hurt someone.</b> ` : ''}${status(x)}</span></li>`).join('')}</ul>` : `<p class="note">None of today's top ${TOP} are here.</p>`}</div>`;
@@ -4488,10 +4500,10 @@
             <th scope="col">Places in the citywide top ${TOP}</th><th scope="col">…run by WSDOT</th><th scope="col">…no work counted since ${esc(P.since_d)} or planned<a href="#pgNoneNote" class="fn" aria-label="About this count">*</a></th></tr>
           ${rows.map(r => `<tr class="${r.g === open ? 'on' : ''}"><th scope="row"><button type="button" class="linkbtn pg-grp" data-grp="${esc(r.g)}" aria-expanded="${r.g === open}">${esc(gName(r.g))}</button>${dim === 'district' && member(r.g) ? `<br><small class="muted">${member(r.g)}</small>` : ''}</th>
             <td>${pc(r.ksi, T.ksi)}</td><td>${pc(r.lpi, T.lpi)}${sigTxt(r)}</td><td>${pc(r.other, T.other)}</td><td>${pc(r.proj_planned, T.proj)}</td>
-            <td>${r.top50}</td><td>${r.top50_state || 0}</td><td>${r.top50_nothing}${[r.top50_ends ? `${r.top50_ends} at corners only` : '', r.top50_endplan ? `${r.top50_endplan} planned at corners only` : '', r.top50_budget ? `${r.top50_budget} more planned only by a budget line` : ''].filter(Boolean).map(x => ` <small class="pg-n">(${x})</small>`).join('')}</td></tr>`).join('')}
+            <td>${r.top50}</td><td>${r.top50_state || 0}</td><td>${!r.top50 ? '—' : r.top50_nothing}${(a => a.length ? ` <small class="pg-n">(${a.join('; ')})</small>` : '')([r.top50_ends ? `${r.top50_ends} with work at corners only` : '', r.top50_endplan ? `${r.top50_endplan} with work planned at corners only` : '', r.top50_budget ? `${r.top50_budget} more planned only by a budget line` : ''].filter(Boolean))}</td></tr>`).join('')}
         </table>`)}
         ${sel && !narrow ? openList() : ''}
-        <p class="note" id="pgNoneNote">* No work since ${P.since_d} or planned: no dated safety fix since ${P.since_d}, when these crash counts start (a new bus lane alone isn't counted: the bus-lane data this site reads doesn't say what else was changed with it; older work isn't counted, though each place's page shows it; for a stretch of street, a fix at the corners at its ends isn't counted, since it doesn't reach crashes along the block, but the count of those is given), no planned SDOT project, head-start walk signal or no turn on red nearby, and no budget project named for the street, in the layers this site reads (the same test as each place's own page). Places WSDOT runs (freeways, ramps, state bridges) are counted in their own column; state highways on city streets, which the City runs, count as city streets. The fix types counted: ${FIX_KINDS}${ixMostly ? ` (${ixPct}% of them at intersections, so stretches of street rarely have one)` : ''}.</p>
+        <p class="note" id="pgNoneNote">* No work since ${P.since_d} or planned: no dated safety fix since ${P.since_d}, when these crash counts start (a new bus lane alone isn't counted: the bus-lane data this site reads doesn't say what else was changed with it; older work isn't counted, though each place's page shows it; for a stretch of street, a fix at the corners at its ends isn't counted, since it doesn't reach crashes along the block, but the count of those is given, as is the count with work only planned at those corners), no planned SDOT project, head-start walk signal or no turn on red nearby, and no budget project named for the street, in the layers this site reads (the same test as each place's own page). Places WSDOT runs (freeways, ramps, state bridges) are counted in their own column; state highways on city streets, which the City runs, count as city streets. The fix types counted: ${FIX_KINDS}${ixMostly ? ` (${ixPct}% of them at intersections, so stretches of street rarely have one)` : ''}.</p>
         ${(() => { const ms = (CTX.council || []).filter(c => c.member && c.since), late = ms.filter(c => c.since.slice(0, 10) > P.window.d0);
           return dim === 'district' && late.length ? `<p class="note">${late.length} of the ${ms.length} district council members took office after ${monthYear(P.window.d0)}, when these crash counts start (each start date is shown by the name), so part of these years came before them.</p>` : ''; })()}
         <p class="note">Crashes: ${monthYear(P.window.d0)}–${throughMonth(P.window.d1)}. Fixes: dated fixes since ${P.since_d} (when the crash counts start) at places with
@@ -4607,7 +4619,9 @@
         const dM = w.b > 0 && w.cb > 0 ? dir(w.b, w.a, w.cb, w.ca) : '', dE = early && w.ecb > 0 ? dir(w.eb, w.ea, w.ecb, w.eca) : '';
         const riders = w.m === 'bike' && dM ? `can't be judged from crash counts: a bike lane brings more people biking, and nothing here counts riders
           (bike crashes here ${dM}${dE ? (dE === dM ? ', against the earlier period too' : `; against the earlier period they ${dE}`) : ''}${w.n_dates && w.n_dates < cfg('ba_cluster_dates') ? `; only ${w.n_dates} separate install dates` : ''})` : '';
-        const result = few ? `only ${plural(w.n_dates, 'project date')}, so this mostly shows one or two projects; too few to tell`
+        // (a date per place is separate installs, not one or two projects)
+        const result = few ? (w.n_places && w.n_dates >= w.n_places ? `only ${plural(w.n_places, 'place')}; too few to tell`
+            : `only ${plural(w.n_dates, 'project date')}, so this mostly shows one or two projects; too few to tell`)
           : riders ? riders
           : !vs.length ? ''
           : vs.every(x => x < 1) ? how('fewer than the city', vs.length > 1 ? ' both ways' : '') || (split ? `fewer than the city both ways${split}`
@@ -4822,6 +4836,11 @@
   const lineTxt = () => (D.progress && (D.progress.district_line || {}).n ? '; streets on its line with a neighboring district count in both' : '');
   // top places counted as planned only because a budget line is named for their street
   // (the group named in full: after "0 with no work", "these" read as the zero)
+  // a council member who took office after the crash counts start: said beside the counts, so they aren't read as theirs
+  const lateTxt = c => { const w = D.progress && D.progress.window; if (!c || !c.member || !c.since || !w || c.since.slice(0, 10) <= w.d0) return '';
+    const share = (new Date(c.since) - new Date(w.d0)) / (new Date(w.d1) - new Date(w.d0));
+    return `${esc(c.member)} took office in ${monthYear(c.since.slice(0, 10))}; ${share > 0.5 ? 'most' : 'part'} of these years came before.`; };
+  const budgetOnly = r => r.top50 && r.top50_budget ? ` <small>(not counting ${r.top50_budget} planned only by a budget line named for the street)</small>` : '';
   const budgetTxt = r => r.top50_budget ? `; of its ${fmt(r.top50 - (r.top50_state || 0))} top ${TOP} places${r.top50_state ? ' on city streets' : ''}, ${r.top50_budget} ${r.top50_budget === 1 ? 'counts' : 'count'} as planned only because a budget line is named for ${r.top50_budget === 1 ? 'its street' : 'their streets'}, which may not reach ${r.top50_budget === 1 ? 'it' : 'them'}` : '';
   // A district's sidewalks, for its card and printout: SDOT's blocks missing a sidewalk (and of those, its Tier 1) and
   // blocks with sidewalk rated poor (pipeline/sidewalks.sql, by_district), and what happened to damaged-sidewalk reports
@@ -4835,7 +4854,7 @@
     if (rr && rr.n && cr) parts.push(`of ${plural(rr.n, 'report', 'reports')} of damaged sidewalk ${monthYear(W.d0)}–${monthYear(W.d1)}, ${pc(rr.fixed, rr.n)}% got a first repair (citywide ${pc(cr.fixed, cr.n)}%); others needed no work, were duplicates or went to the property owner<span class="no-print"> (<a href="#progress=sidewalk">sidewalk repair details</a>)</span>`);
     return parts.length ? `Sidewalks: ${parts.join('; ')}.` : '';
   }
-  function distPrint(d) {
+  function distPrint(d, noPrint) {
     const P = D.progress, r = P && (P.need || []).find(x => x.dim === 'district' && x.g === String(d));
     if (!r) return;
     let el = document.getElementById('distPrint');
@@ -4857,19 +4876,33 @@
     el.innerHTML = `<div class="print-head" style="display:block"><div>Streets First · Seattle — District ${d}${c && c.member ? ` (Councilmember ${esc(c.member)}${sinceTxt(c.since, c.until)})` : ''}${asOf ? ' — data as of ' + asOf : ''} — ${esc(link)}</div>
         <div>From SDOT's police-reported crash data and SDOT's published records. Made by Dara Try, a Seattle resident · contact@streetsfirst.org · independent; the City and SDOT haven't reviewed or endorsed it.</div></div>
       <h2>District ${d}: where crashes hurt people, and what SDOT has done</h2>
+      ${lateTxt(c) ? `<p>${lateTxt(c)}</p>` : ''}
       <p>${windowTxt()}: <b>${fmt(r.ksi)}</b> crashes on City and WSDOT streets in the district (freeways are mostly not in SDOT's data) killed or seriously hurt someone${r.killed != null ? ` (${r.killed ? killedTxt(r.killed, r.fatal) : 'no one killed'}; ${fmt(r.hurt)} people seriously injured)` : ''}${lineTxt(d)}.
         ${!r.top50 ? `None of the citywide top ${TOP} places are in District ${d}.`
-        : `<b>${fmt(r.top50)}</b> of the citywide top ${TOP} places ${r.top50 === 1 ? 'is' : 'are'} here${r.top50_state ? ` (${r.top50_state} run by WSDOT)` : ''}; <b>${fmt(r.top50_nothing)}</b> of those on city streets ${r.top50_nothing === 1 ? 'has' : 'have'} no safety work counted since ${esc(P.since_d)} and nothing planned or budgeted in the SDOT data this site reads (budget lines matched by street name${r.top50_ends ? `; ${r.top50_ends} of them had work at the corners at their ends, which doesn't count as the block's own` : ''}${r.top50_endplan ? `; ${r.top50_endplan} of them ${r.top50_endplan === 1 ? 'has' : 'have'} work planned at the corners at their ends, likewise not counted` : ''})${budgetTxt(r)}.`}</p>
+        : `<b>${fmt(r.top50)}</b> of the citywide top ${TOP} places ${r.top50 === 1 ? 'is' : 'are'} here${r.top50_state ? ` (${r.top50_state} run by WSDOT)` : ''}; <b>${fmt(r.top50_nothing)}</b>${budgetOnly(r)} of those on city streets ${r.top50_nothing === 1 ? 'has' : 'have'} no safety work counted since ${esc(P.since_d)} and nothing planned or budgeted in the SDOT data this site reads (budget lines matched by street name${r.top50_ends ? `; ${r.top50_ends} of them had work at the corners at their ends, which doesn't count as the block's own` : ''}${r.top50_endplan ? `; ${r.top50_endplan} of them ${r.top50_endplan === 1 ? 'has' : 'have'} work planned at the corners at their ends, likewise not counted` : ''})${budgetTxt(r)}.`}</p>
       <p>${counted.length ? `The ${counted.length} places in the citywide top ${TOP}:` : `Its ${places.length} highest-ranked places:`}</p>
       <table class="dp-t"><tr><th>Citywide rank</th><th>Place</th><th>People killed or seriously injured</th><th>SDOT work</th></tr>
         ${places.map(p => `<tr><td>${rankTxt(p.rank_ksi)}</td><td>${esc(niceName(p.location))}${p.state_route ? ' <small>(run by WSDOT)</small>' : ''}${p.council_district2 ? ' <small>(on the line with District ' + (+p.council_district === +d ? p.council_district2 : p.council_district) + ')</small>' : ''}</td><td>${people(p)}</td><td><small>${esc(workSummary(p).short)}</small></td></tr>`).join('')}</table>
       ${cip.length ? `<h3>Budget lines named for its streets${cipAll.length > cip.length ? ` (the ${cip.length} matching the most places here, of ${cipAll.length}; all are on the budget tab)` : ''}</h3><ul>${cip.map(x => `<li>${esc(x.t)} (${esc(x.c)}): money budgeted ${x.y0 === x.y1 ? x.y0 : x.y0 + '–' + x.y1}; ${plural(x.n, 'place', 'places')} with crashes on that street here</li>`).join('')}</ul>
-        <p class="note">Matched by street name: a project named for a street that runs through several districts is listed in each, and the budget doesn't say which blocks it covers, so it may not reach these places.</p>` : ''}
+        <p class="note">Matched by street name: a project named for a street that runs through several districts is listed in each, and the budget doesn't say which blocks it covers, so it may not reach these places.</p>`
+        : `<h3>Budget lines named for its streets</h3><p class="note">None in this year's budget data is named for a street with crashes in District ${d}.</p>`}
       <p class="note">Ranks as of ${asOf || 'the data date'}; they can change every week. Each place's page (on the link above) has its crashes, what SDOT has done and a question to ask.
         ${swDistTxt(d) ? swDistTxt(d) + ' ' : ''}Sources (every dataset, with the day it was read) and how the ranking works: ${esc(location.origin + location.pathname + '#method')}. Each week's full list is saved: https://github.com/tai2541/streetsfirst/releases</p>`;
     document.body.classList.add('print-dist');
-    window.print();
+    if (!noPrint) window.print();
   }
+  // Ctrl+P with no place open (the welcome panel, a list or a sheet showing): a district picked prints its one-pager;
+  // otherwise a line says how to print (the page itself would print as the welcome panel)
+  window.addEventListener('beforeprint', () => {
+    if (document.body.classList.contains('print-dist')) return;
+    if (!detailEl.hidden && !detailEl.classList.contains('home') && !openSheet()) return;   // a place's own handout
+    const d = +document.getElementById('distFilter').value || 0;
+    if (d) { distPrint(d, true); return; }
+    let el = document.getElementById('distPrint');
+    if (!el) { el = document.createElement('div'); el.id = 'distPrint'; document.body.appendChild(el); }
+    el.innerHTML = `<p>To print, open a place and use its Print button, or pick a district and use "Print a one-page summary". This page: ${esc(location.href)}</p>`;
+    document.body.classList.add('print-dist');
+  });
   window.addEventListener('afterprint', () => document.body.classList.remove('print-dist'));
   document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('.dist-print'); if (b) distPrint(+b.dataset.d); });
   function distCard(dist) {
@@ -4882,12 +4915,12 @@
     const city = P.need.filter(x => x.dim === 'rse');
     const tot = k => city.reduce((t, x) => t + (x[k] || 0), 0), pct = (a, b) => (b ? Math.round(100 * a / b) : 0);
     const c = (CTX.council || []).find(x => String(x.d) === r.g);
-    el.innerHTML = `<div class="cs-head">District ${esc(r.g)}${c && c.member ? ' · Councilmember ' + esc(c.member) + sinceTxt(c.since, c.until) : ''} · ${windowTxt()}</div>
+    el.innerHTML = `<div class="cs-head">District ${esc(r.g)}${c && c.member ? ' · Councilmember ' + esc(c.member) + sinceTxt(c.since, c.until) : ''} · ${windowTxt()}</div>${lateTxt(c) ? `<p class="note">${lateTxt(c)}</p>` : ''}
       <div class="cs-nums">
         <div><b>${fmt(r.ksi)}</b><span>crashes on City and WSDOT streets that killed or seriously hurt someone (${pct(r.ksi, tot('ksi'))}% of the city's${lineTxt(r.g)})${r.killed != null ? `: ${r.killed ? killedTxt(r.killed, r.fatal) : 'no one killed'}, ${fmt(r.hurt)} seriously injured` : ''}</span></div>
         <div><b>${fmt(r.top50)}</b><span>of the citywide top ${TOP} places${r.top50_state ? `: ${r.top50_state} run by WSDOT, ${r.top50 - r.top50_state} on city streets` : ''}${(n => n
           ? `. ${n} of these ${n === 1 ? 'is' : 'are'} shared with a neighboring district (on the line between them, counted in both), so district counts add up to more than ${TOP}` : '')((r.list || []).filter(x => x.line).length)}</span></div>
-        ${r.top50 ? `<div><b>${fmt(r.top50_nothing)}</b><span>of the ${r.top50_state ? `${r.top50 - r.top50_state} on city streets` : `citywide top ${TOP} here`} with no work counted since ${esc(P.since_d)} and nothing planned or budgeted* (work before then isn't counted${r.top50_ends ? `; ${r.top50_ends} had work at the corners at their ends` : ''}${r.top50_endplan ? `; ${r.top50_endplan} ${r.top50_endplan === 1 ? 'has' : 'have'} work planned at the corners at their ends, not counted` : ''}${budgetTxt(r)})${r.top50_nothing ? ` <button type="button" class="linkbtn show-none">Show ${r.top50_nothing === 1 ? 'it' : 'them'}</button>` : ''}</span></div>` : ''}
+        ${r.top50 ? `<div><b>${fmt(r.top50_nothing)}</b>${budgetOnly(r)}<span>of the ${r.top50_state ? `${r.top50 - r.top50_state} on city streets` : `citywide top ${TOP} here`} with no work counted since ${esc(P.since_d)} and nothing planned or budgeted* (work before then isn't counted${r.top50_ends ? `; ${r.top50_ends} had work at the corners at their ends` : ''}${r.top50_endplan ? `; ${r.top50_endplan} ${r.top50_endplan === 1 ? 'has' : 'have'} work planned at the corners at their ends, not counted` : ''}${budgetTxt(r)})${r.top50_nothing ? ` <button type="button" class="linkbtn show-none">Show ${r.top50_nothing === 1 ? 'it' : 'them'}</button>` : ''}</span></div>` : ''}
       </div>
       <div class="cs-state" id="distState" hidden></div>
       ${swDistTxt(r.g) ? `<div class="cs-foot cs-sw">${swDistTxt(r.g)} <button type="button" class="linkbtn show-sw">See the blocks</button></div>` : ''}
@@ -5078,10 +5111,12 @@
     } finally { syncing = false; docTitle(null); }
   }
   // Back or Forward between lists redraws the list: focus that went with it goes to the list's title, never to the page
-  window.addEventListener('popstate', () => setTimeout(() => {
+  window.addEventListener('popstate', () => { const was = lastTab; setTimeout(() => {
+    // a different list shown opens at its top (Back to a bus stretch keeps its place: the stretch is selected)
+    if (lastTab !== was && !tSel) { const pb = document.getElementById('panelBody'); if (pb) pb.scrollTop = 0; }
     const a = document.activeElement, t = document.getElementById('panelTitle');
     if ((!a || a === document.body) && t && t.offsetParent && !document.querySelector('dialog[open]')) focusPanelTitle();
-  }, 500));
+  }, 500); });
   window.addEventListener('popstate', () => {
     // our own taking back of an entry: the page already shows what that entry says (the district may have changed since)
     if (backPending) { backDone(); distToUrl(); return; }
