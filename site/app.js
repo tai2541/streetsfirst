@@ -103,7 +103,7 @@
       .replace(/\bWy\b/g, 'Way').replace(/\bBr\b/g, 'Bridge')
       .replace(/\b(On|Off)-[Rr]amp\b/g, m => m.toLowerCase()).replace(/\bRamp\b/g, 'ramp')
       .replace(/\((\w+bound)\)/gi, (m, d) => '(' + d.toLowerCase() + ')').replace(/\b(Northbound|Southbound|Eastbound|Westbound)\b/g, m => m.toLowerCase())
-      .replace(/\bM ?[Ll] King Jr (?:[A-Z][a-z] )?(?:([NS]) )?Way\b/g, (m, d) => 'Martin Luther King Jr Way' + (d ? ' (' + d + ')' : ''));
+      .replace(/\b(?:M|Martin) ?[Ll] King Jr (?:[A-Z][a-z] )?(?:([NS]) )?Way\b/g, (m, d) => 'Martin Luther King Jr Way' + (d ? ' (' + d + ')' : ''));
     return t;
   }
   // Plain street names (addresses.sql): a SDOT name with a roadway code ("N 107TH S ST", "BEACON WR AVE S") is shown
@@ -209,14 +209,17 @@
       <b>An unsafe crossing or speeding?</b> That's a bigger safety change than a repair: contact SDOT at <a href="mailto:684-Road@seattle.gov">684-Road@seattle.gov</a> or
       <a href="tel:+12066847623">(206) 684-7623</a>, or your council member.</p>`;
   // The City's forms can't be pre-filled from a link (they only read the request type), so opening one copies the spot instead.
-  const reportBox = place => `<div class="report" data-loc="${esc(place)}">
+  // (at a school or in a school's walk zone, the school-crossing form comes first)
+  const reportBox = (place, school) => { const R = school ? [RESOURCES.find(r => /near a school/.test(r[0])), ...RESOURCES.filter(r => !/near a school/.test(r[0]))] : RESOURCES;
+    return `<div class="report" data-loc="${esc(place)}">
       <div><b>See a problem here?</b> Reports are how problems get on the City's repair list. Opening a form also copies
         this location (<b>${esc(place)}</b>) so you can paste it in.</div>
-      <ul class="res-list">${RESOURCES.slice(0, 3).map(resItem).join('')}</ul>
-      <details class="res-fold"><summary>More problem types</summary><ul class="res-list">${RESOURCES.slice(3).map(resItem).join('')}</ul></details>
+      <ul class="res-list">${R.slice(0, 3).map(resItem).join('')}</ul>
+      <details class="res-fold"><summary>More problem types</summary><ul class="res-list">${R.slice(3).map(resItem).join('')}</ul></details>
       <div class="res-call">Rather talk to someone? Call the City at <a href="tel:+12066842489">(206) 684-2489</a> (weekdays 8 to 5). For a bigger safety
         change than a repair (an unsafe crossing, speeding), contact SDOT at <a href="mailto:684-Road@seattle.gov">684-Road@seattle.gov</a> or
-        <a href="tel:+12066847623">(206) 684-7623</a>, or your council member.</div></div>`;
+        <a href="tel:+12066847623">(206) 684-7623</a>, or your council member. When you write, give the place and its link,
+        what you see happen (for example, drivers turning into people in the crosswalk) and who uses it (for example, kids walking to school).</div></div>`; };
   // ---------- who to contact, nearby school (for any point: spots carry these from the build; pins look them up) ----------
   const CTX = D.context || { council: [], schools: [] };
   const inRing = (x, y, ring) => {
@@ -350,6 +353,8 @@
   document.getElementById('resBody').innerHTML = resourceList();
   document.getElementById('reportHead').addEventListener('click', e => { e.preventDefault(); resDlg.showModal(); });
   document.getElementById('resClose').addEventListener('click', () => resDlg.close());
+  // closing it on a phone: its opener sits in the folded menu, so focus goes to the menu button
+  resDlg.addEventListener('close', () => { const a = document.activeElement; if (isNarrow() && (!a || a === document.body || !a.offsetParent)) document.getElementById('viewMenuBtn').focus(); });
   resDlg.addEventListener('click', e => { if (e.target === resDlg) resDlg.close(); });
 
   // ---------- ranking modes ----------
@@ -604,7 +609,8 @@
     // "planned" only because a budget line is named for the street (the district counts say how many: history.sql budget_only)
     const budgetOnly = !recent.length && !planned.length && cip.length > 0;
     // older work (before the crash years): named in "In short" when nothing since, so "no safety work" isn't read as never
-    const olderTxt = older.length ? uniq(older).slice(0, 2).map(f => `${f.k}, ${monthYear(f.d.slice(0, 10))}`).join('; ') : '';
+    // (the same precision as the work list: a year alone for year-only dates and finished projects)
+    const olderTxt = older.length ? uniq(older).slice(0, 2).map(f => `${f.k}, ${when(f)}`).join('; ') : '';
     return { cls, text, short, budgetOnly, olderTxt, busNew: !recent.length && busNew.length ? busNew[0].y : null };
   }
 
@@ -1014,7 +1020,8 @@
         if (pTier(p) === 0) {
           el.setAttribute('aria-label', `${pRank(p)}: ${niceName(p.location || p.name)}`);
           // a pin reached with Tab is brought into the part of the map the list and details don't cover
-          if (!el._sfFocus) { el._sfFocus = true; el.addEventListener('focus', () => map.panInside(m.getLatLng(), {
+          // (keyboard focus only: a mouse press focuses the pin too, and panning then would slide it out from under the click)
+          if (!el._sfFocus) { el._sfFocus = true; el.addEventListener('focus', () => el.matches(':focus-visible') && map.panInside(m.getLatLng(), {
             paddingTopLeft: [leftPad() + ctlW() + 30, 30],
             paddingBottomRight: [!detailEl.hidden && !isNarrow() ? detailEl.offsetWidth + 30 : 30, isNarrow() ? cover + 20 : 30] })); }
           const core = el.querySelector('.core'); if (core) core.setAttribute('aria-hidden', 'true');
@@ -1304,7 +1311,7 @@
   sheetDrag(S.list); sheetDrag(S.detail);
   // keyboard focus moving below the screen's edge in a half-open place sheet opens it full height (never hidden focus)
   S.detail.body.addEventListener('focusin', e => {
-    if (!isNarrow() || S.detail.snap !== 'half') return;
+    if (!isNarrow() || S.detail.snap !== 'half' || !e.target.matches(':focus-visible')) return;   // (keyboard only: a tap leaves the sheet as it is)
     if (e.target.getBoundingClientRect().bottom > mainEl.getBoundingClientRect().bottom) setSnap(S.detail, 'full');
   });
 
@@ -1475,7 +1482,10 @@
     const step = 24 / start.length;   // hours per bar
     const bins = start.map((l, i) => ({ l, r: range[i], n: known.filter(c => Math.floor(c.h / step) === i).length }));
     const max = Math.max(1, ...bins.map(b => b.n)), H = 90;
-    const top = bins.reduce((a, b) => (b.n > a.n ? b : a));
+    // the busiest time of day; tied bars are all named (up to 3), more than that and none stands out
+    const topN = Math.max(...bins.map(b => b.n)), tops = bins.filter(b => b.n === topN);
+    const mostTxt = tops.length === 1 ? `Most often ${tops[0].r} (${topN} of ${known.length}). `
+      : tops.length <= 3 ? `Most often ${tops.slice(0, -1).map(b => b.r).join(', ')} and ${tops[tops.length - 1].r} (${topN} each of ${known.length}). ` : '';
     const weekend = crashes.filter(c => c.w >= 6).length, unknown = crashes.length - known.length;
     return `
       <div class="cols tod" style="height:${H + 34}px" role="img" aria-label="Crashes by time of day. ${esc(bins.map(b => `${b.r}: ${b.n}`).join('; '))}">
@@ -1484,7 +1494,7 @@
           <div class="stack">${b.n ? `<div class="seg" style="height:${Math.round(H * b.n / max)}px;background:${SEV.P.color};border-radius:4px 4px 0 0"></div>` : ''}</div>
           <span class="yr">${b.l}</span></div>`).join('')}
       </div>
-      <div class="note">${known.length >= 5 ? `Most often ${top.r} (${top.n} of ${known.length}). ` : ''}${weekend} of ${crashes.length} on a weekend.
+      <div class="note">${known.length >= 5 ? mostTxt : ''}${weekend} of ${crashes.length} on a weekend.
         Each bar is ${step} hours, from the time in the police report${unknown ? `; ${unknown} ${unknown === 1 ? 'report has' : 'reports have'} no time` : ''}.</div>`;
   }
 
@@ -1608,7 +1618,7 @@
       return '<line x1="' + fx + '" x2="' + fx + '" y1="' + (ly + 3) + '" y2="' + xb + '" stroke="#1d2430" stroke-width="2" stroke-dasharray="6 4"/>' +
         '<text x="' + tx + '" y="' + ly + '" class="tc-fix">' + esc(x.label) + ', ' + fixDate(x.d) + '</text>'; }).join('');
     const hits = per.map(b => '<rect class="tc-hit" x="' + X(6 * b.i) + '" y="' + top + '" width="' + (X(6) - X(0)) + '" height="' + (xb - top) + '" data-tip="' + esc(
-      '<b>' + b.name + '</b>' + (b.done ? '' : ' (incomplete)') + '<br>' + plural(b.crashes, 'crash', 'crashes') + ', ' + b.severe + ' killed or seriously hurt someone<br>' + plural(b.reports, 'repair report')) + '"/>').join('');
+      '<b>' + b.name + '</b>' + (b.done ? '' : ' (incomplete)') + '<br>' + plural(b.crashes, 'crash', 'crashes') + ', ' + b.severe + ' of them killed or seriously hurt someone<br>' + plural(b.reports, 'repair report')) + '"/>').join('');
     const summary = 'Crashes and repair reports every ' + PERIOD_MONTHS + ' months. ' + per.map(b => b.name + ': ' + plural(b.crashes, 'crash', 'crashes') + ', ' + b.severe + ' killed or seriously hurt someone, ' + plural(b.reports, 'repair report')).join('; ') +
       (inRange.length ? '. ' + inRange.map(x => x.label + ' installed ' + fixDate(x.d)).join('; ') : '');
     const svg = '<svg class="tchart" width="' + W + '" height="' + (xb + 22) + '" viewBox="0 0 ' + W + ' ' + (xb + 22) + '" role="img" aria-label="' + esc(summary) + '">' +
@@ -1643,7 +1653,9 @@
       '<div class="tc-wrap">' + svg + '</div>' + ba +
       '<div class="note">Every ' + PERIOD_MONTHS + ' months. Hollow points and dashed lines: not complete yet, because police reports arrive months late. ' +
       (!fixes.length ? "No dated SDOT fixes here, so there's no fix line (repaving, sidewalks and redesigns aren't linked yet). " : '') +
-      before.map(x => esc(x.label) + ' installed ' + fixDate(x.d) + ', before this chart starts. ').join('') +
+      // one line per kind of fix (a lane built in sections: its first section, then the newest)
+      [...before.reduce((m, x) => m.set(x.label, [...(m.get(x.label) || []), x]), new Map())].map(([lab, xs]) => { xs.sort((a, b) => a.d.localeCompare(b.d));
+        return esc(lab) + ' installed ' + fixDate(xs[0].d) + (xs.length > 1 && fixDate(xs[xs.length - 1].d) !== fixDate(xs[0].d) ? ` (newest section ${fixDate(xs[xs.length - 1].d)})` : '') + ', before this chart starts. '; }).join('') +
       'Repair reports count every repair type nearby. ' + reqGrowth() + '</div>';
   }
 
@@ -1746,7 +1758,7 @@
   // What SDOT has already done or flagged here.
   function treatments(p) {
     const items = [];
-    if (p.sdot_hin) items.push(`On SDOT's <b>High Injury Network</b> (${esc(p.sdot_hin)} priority).`);
+    if (p.sdot_hin) items.push(`On SDOT's <b>High Injury Network</b> (${esc(p.sdot_hin)} priority): streets SDOT has marked for their share of crashes that killed or seriously hurt someone. Being on it doesn't mean a project is planned.`);
     // SDOT keeps separate lists (signalized and unsignalized corners, mid-block, pedestrian, bicycle): say which.
     const hclType = { Signalized: 'signalized intersections', 'Non-Signalized': 'intersections without a signal', 'Mid-Block': 'mid-block', Pedestrian: 'pedestrian', Bicycle: 'bicycle' };
     if (p.sdot_hcl_years && p.sdot_hcl_years.length) items.push(`On SDOT's <b>High Collision Locations</b> list${(p.sdot_hcl_types || []).length
@@ -2117,7 +2129,7 @@
           <span class="nowrap"><button type="button" class="linkbtn" id="copyLink">${canShare() ? 'Share' : 'Copy link'}</button> · ${copyLoc(p.name)}</span></div>
         ${p.merged && p.merged.length > 1
           ? `<div class="note">SDOT records this as ${p.merged.length} ${p.addr_type === 'I' ? 'intersections' : 'stretches'}, ${p.merged.length > 2 ? 'on the sides of divided streets' : 'one on each side of a divided street'}
-            (${p.merged.map(m => `${esc(m.name)}: ${plural(m.n, 'crash', 'crashes')}`).join('; ')}, in the years shown); this site combines them into one place.</div>`
+            (${p.merged.map(m => `${esc(niceName(m.name))}: ${plural(m.n, 'crash', 'crashes')}`).join('; ')}, in the years shown); this site combines them into one place.</div>`
           : sdotSpelling(p.location) ? `<div class="note">SDOT's name: ${esc(p.location)} (it names each side of a divided street separately)</div>` : ''}
         ${verdict(p, det0)}
         ${p.crashes < 5 ? `<p class="note few">With only ${plural(p.crashes, 'crash', 'crashes')} here, this is a record of what happened,
@@ -2136,7 +2148,7 @@
           SDOT's official counts come from a later-checked version of the crash data, so they can differ.</p>` : ''}
         ${whyRank(p)}
         <div class="chips dchips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</div>
-        ${reportBox(p.name)}
+        ${reportBox(p.name, (p.walk_zones || []).length > 0)}
         ${civicBox(p.council_district ? { d: p.council_district, member: p.council_member, url: p.council_url, d2: p.council_district2, ...(({ since, until }) => ({ since, until }))((CTX.council || []).find(x => String(x.d) === String(p.council_district) && x.member === p.council_member) || {}) } : councilAt(p.lat, p.lon),
                    { q: p.rse_quintile, y: p.rse_year })}
       </div>
@@ -2860,12 +2872,12 @@
     detailEl.hidden = false; detailEl.classList.add('home', 'place'); applyLayout();
     phoneDetailShown(wasHidden);
     renderGraphs = () => {};
-    document.getElementById('detailTitle').innerHTML = '<span aria-hidden="true">📍</span> ' + esc(pinTitle(g) + (g.preview ? ' (not saved yet)' : ''));
+    document.getElementById('detailTitle').innerHTML = '<span aria-hidden="true">📍</span> ' + esc(pinTitle(g));
     const body = document.getElementById('detailBody'), list = nb.all.slice(0, 10), mine = onMyStreet(g);
     const card = (n, attr) => `<li><button type="button" class="home-card" ${attr}>
             <span class="hc-rank t${tierK(n.x.rank)}" title="${rankTxt(n.x.rank)}">${rankTxt(n.x.rank, false)}</span>
             <span class="hc-main"><span class="hc-name">${esc(niceName(n.x.name))}</span>
-              <span class="hc-sub">${plural(n.x.crashes, 'crash', 'crashes')}${n.x.ksi ? ` · ${n.x.ksi} killed or seriously hurt someone` : ''}</span></span>
+              <span class="hc-sub">${plural(n.x.crashes, 'crash', 'crashes')}${n.x.ksi ? ` · ${n.x.ksi} of them killed or seriously hurt someone` : ''}</span></span>
             <span class="hc-val">${distText(n.m)}</span></button></li>`;
     body.innerHTML = `<div class="home-wrap">
       <div class="pin-head place-head">${g.name ? `<div class="pin-addr">${esc(g.label)}</div>` : ''}${g.picked ? `<div class="pin-addr">Spot picked on the map${g.name ? '' : ' · nearest address'}</div>` : ''}</div>
@@ -2884,7 +2896,7 @@
           <div class="note">Ranked out of ${fmt(N)} places with crashes. ${nb.all.length > 10 ? `${nb.all.length - 10} more places nearby aren't listed here;
             ` : ''}${nb.all.length > 10 ? 'places' : 'Places'} outside the ranked list are on the map as small grey dots.</div>`
           : `<p class="note">No crashes reported within ${NEARW} in these years.</p>`}</section>
-      ${reportBox(g.label)}
+      ${reportBox(g.label, g.school)}
       ${civicBox(councilAt(g.lat, g.lon))}
     </div>`;
     body.scrollTop = 0; body.onchange = null;
@@ -3354,7 +3366,9 @@
   // a stretch with several routes: whose minutes these are (RapidRide lines by their name: "the H Line")
   const rtName = rt => /Line$/i.test(rt) ? 'the ' + rt : 'route ' + rt;
   // "Routes 7, 49 and the G Line" (RapidRide lines by their name, not "Route G Line")
-  const routeList = (rs, max) => { const L = (rs || []).slice(0, max), nums = L.filter(r => !/Line$/i.test(r)), lines = L.filter(r => /Line$/i.test(r)).map(r => 'the ' + r);
+  // (numbered routes in number order, RapidRide lines after them)
+  const routeSort = rs => [...(rs || [])].sort((a, b) => (/Line$/i.test(a) - /Line$/i.test(b)) || (parseInt(a, 10) - parseInt(b, 10)) || String(a).localeCompare(String(b)));
+  const routeList = (rs, max) => { const L = routeSort(rs).slice(0, max), nums = L.filter(r => !/Line$/i.test(r)), lines = L.filter(r => /Line$/i.test(r)).map(r => 'the ' + r);
     const head = nums.length ? `${nums.length === 1 ? 'Route' : 'Routes'} ${nums.join(', ')}` : '';
     const t = [head, ...lines].filter(Boolean).join(', ').replace(/^the /, 'The ');
     return t + ((rs || []).length > max ? '…' : ''); };
@@ -3379,10 +3393,11 @@
       <div class="dhead">
         <div class="where">${esc(TMODES.bus.sub(s))} · ${copyLoc(stretchName(s))}</div>
         <p class="verdict">${hourSpan(s).replace(/^./, c => c.toUpperCase())} on a weekday, Metro gives ${s.routes.length > 1 && s.rt ? `its busiest route here, ${esc(rtName(s.rt))},` : 'buses'} <b>${s.peak} minutes</b> for this
-          ${s.mi}-mile stretch, compared with ${s.base} minutes in the quickest (usually late-night) hours: <b>${Math.round(100 * s.slower)}% slower</b>.
-          ${fmt(s.trips)} buses run it each weekday; together they lose about <b>${(s.lost / 60).toFixed(1)} hours a day</b> here.</p>
+          ${s.mi}-mile stretch, compared with ${s.base} minutes in its quickest hours: <b>${Math.round(100 * s.slower)}% slower</b>.
+          ${fmt(s.trips)} buses run it each weekday; together they lose about <b>${(s.lost / 60).toFixed(1)} hours a day</b> here.
+          <span class="muted">(Counted: the routes Metro times at both of these stops; other buses on this street, timed at other stops, aren't in these numbers.)</span></p>
         <div class="stat-grid">
-          ${stat(s.base + ' min', 'quickest hours (late night)' + rtOf(s))}${stat(s.peak + ' min', hourSpan(s) + rtOf(s))}
+          ${stat(s.base + ' min', 'quickest hours' + rtOf(s))}${stat(s.peak + ' min', hourSpan(s) + rtOf(s))}
           ${stat(fmt(s.trips), 'buses a weekday')}${stat((s.lost / 60).toFixed(1) + ' h', 'bus time lost a day')}
         </div>
       </div>
@@ -3398,7 +3413,9 @@
         'Heavy traffic isn\'t the same as slow or dangerous.',
       items: () => T.segments.slice().sort((a, b) => a.id - b.id),
       rank: s => s.id, name: s => niceName(s.street),
-      sub: s => (s.hood ? s.hood + ' · ' : '') + (s.est || !s.yr ? `SDOT estimate${s.yr ? ' from ' + s.yr : ''}, not a measured count` : `SDOT count from ${s.yr}`),
+      // (SDOT's current layer can keep an older count for a segment while a later year's layer has a newer one nearby: say so)
+      sub: s => (s.hood ? s.hood + ' · ' : '') + (s.est || !s.yr ? `SDOT estimate${s.yr ? ' from ' + s.yr : ''}, not a measured count` : `SDOT count from ${s.yr}`)
+        + ((n => n ? ` · a newer SDOT count nearby: ${fmt(n.v)} (${n.y})` : '')((s.hist || []).filter(h => s.yr && h.y > s.yr).slice(-1)[0])),
       score: s => `${fmt(Math.round(s.awdt / 1000))}k <small>a day</small>`,
       chips: s => [{ cls: 'ped', text: `${fmt(s.awdt)} vehicles a weekday` }]
         .concat(trendText(s.hist) ? [{ cls: 'state', text: trendText(s.hist) }] : []),
@@ -3684,9 +3701,9 @@
   function trafficHere(p) {
     const out = [];
     const st = p.bus_stretch_id && T.stretches.find(x => x.id === p.bus_stretch_id);
-    if (p.bus_trips) out.push(`<p><b>${fmt(p.bus_trips)} buses</b> a weekday${p.bus_routes && p.bus_routes.length ? ` <span class="muted">(routes ${esc(p.bus_routes.slice(0, 10).join(', '))}${p.bus_routes.length > 10 ? '…' : ''})</span>` : ''}.</p>`);
+    if (p.bus_trips) out.push(`<p><b>${fmt(p.bus_trips)} buses</b> a weekday${p.bus_routes && p.bus_routes.length ? ` <span class="muted">(${esc(routeList(p.bus_routes, 12).replace(/^Routes? /, m => m.toLowerCase()).replace(/^The /, 'the '))})</span>` : ''}.</p>`);
     if (st) out.push(`<p>On the bus route section through here (${esc(stretchName(st))}), buses are <b>${Math.round(100 * st.slower)}% slower
-        ${hourSpan(st)}</b>: ${st.base} minutes in the quickest (usually late-night) hours, ${st.peak} at its slowest.
+        ${hourSpan(st)}</b>: ${st.base} minutes in its quickest hours (usually late night or early morning), ${st.peak} at its slowest.
         <button type="button" class="linkbtn" data-traffic="${st.id}">See this bus stretch on the map</button></p>`);
     const by = {};
     (p.vol_history || []).forEach(x => (by[x.s] = by[x.s] || []).push({ y: x.y, v: x.v }));
@@ -3878,7 +3895,7 @@
     const risk = `
       <h3>Most dangerous for how busy it is</h3>
       <p>Expected harm per million vehicles over the ${WY} years: vehicles entering an intersection (the streets' weekday counts
-        added together) or using a block, × 365 × ${WY}. Each street uses its newest SDOT count within ${fmt(cfg('vol_near_ft'))} ft, and the lower of two counts of that year on either side of the corner (else the nearest within ${fmt(cfg('vol_ft'))} ft);
+        added together) or using a block, × 365 × ${WY}. Each street uses its newest SDOT count within ${fmt(cfg('vol_near_ft'))} ft (else the nearest within ${fmt(cfg('vol_ft'))} ft); of two counts of the same year on either side of a corner, the lower;
         on a divided street that can be one side's count only. Weekday counts overstate weekends a little. Blocks and intersections share one
         list, but a long block carries its traffic farther, so long blocks can look riskier than they are. This surfaces places that are dangerous <i>for how busy they are</i>. Only spots with an SDOT
         count and at least ${weight('risk_min_crashes')} crashes are ranked; volumes under ${fmt(weight('risk_vol_floor'))}
@@ -4044,12 +4061,15 @@
       <h3>The Slow buses &amp; heavy traffic tab</h3>
       <p>Shown next to the safety ranking so you can compare them, but it doesn't change the safety score.</p>
       <ul>
-        <li><b>Where buses lose the most time</b>: from King County Metro's timetable for a typical weekday. Metro schedules each
+        <li><b>Where buses lose the most time</b>: from King County Metro's timetable feed for a typical weekday (it also carries Sound Transit Express buses). Metro schedules each
           trip from how long buses really take at that hour, so for each stretch between Metro's timed stops${stopSpacing()}
           each hour's time is compared with the quickest hours. Ranked by the extra bus time per mile,
           added up over every weekday bus. Busy hours include extra boarding time, not only traffic. These are scheduled times, not
           measured ones: Metro sets them from past trips, so they can lag behind recent changes. Short stretches downtown rank high
-          partly because a minute of schedule rounding is a big share of a short trip.</li>
+          partly because a minute of schedule rounding is a big share of a short trip. A stretch counts only the routes Metro times at both of its stops,
+          so on a busy street more buses pass than are counted. Where a stretch is the first or last timed part of a route's trip (near the end of the line or a
+          downtown loop), its scheduled time can include slack, so it can look slower than the traffic there is. The quickest hours are each route's own two
+          quickest, usually late at night or early morning; for a route that runs only at rush hour they are rush hours too, so its lost time reads low.</li>
         <li><b>Most vehicle traffic</b>: SDOT's weekday counts of vehicles (cars, trucks and buses; not people walking or biking). ${countAge() ? countAge() + ', and s' : 'S'}ome numbers
           are SDOT estimates; both are labeled. Trends use real counts only: when a later year's layer repeats a street's earlier
           count (it wasn't recounted), the repeat is left out.</li>
@@ -4795,7 +4815,7 @@
       <table class="dp-t"><tr><th>Citywide rank</th><th>Place</th><th>People killed or seriously injured</th><th>SDOT work</th></tr>
         ${places.map(p => `<tr><td>${rankTxt(p.rank_ksi)}</td><td>${esc(niceName(p.location))}${p.state_route ? ' <small>(run by WSDOT)</small>' : ''}${p.council_district2 ? ' <small>(on the line with District ' + (+p.council_district === +d ? p.council_district2 : p.council_district) + ')</small>' : ''}</td><td>${people(p)}</td><td><small>${esc(workSummary(p).short)}</small></td></tr>`).join('')}</table>
       ${cip.length ? `<h3>Budget lines named for its streets${cipAll.length > cip.length ? ` (the ${cip.length} matching the most places here, of ${cipAll.length}; all are on the budget tab)` : ''}</h3><ul>${cip.map(x => `<li>${esc(x.t)} (${esc(x.c)}): money budgeted ${x.y0 === x.y1 ? x.y0 : x.y0 + '–' + x.y1}; ${plural(x.n, 'place', 'places')} with crashes on that street here</li>`).join('')}</ul>
-        <p class="note">A project named for a street that runs through several districts is listed in each with its whole amount, so these amounts can't be added up.</p>
+        <p class="note">A project named for a street that runs through several districts is listed in each; the budget doesn't say which blocks it covers.</p>
         <p class="note">Matched by street name; the budget doesn't say which blocks a project covers, so it may not reach these places.</p>` : ''}
       <p class="note">Ranks as of ${asOf || 'the data date'}; they can change every week. Each place's page (on the link above) has its crashes, what SDOT has done and a question to ask.
         ${swDistTxt(d) ? swDistTxt(d) + ' ' : ''}Sources (every dataset, with the day it was read) and how the ranking works: ${esc(location.origin + location.pathname + '#method')}. Each week's full list is saved: https://github.com/tai2541/streetsfirst/releases</p>`;

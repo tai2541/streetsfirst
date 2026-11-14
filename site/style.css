@@ -345,7 +345,7 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 
 /* list panel */
 #panel { background: var(--bg); border-right: 1px solid #e1e5ec; }
-.searchbox input { border-radius: 10px !important; border: 1px solid #8a94a6 !important; box-shadow: var(--lift); transition: box-shadow .15s, border-color .15s; }
+.searchbox input { border-radius: 10px !important; border: 1px solid #7a8396 !important; box-shadow: var(--lift); transition: box-shadow .15s, border-color .15s; }
 .searchbox input:focus { border-color: #2f55c7 !important; box-shadow: 0 0 0 3px rgba(47,85,199,.18); outline: none; }
 
 /* citywide summary */
@@ -395,6 +395,8 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 .phone-intro { display: none; margin: 0 0 10px; font-size: 14px; line-height: 1.45; color: #2a3342; }
 .phone-intro .intro-report { display: inline-block; margin-top: 4px; font-weight: 700; color: #0f7a54; }
 .pg-need small.pg-n { color: #5a6475; font-size: 11.5px; white-space: nowrap; }
+/* (a member's dates and a long note may wrap, so the table fits a 1366px laptop) */
+.pg-need th[scope="row"] small.pg-n, .pg-need td:last-child small.pg-n { white-space: normal; }
 .pg-table a.fn { text-decoration: none; margin-left: 1px; }
 .pg-kinds { margin: 8px 0 4px; font-size: 13.5px; color: #2a3342; }
 .pin-warn { margin: 6px 0; padding: 6px 9px; border-left: 3px solid #c77700; background: #fff7e6; border-radius: 4px; font-size: 13px; color: #4a3200; }
@@ -420,7 +422,7 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
   .cs-nums span, .cs-foot, .cs-note, .city-summary .cs-note { font-size: 12.5px; }   /* the district and city cards readable on a phone */
   header { padding: 10px 14px 13px; }
 }
-.controls select, #reqType { appearance: none; -webkit-appearance: none; border: 1px solid #8a94a6; border-radius: 8px; background: #fff
+.controls select, #reqType { appearance: none; -webkit-appearance: none; border: 1px solid #7a8396; border-radius: 8px; background: #fff
   url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235b6576' stroke-width='1.6'/%3E%3C/svg%3E") no-repeat right 9px center;
   padding: 4px 26px 4px 9px; color: var(--ink); font-weight: 500; cursor: pointer; box-shadow: var(--lift); }
 .controls select:focus-visible, #reqType:focus-visible { outline: 2px solid #2f55c7; outline-offset: 2px; border-color: #2f55c7; }
@@ -840,6 +842,8 @@ body.sheet-open #expandPanel, body.sheet-open #expandDetail, body.sheet-open #pa
 /* the group names stay in view when the wide table is scrolled sideways */
 .pg-need th[scope="row"] { position: sticky; left: 0; background: #fff; z-index: 1; }
 .pg-need tr.on th[scope="row"] { background: #e3ebfa; }
+/* long column headers wrap, so the table fits a 1366px laptop without hiding its last column */
+.pg-need th[scope="col"] { white-space: normal; max-width: 8.5em; }
 .pg-open { background: #f3f7fd; border-radius: 8px; padding: 6px 12px; margin: 4px 0 10px; }
 /* phones: one card per district (or equity level), bars on one scale */
 .pg-cards { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 10px; }
