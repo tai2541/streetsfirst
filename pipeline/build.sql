@@ -550,8 +550,9 @@ select e.*, x.addr_type, x.intkey, x.speed_limit, x.art_class,
   a.lon, a.lat,
   -- state highways (pipeline/state_routes.sql): state_route only where WSDOT runs it (freeways, ramps, state bridges, the
   -- tunnel); state_hwy where it's a city street on a state highway, which the City runs (counted as a city street)
-  case when ps.runs = 'wsdot' then ps.route end as state_route,
-  case when ps.runs = 'city' then ps.route end as state_hwy, ps.bridge as state_bridge,
+  -- (a junction inside the SR 99 tunnel has no state-route line within reach to say so: it's WSDOT's tunnel all the same)
+  case when ps.runs = 'wsdot' then ps.route when e.location like 'SR99 TUNNEL %' then 'SR 99' end as state_route,
+  case when ps.runs = 'city' and e.location not like 'SR99 TUNNEL %' then ps.route end as state_hwy, ps.bridge as state_bridge,
   on_structure(e.location) as structure,
   case when e.crashes < 5 then 'low' when e.crashes < 15 then 'medium' else 'high' end as confidence
 from eb_in(ws(), we()) e

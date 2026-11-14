@@ -218,15 +218,18 @@
   // The City's forms can't be pre-filled from a link (they only read the request type), so opening one copies the spot instead.
   // (at a school or in a school's walk zone, the school-crossing form comes first)
   // (school: at a school or within the school_ft setting of one; noLink: a found address or school, which has no link of its own)
-  const reportBox = (place, school, noLink) => { const R = school ? [RESOURCES.find(r => /near a school/.test(r[0])), ...RESOURCES.filter(r => !/near a school/.test(r[0]))] : RESOURCES;
+  // (state: a place WSDOT runs: a bigger change there is WSDOT's, so the "bigger change" line sends people there)
+  const reportBox = (place, school, noLink, state) => { const R = school ? [RESOURCES.find(r => /near a school/.test(r[0])), ...RESOURCES.filter(r => !/near a school/.test(r[0]))] : RESOURCES;
     return `<div class="report" data-loc="${esc(place)}">
       <div><h3 class="rep-h">See a problem here?</h3> Reports are how problems get on the City's repair list. Opening a form also copies
         this location (<b>${esc(place)}</b>) so you can paste it in.</div>
       <ul class="res-list">${R.slice(0, school ? 4 : 3).map(resItem).join('')}</ul>
       <details class="res-fold"><summary>More problem types</summary><ul class="res-list">${R.slice(school ? 4 : 3).map(resItem).join('')}</ul></details>
       <div class="res-call">Rather talk to someone? Call the City at <a href="tel:+12066842489">(206) 684-2489</a> (weekdays 8 to 5). For a bigger safety
-        change than a repair (an unsafe crossing, speeding), contact SDOT at <a href="mailto:684-Road@seattle.gov">684-Road@seattle.gov</a> or
-        <a href="tel:+12066847623">(206) 684-7623</a>, or your council member. When you write, give the place${noLink ? '' : ' and its link'},
+        change than a repair (an unsafe crossing, speeding), ${state ? `contact WSDOT, the state's transportation department, which runs this place
+        (<a href="https://wsdot.wa.gov/" target="_blank" rel="noopener">wsdot.wa.gov <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>), or your state legislators, who fund it`
+        : `contact SDOT at <a href="mailto:684-Road@seattle.gov">684-Road@seattle.gov</a> or
+        <a href="tel:+12066847623">(206) 684-7623</a>, or your council member`}. When you write, give the place${noLink ? '' : ' and its link'},
         what you see happen (for example, drivers turning into people in the crosswalk) and who uses it (for example, kids walking to school).</div></div>`; };
   // ---------- who to contact, nearby school (for any point: spots carry these from the build; pins look them up) ----------
   const CTX = D.context || { council: [], schools: [] };
@@ -257,10 +260,11 @@
   const untilTxt = u => u ? `, until ${new Date(u.slice(0, 10) + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : '';
   const sinceTxt = (d, u) => d ? `, in office since ${monthYear(d.slice(0, 10))}${untilTxt(u)}` : '';
   // The council member for a place, the City's equity index (spots only), and a print button.
-  function civicBox(c, rse) {
+  function civicBox(c, rse, state) {
     if (!c) return '';
     return `<div class="civic">
-      <div><b>Bigger fixes</b> (redesigns, signals, sidewalks) are paid for through the City budget (including voter-approved transportation levies), which the City Council
+      ${state ? `<div><b>This place is run by WSDOT</b>, the state's transportation department: changes here are WSDOT's to make, funded by the state legislature, not the City budget. The City's council member is still a voice for the district.</div>` : ''}
+      <div><b>Bigger fixes</b>${state ? " on city streets" : ""} (redesigns, signals, sidewalks) are paid for through the City budget (including voter-approved transportation levies), which the City Council
         votes on. SDOT itself is a City department, so it answers to the Mayor (the Mayor directs and controls all City offices and departments).
         The council member for this district: <b>${esc(c.member || '—')}</b> (District ${c.d}${sinceTxt(c.since, c.until)})${c.url
           ? (/^https:\/\//.test(c.url) ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">${/\/council\/?$/.test(c.url) ? "the City Council's page" : esc(c.member) + "'s council page"} <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>` : '') : ''}.${(CTX.citywide || []).length ? ` Citywide council member${CTX.citywide.length === 1 ? '' : 's'} (elected by the whole city): ${CTX.citywide.map(x => typeof x === 'string' ? esc(x) : esc(x.n) + (x.since ? ` (${sinceTxt(x.since).slice(2)})` : '')).join(' and ')}.` : ''}${c.d2 ? ` This place is on the line between District ${c.d} and District ${c.d2}
@@ -376,7 +380,7 @@
 
   // ---------- ranking modes ----------
   const MODES = {
-    ksi: { label: 'Most likely to hurt people', short: `This site's harm estimate: ${WY} years of police-reported crashes, weighted by how badly people were hurt; for places with few crashes, the share that killed or seriously hurt someone is pulled toward what's typical for similar streets. Harm score: higher means more harm estimated; ▲ ▼: moved since last month.`, hint: `The places with the highest expected harm: an estimate, from ${WY} years of every crash (not only the worst), of where crashes have hurt people most badly and may again (in this site's tests it picks out later serious crashes about as well as counting crashes does, not a precise forecast). The score adds up every crash here, weighted by how badly people were hurt; the list is rebuilt every week (late crash reports can move it), and ▲ and ▼ show places that moved since last month's list. Scores close together can't be told apart, so read it in groups (the top ${TOP}), not as an exact order. Start here.`, unit: 'score' },
+    ksi: { label: 'Highest estimated harm', short: `This site's harm estimate: ${WY} years of police-reported crashes, weighted by how badly people were hurt; for places with few crashes, the share that killed or seriously hurt someone is pulled toward what's typical for similar streets. Harm score: higher means more harm estimated; ▲ ▼: moved since last month.`, hint: `The places with the highest expected harm: an estimate, from ${WY} years of every crash (not only the worst), of where crashes have hurt people most badly and may again (in this site's tests it picks out later serious crashes about as well as counting crashes does, not a precise forecast). The score adds up every crash here, weighted by how badly people were hurt; the list is rebuilt every week (late crash reports can move it), and ▲ and ▼ show places that moved since last month's list. Scores close together can't be told apart, so read it in groups (the top ${TOP}), not as an exact order. Start here.`, unit: 'score' },
     risk: { label: 'Most dangerous for how busy it is', short: 'Crash harm for every million vehicles that pass through. Often quieter streets.', hint: '', unit: 'per million vehicles' }
   };
   let mode = (() => { try { return JSON.parse(localStorage.getItem('ipm.mode')) || 'ksi'; } catch { return 'ksi'; } })();
@@ -609,7 +613,7 @@
       : `Money budgeted ${c.y0 === c.y1 ? 'in ' + c.y0 : c.y0 + '–' + c.y1} for a project named for ${c.s ? esc(niceName(c.s)) : 'this street'}, “${c.t}” (it may not reach this spot)`));
     const busNew = bus.filter(f => sinceWin(f.d));
     // (a recent bus lane comes before the older work, so "Earlier" follows something)
-    if (busNew.length) parts.push(`Bus lane (${when(busNew[0])}; not counted here as a safety fix: the bus-lane data this site reads doesn't list other changes made with it)`);
+    if (busNew.length) parts.push(`Bus lane (${when(busNew[0])}; not counted here as a safety fix: bus lanes often come with other safety changes, but the bus-lane data this site reads doesn't list them)`);
     if (older.length) parts.push(`${recent.length || busNew.length ? 'Earlier' : 'Older work only'}: ${list(older)}`);
     if (!busNew.length && !recent.length && bus.length) parts.push(`Older bus lane (${when(bus[0])})`);
     // in place, but SDOT's data gives no date: never "no work recorded"
@@ -623,7 +627,7 @@
     // a new bus lane alone is a transit project, not safety work: it doesn't make a place 'done' ("In short" names it instead)
     const cls = recent.length ? 'done' : planned.length || cip.length ? 'planned' : 'none';
     // say so when nothing is planned, since "what's planned here?" is the first question people bring
-    if (parts.length && !planned.length && !cip.length) parts.push(endsP.length ? "nothing else planned on SDOT's published project maps" : "nothing planned on SDOT's published project maps");
+    if (parts.length && !planned.length && !cip.length) parts.push(endsP.length ? "no other project on the SDOT maps this site reads" : "no project on the SDOT maps this site reads");
     const text = parts.length ? parts.join(' · ') : `No work recorded here in the SDOT layers this site reads${p.state_route ? "; WSDOT's own project records aren't read here" : ''}`;
     // short (list cards): the first part, plus what's planned (or that nothing is), so a short form never hides a plan
     // (the part that decides it: a planned project, else a budget line, else "nothing planned"; corner work never decides it)
@@ -2038,11 +2042,11 @@
     const cipTxt = (p.cip || []).map(cipOne).join('; ');
     const s2 = p.state_route ? `WSDOT runs this place, so changes here are WSDOT's to make.`
       : w.cls === 'done' ? `SDOT has made safety changes here since ${since}${w.text.includes('Planned') ? ', and has more planned' : cipTxt ? `; ${cipTxt}` : ''}.`
-      : w.budgetOnly && w.busNew ? `${w.busSaid}. SDOT's bus-lane data doesn't list other changes made with it, so this site doesn't count it as safety work. Apart from that, no work ${block ? 'on the block itself' : 'here'} since ${since}${endDone ? ' (the corners at its ends have some)' : ''}. ${cipTxt.replace(/^./, c => c.toUpperCase())}.`
-      : w.budgetOnly ? `Nothing built ${block ? 'on the block itself' : 'here'} since ${since}${endDone ? ' (the corners at its ends have some)' : ''}${endPlan ? (endDone ? '; work is planned at a corner at its end' : ' (work is planned at a corner at its end)') : ''}. ${cipTxt.replace(/^./, c => c.toUpperCase())}.`
+      : w.budgetOnly && w.busNew ? `${w.busSaid}. Bus lanes often come with other safety changes, but SDOT's bus-lane data doesn't list them, so this site doesn't count it as safety work. Apart from that, no work ${block ? 'on the block itself' : 'here'} since ${since} in the SDOT data this site reads${endDone ? ' (the corners at its ends have some)' : ''}. ${cipTxt.replace(/^./, c => c.toUpperCase())}.`
+      : w.budgetOnly ? `Nothing built ${block ? 'on the block itself' : 'here'} since ${since} in the SDOT data this site reads${endDone ? ' (the corners at its ends have some)' : ''}${endPlan ? (endDone ? '; work is planned at a corner at its end' : ' (work is planned at a corner at its end)') : ''}. ${cipTxt.replace(/^./, c => c.toUpperCase())}.`
       // (SDOT's bus-lane layer lists the lane only: other changes built with it, like crossings, aren't in it)
-      : w.busNew ? `${w.busSaid}. SDOT's bus-lane data doesn't list other changes made with it, so this site doesn't count it as safety work. Apart from that, no work ${block ? 'on the block itself' : 'here'} since ${since}${w.cls === 'planned' ? ', but SDOT has work planned or budgeted' : ` and none planned, in the SDOT data this site reads${corner}`}.`
-      : w.cls === 'planned' ? `Nothing built ${block ? 'on the block itself' : 'here'} since ${since}${endDone ? ' (the corners at its ends have some)' : ''}, but SDOT has work planned or budgeted.`
+      : w.busNew ? `${w.busSaid}. Bus lanes often come with other safety changes, but SDOT's bus-lane data doesn't list them, so this site doesn't count it as safety work. Apart from that, no work ${block ? 'on the block itself' : 'here'} since ${since}${w.cls === 'planned' ? ' in the SDOT data this site reads, but SDOT has work planned or budgeted' : ` and none planned, in the SDOT data this site reads${corner}`}.`
+      : w.cls === 'planned' ? `Nothing built ${block ? 'on the block itself' : 'here'} since ${since} in the SDOT data this site reads${endDone ? ' (the corners at its ends have some)' : ''}, but SDOT has work planned or budgeted.`
       : `No safety work ${block ? 'on the block itself' : 'here'} since ${since}, when these crash counts start${w.olderTxt ? ` (earlier: ${w.olderTxt})` : ''}, and none planned, in the SDOT data this site reads${corner}.`;
     // the first SDOT a reader meets on a place's page says what it is
     return `<p class="inshort"><b>In short:</b> ${esc(s1)} ${esc(/^SDOT\b/.test(s2) ? s2.replace(/^SDOT\b/, "SDOT (the City's transportation department)")
@@ -2216,9 +2220,9 @@
           SDOT's official counts come from a later-checked version of the crash data, so they can differ.</p>` : ''}
         ${whyRank(p)}
         <div class="chips dchips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</div>
-        ${reportBox(p.name, !!p.school)}
+        ${reportBox(p.name, !!p.school, false, !!p.state_route)}
         ${civicBox(p.council_district ? { d: p.council_district, member: p.council_member, url: p.council_url, d2: p.council_district2, ...(({ since, until }) => ({ since, until }))((CTX.council || []).find(x => String(x.d) === String(p.council_district) && x.member === p.council_member) || {}) } : councilAt(p.lat, p.lon),
-                   { q: p.rse_quintile, y: p.rse_year })}
+                   { q: p.rse_quintile, y: p.rse_year }, !!p.state_route)}
       </div>
       <div id="graphs" class="graphs"></div>
       <div class="dcols">
@@ -3627,7 +3631,8 @@
     poor: {
       hint: `Blocks with the most sidewalk that SDOT rated poor or very poor (heaved, cracked or broken), from SDOT's sidewalk
         inventory: ${SW.counts.poor_miles ?? '?'} miles on ${fmt(SW.counts.poor_blocks || 0)} blocks. Most of these ratings are from
-        ${SW.counts.poor_assessed_median || 'past'} surveys, so some may have been fixed since.`,
+        ${SW.counts.poor_assessed_median || 'past'} surveys, so some may have been fixed since. Under City code the owner of the property beside a
+        sidewalk is generally responsible for repairing it; SDOT inspects sidewalks and makes some repairs.`,
       items: () => SW.poor, byDist: true, rank: s => s.id, name: s => blockName(s.name),
       sub: s => [s.hood, s.y1 ? `rated ${s.y0 === s.y1 ? s.y1 : s.y0 + '–' + s.y1}` : ''].filter(Boolean).join(' · '),
       score: s => `<span class="nw">${ftText(s.vp + s.p)}</span> <small class="nw">poor or worse</small>`,
@@ -4003,7 +4008,7 @@
         </ol>
       </div>` : '';
     const ksi = `
-      <h3>"Most likely to hurt people" ranking, in full</h3>
+      <h3>"Highest estimated harm" ranking, in full</h3>
       <ol>
         <li><b>Crash harm.</b> Points per crash: killed or seriously injured ${k}, other injury ${weight('injury')},
           property damage only ${weight('pdo')}, × ${weight('ped_bike_mult')} when someone walking or biking was involved and someone was hurt.
@@ -4014,16 +4019,19 @@
           aren't treated as harmless: each gets the typical non-fatal/serious harm for similar streets.
           These points are a judgment, not a published standard: they put a death or serious injury far above a minor injury
           without letting one crash outweigh dozens of others.${(meta.weight_tests || []).length > 1 ? ` "Other weights" below shows how much the top ${TOP} changes with other points.` : ''}</li>
-        <li><b>More than one death at the same place adds weight.</b> One death at a place says less about the street than a
-          repeated pattern does, so a second death at the same place is treated as a pattern. The 1st fatal crash at a spot counts ${k} (like a serious injury), the 2nd ${(k * g).toFixed(1)},
+        <li><b>A second fatal crash at the same place adds weight.</b> One death at a place says less about the street than a
+          repeated pattern does, so a second fatal crash at the same place is treated as a pattern (people killed in the same crash
+          count as one fatal crash). The 1st fatal crash at a spot counts ${k} (like a serious injury), the 2nd ${(k * g).toFixed(1)},
           the 3rd ${(k * g * g).toFixed(1)} (each × ${g} the last). This extra weight then goes through step 3 like all fatal/serious
           harm: at a spot with few crashes, most of it is replaced by the typical rate. That's why places where ${DEATHS} or more people
           died are also listed separately, whatever their rank.</li>
         <li><b>Expected harm.</b> With only a few crashes, a spot's share of crashes that killed or seriously hurt someone can make it look much more or much less dangerous than it really is. So its fatal/serious harm is blended
-          with the typical rate for similar spots (same kind of location and street class), weighted by its crash count:
+          with the typical rate for similar spots (same kind of location, intersection or stretch, and the same street class:
+          an intersection takes the highest class of the streets meeting there, a stretch its own street's class, and state routes
+          and freeways are a class of their own), weighted by its crash count:
           its own fatal/serious points × crashes ÷ (crashes + ${A}) + the typical points per crash × its crashes × ${A} ÷ (crashes + ${A}). A spot with 5 crashes leans ${Math.round(100 * A / (5 + A))}% on the typical
           rate; one with 60 leans ${Math.round(100 * 60 / (60 + A))}% on its own record. Every crash, even a fender-bender,
-          is evidence of how much conflict happens there. (This borrows the idea of empirical Bayes that traffic engineers use, in a simpler form: it blends only the share of crashes that kill or seriously hurt, not the number of crashes, and ${A} is a chosen number, not estimated from the data. The Highway Safety Manual's method blends a place's crash count with a model of similar places.)${bmax > 0 ? '' : ' The result is the "harm score" shown on the list and on each place.'}</li>
+          is evidence of how much conflict happens there. (This borrows the idea of empirical Bayes that traffic engineers use, in a simpler form: it blends only the share of crashes that kill or seriously hurt, not the number of crashes, and ${A} is a chosen number, not estimated from the data. The Highway Safety Manual's method blends a place's crash count with a model of similar places.)${bmax > 0 ? '' : ' The result is the "harm score" shown on the list and on each place.'} Places with equal scores are ordered by more crashes first, then by SDOT's name, A to Z.</li>
         ${bmax > 0 ? `<li><b>Repair boost.</b> Safety-related requests (${scored.map(r => esc(r.type)).join(', ')}) within
           ${ft(weight('request_radius_m'))} ft since ${monthYear(meta.requests_scored_from)} raise the score by up to
           +${Math.round(100 * bmax)}% (half that at ${bhalf} request points). Duplicate reports of the same thing in the same
@@ -4059,9 +4067,9 @@
         each method's top ${TOP} and top ${LIST}.${two ? " It's run on two splits of the years; they overlap in part, so they aren't fully independent checks." : ''}</p>
       <ul class="tight">
         <li><b>Test 1:</b> ranked on ${span(meta.window_from, dayBefore(meta.test_from))}, counted ${span(meta.test_from, meta.window_to)}
-          (${fmt(meta.test_ksi_total)} fatal or serious crashes citywide).</li>
+          (${fmt(meta.test_ksi_total)} fatal or serious crashes citywide, at mapped places).</li>
         ${two ? `<li><b>Test 2:</b> ranked on ${span(meta.window_from, dayBefore(meta.test2_from))}, counted ${span(meta.test2_from, meta.test2_to)}
-          (${fmt(meta.test2_ksi_total)} citywide).</li>` : ''}
+          (${fmt(meta.test2_ksi_total)} citywide, at mapped places).</li>` : ''}
       </ul>
       <table class="vtable"><thead>
         <tr><th scope="col" rowspan="2">Method</th><th scope="colgroup" colspan="2">Test 1</th>${two ? '<th scope="colgroup" colspan="2">Test 2</th>' : ''}</tr>
@@ -4132,7 +4140,7 @@
       <p>SDOT's High Injury Network and High Collision Locations come from overlapping crash data, so this is a
         consistency check, not independent proof. Top ${TOP} of each ranking:</p>
       <table class="vtable"><thead><tr><th scope="col"><span class="sr-only">Places</span></th><th scope="col">High Injury Network</th><th scope="col">of those "High"</th><th scope="col">High Collision list ${meta.window_from.slice(0, 4)}+</th></tr></thead><tbody>
-        ${agRow('ksi', 'Most likely to hurt people')}${agRow('risk', 'Most dangerous for how busy it is')}
+        ${agRow('ksi', 'Highest estimated harm')}${agRow('risk', 'Most dangerous for how busy it is')}
         ${agRow('baseline_crash_count', `Baseline: ${TOP} spots with most crashes`)}
       </tbody></table>
       <p class="note">For scale: ${Math.round(100 * meta.busy_share_on_hin)}% of the ${fmt(meta.busy_locations)} spots with ${cfg('busy_min_crashes')}+ crashes are on the High Injury Network.</p>`;
@@ -4874,7 +4882,7 @@
         (about 1 in ${Math.round(1 / meta.unknown_recent.share)}) don't say how badly people were hurt, so the newest counts may be low.</div>` : ''}
       <div class="cs-foot"><b class="cs-hi">About 1 in ${oneIn}</b> of the crashes that killed or seriously hurt someone
         (${fmt(meta.top50_ksi)} of ${fmt(ksiAll)}) happened at just <b class="cs-hi">${meta.top50_intersections != null ? `${meta.top50_intersections} intersections and ${TOP - meta.top50_intersections} stretches of street` : `${TOP} places`}</b>${meta.top50_stretch_miles ? ` (the stretches add up to about ${meta.top50_stretch_miles} miles)` : ''}, out of
-        ${fmt(meta.locations_scored)} places with crashes. Those are the top of the "Most likely to hurt people" ranking, picked using these same crashes.${pbShare ? `
+        ${fmt(meta.locations_scored)} places with crashes. Those are the top of the "Highest estimated harm" ranking, picked using these same crashes.${pbShare ? `
         Of the ${fmt(meta.city_ksi_crashes)} with a known location, <b class="cs-hi">${pbShare}%</b> involved someone walking or biking.` : ''}</div>
       ${meta.forward_top50_ksi ? `<div class="cs-note">Predicting is harder: ranked on the first ${yrsBetween(meta.window_from, meta.test_from)} years, the top ${TOP} had
         ${fmt(meta.forward_top50_ksi)} of the next ${yrsBetween(meta.test_from, meta.window_to)} years' ${fmt(meta.test_ksi_total)} fatal or serious crashes
