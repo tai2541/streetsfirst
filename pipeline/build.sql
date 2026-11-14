@@ -80,6 +80,7 @@ create or replace macro ba_min_days() as 365;       -- before and after a fix: a
 create or replace macro ba_max_days() as 1095;      -- ...and at most this long
 create or replace macro inc_min_crashes() as 2;     -- "Increases to look into": at least this many targeted crashes before and after...
 create or replace macro inc_min_days() as 730;      -- ...over at least this long on each side
+create or replace macro street_min_mi() as 0.5;     -- 'Whole streets': no rate per mile under this length (a few crashes on a ramp make a huge rate)
 create or replace macro wide_n() as 100;            -- "Whole streets": places in the citywide top 100 (and top_n)
 create or replace macro cmp_lag_months() as 6;      -- past rankings are compared with the last full years ending this long ago (severity fills in late)
 create or replace macro chg_min() as 30;             -- "Is it getting fixed?": a change is given as a percent only when both counts are at least this
@@ -140,10 +141,12 @@ select
   trim(LOCATION)                           as sdot_location      -- SDOT's own name, kept when split roadways are merged below
 from raw
 where LOCATION is not null and coordinates is not null
--- Probable duplicate reports: same place, day, severity, crash type, people, vehicles and conditions under two
--- report numbers (about 100 of 36,000, mostly property damage). Keep one.
-qualify row_number() over (partition by LOCATION, INCDATE, MAXSEVERITYDESC, ST_COLDESC, PEDCOUNT, PEDCYLCOUNT,
-          FATALITIES, SERIOUSINJURIES, INJURIES, VEHCOUNT, PERSONCOUNT, WEATHER, ROADCOND, LIGHTCOND order by INCKEY) = 1;
+-- Probable duplicate reports: same place, day, time, severity, crash type, people, vehicles and conditions under two
+-- report numbers (mostly property damage). Keep one. Reports that are nearly blank (no crash type, no vehicles, no
+-- people listed) all look alike, so those are never treated as duplicates of each other: both are kept.
+qualify row_number() over (partition by LOCATION, INCDATE, INCDTTM, MAXSEVERITYDESC, ST_COLDESC, PEDCOUNT, PEDCYLCOUNT,
+          FATALITIES, SERIOUSINJURIES, INJURIES, VEHCOUNT, PERSONCOUNT, WEATHER, ROADCOND, LIGHTCOND order by INCKEY) = 1
+     or (nullif(trim(ST_COLDESC), '') is null and coalesce(VEHCOUNT, 0) = 0 and coalesce(PERSONCOUNT, 0) = 0);
 
 -- Split roadways: SDOT names each side of a divided street separately ("M L KING JR WR WAY S" and "... ER ...",
 -- light rail in the median), so one intersection appears twice 15-20 m apart. Merge the two sides when they
@@ -711,6 +714,60 @@ from val_split(ws(), (select a_test0 from validation_splits), (select a_test0 fr
 join val_split(ws(), (select b_mid::date from validation_splits), (select b_mid::date from validation_splits),
                (select b_end::date from validation_splits)) b using (method);
 
+-- 1b) Other points per crash. The weights are a judgment call, so the same expected-harm ranking is redone with other
+--     sets (fatal/serious weighed half and twice as much, other injuries twice as much, no extra for walking/biking):
+--     how many of this week's top 50 stay in each set's top 50, and how many later fatal/serious crashes each set's
+--     top 50 caught on Test 1's split. The first set is the site's own; the build stops if it doesn't reproduce the
+--     site's top 50 and the validation table, so this copy of the formula can't drift from the real one.
+create or replace macro eh_rank(d0, d1, wk, wi, wp, wpb) as table
+with c as (
+  select location, severity, severity in ('Fatal Collision', 'Serious Injury Collision') as is_ksi,
+    (case severity when 'Fatal Collision' then wk when 'Serious Injury Collision' then wk
+                   when 'Injury Collision' then wi when 'Property Damage Only Collision' then wp else 0 end)
+    * (case when peds + cyclists > 0 and severity in ('Fatal Collision', 'Serious Injury Collision', 'Injury Collision') then wpb else 1 end)
+    * (case when severity = 'Fatal Collision'
+            then power(wt('fatal_growth'), row_number() over (partition by location, severity = 'Fatal Collision' order by date, id) - 1)
+            else 1 end) as pts
+  from collisions where date >= d0 and date < d1),
+h as (select location, count(*) as crashes, count(*) filter (where severity = 'Unknown') as unknown_sev,
+             sum(pts) as harm, coalesce(sum(pts) filter (where is_ksi), 0) as ksi_harm
+      from c group by location),
+h2 as (select h.*, x.addr_class || ' / ' || x.street_bucket as ref_group from h join loc_context x using (location)),
+g as (select ref_group, sum(ksi_harm) / sum(crashes) as r_ksi, sum(harm - ksi_harm) / nullif(sum(crashes - unknown_sev), 0) as r_other
+      from h2 group by ref_group),
+e as (select location, crashes,
+        (harm - ksi_harm) + crashes / (crashes + wt('ksi_prior_crashes')) * ksi_harm
+        + wt('ksi_prior_crashes') / (crashes + wt('ksi_prior_crashes')) * crashes * r_ksi
+        + unknown_sev * coalesce(r_other, 0) as eh
+      from h2 join g using (ref_group))
+select location, row_number() over (order by round(eh, 9) desc, crashes desc, location) as rk from e;
+
+create or replace table weight_tests as
+with sets as (select * from (values
+    (1, 'site', 1.0, 1.0, 1.0, false),
+    (2, 'ksi_half', 0.5, 1.0, 1.0, false),
+    (3, 'ksi_double', 2.0, 1.0, 1.0, false),
+    (4, 'injury_double', 1.0, 2.0, 1.0, false),
+    (5, 'no_ped_bike', 1.0, 1.0, 1.0, true)) t(o, s, fk, fi, fp, nopb)),
+w as (select o, s, wt('ksi') * fk as k, wt('injury') * fi as i, wt('pdo') * fp as p,
+             case when nopb then 1.0 else wt('ped_bike_mult') end as pb from sets),
+t as (select (select a_test0 from validation_splits) as a),
+test as (select location, count(*) filter (where severity in ('Fatal Collision', 'Serious Injury Collision')) as ksi
+         from collisions where date >= (select a from t) and date < we() group by location),
+now_top as (select location from ranked where rank <= top_n()),
+r as (
+  select w.o, x.location, x.rk, 'now' as which from w, lateral (select * from eh_rank(ws(), we(), w.k, w.i, w.p, w.pb)) x where x.rk <= top_n()
+  union all
+  select w.o, x.location, x.rk, 'train' from w, lateral (select * from eh_rank(ws(), (select a from t), w.k, w.i, w.p, w.pb)) x where x.rk <= top_n())
+select w.o, w.s as set, w.k as ksi, w.i as injury, w.p as pdo, w.pb as ped_bike_mult,
+  (select count(*) from r where r.o = w.o and which = 'now' and location in (select location from now_top))::int as stay_50,
+  (select coalesce(sum(test.ksi), 0) from r join test using (location) where r.o = w.o and which = 'train')::int as future_ksi_50
+from w order by w.o;
+create or replace temp table weight_tests_ok as
+select case when (select stay_50 from weight_tests where set = 'site') <> top_n()
+              or (select future_ksi_50 from weight_tests where set = 'site') <> (select future_ksi_50 from validation where method = 'expected')
+            then error('weight_tests: the site''s own weights don''t reproduce the ranking (eh_rank has drifted from eb_in)') end;
+
 -- 2) Consistency with SDOT's own lists (built from overlapping crash data, so not independent),
 --    with fair baselines: busy crash locations are on the High Injury Network anyway.
 create or replace table sdot_agreement as
@@ -777,7 +834,7 @@ create or replace macro cell_of(lat, lon) as floor(lat / 0.01)::int || '_' || fl
 
 -- Every place's site fields (the same columns for the ranked spots and, loaded on demand, for every other place).
 create or replace table spot_export as
-  select rank, rank_type, rank_noboost, rank_fatal, rank_risk, location, addr_type, round(lon, 6) lon, round(lat, 6) lat,
+  select rank, rank_type, rank_noboost, rank_fatal, rank_risk, location, addr_type, intkey, round(lon, 6) lon, round(lat, 6) lat,
          cell_of(lat, lon) as cell,
          round(score_ksi, 1) score_ksi,
          round(score_fatal, 1) score_fatal, round(score_risk, 1) score_risk,
@@ -870,13 +927,32 @@ copy (
 
 -- This week's full ranked list, for the dated weekly snapshot (run.ps1 adds the date and each place's link, and the
 -- weekly job keeps a copy of every week as a GitHub release, so a rank quoted on a given day can be checked later).
--- Places keep SDOT's own names; counts only, no costs.
+-- Places keep SDOT's own names; counts only, no costs. For mapping and joining to SDOT's own records: each place's point
+-- (the middle of its crashes), SDOT's keys (an intersection's INTKEYs from its crash reports, most reports first; a
+-- stretch's street segment COMPKEYs, which other SDOT layers call SEGKEY), the block's length, and the score's parts
+-- (they add up to the expected harm, which the repair-request boost then multiplies; see the expected harm notes above).
 copy (
+  with ik as (
+    select location, string_agg(intkey::varchar, '; ' order by n desc, intkey) as keys
+    from (select location, intkey, count(*) as n from collisions
+          where intkey is not null and intkey > 0 and date >= ws() and date < we() group by all)
+    group by location),
+  sk as (select loc_name as location, string_agg(distinct compkey::varchar, '; ' order by compkey::varchar) as keys
+         from streets where compkey is not null group by loc_name)
   select rank, case addr_type when 'I' then 'Intersection' when 'B' then 'Stretch' else 'Alley' end as type,
-         location, council_district, council_district2, area, crashes, ksi, fatal, killed, seriously_injured,
+         location, council_district, council_district2, area, neighborhood, crashes, ksi, fatal, killed, seriously_injured,
          ped_crashes, bike_crashes, state_route, round(score_ksi, 1) as score,
-         ws() as crashes_from, (we() - interval 1 day)::date as crashes_to
-  from ranked order by rank
+         ws() as crashes_from, (we() - interval 1 day)::date as crashes_to,
+         round(lat, 6) as lat, round(lon, 6) as lon,
+         case when addr_type = 'I' then ik.keys end as intkeys,
+         case when addr_type <> 'I' then sk.keys end as segkeys,
+         case when addr_type <> 'I' then round(block_ft) end as block_ft,
+         round(harm - ksi_harm, 2) as part_other,
+         round(eb_weight * ksi_harm, 2) as part_ksi_own,
+         round((1 - eb_weight) * crashes * ref_ksi_harm_per_crash, 2) as part_ksi_typical,
+         round(unknown_sev * coalesce(ref_other_harm_per_known, 0), 2) as part_unknown,
+         round(eb_weight, 3) as eb_weight, round(expected_harm, 2) as expected_harm, round(1 + request_boost, 3) as request_mult
+  from ranked left join ik using (location) left join sk using (location) order by rank
 ) to 'data/ranks_raw.csv' (header true);
 
 
@@ -979,6 +1055,7 @@ copy (
     (select round(count(*) filter (where sdot_hin is not null) * 1.0 / count(*), 3) from locations where crashes >= busy_min_crashes()) as busy_share_on_hin,
     (select count(*) from locations where crashes >= busy_min_crashes())    as busy_locations,
     (select list({'method': method, 'k50': future_ksi_50, 'k200': future_ksi_200, 'b50': b_ksi_50, 'b200': b_ksi_200} order by future_ksi_50 desc, method) from validation) as validation,
+    (select list({'set': set, 'ksi': ksi, 'injury': injury, 'pdo': pdo, 'pb': ped_bike_mult, 'stay': stay_50, 'k50': future_ksi_50} order by o) from weight_tests) as weight_tests,
     (select b_mid::date from validation_splits)            as test2_from,
     ((select b_end from validation_splits) - interval 1 day)::date as test2_to,
     (select count(*) filter (where severity in ('Fatal Collision', 'Serious Injury Collision')) from collisions
@@ -1042,7 +1119,7 @@ copy (
      'school_ft': school_ft(), 'merge_ft': round(merge_dlat() * 111320 / 0.3048, -1)::int, 'hist_from_year': hist_from_year(),
      'worst_n': worst_n(), 'worst_ref_to': worst_ref_to(), 'recent_fix_days': recent_fix_days(), 'ba_min_days': ba_min_days(),
      'ba_max_days': ba_max_days(), 'inc_min_crashes': inc_min_crashes(), 'inc_min_days': inc_min_days(), 'wide_n': wide_n(),
-     'cmp_lag_months': cmp_lag_months(), 'move_min': move_min(), 'print_cip_n': print_cip_n(), 'no_drop_skip': no_drop_skip(), 'chg_min': chg_min(), 'ask_up_min': ask_up_min(), 'ba_few_dates': ba_few_dates(), 'ba_cluster_dates': ba_cluster_dates(), 'bus_min_mi': bus_min_mi(),
+     'cmp_lag_months': cmp_lag_months(), 'move_min': move_min(), 'print_cip_n': print_cip_n(), 'no_drop_skip': no_drop_skip(), 'street_min_mi': street_min_mi(), 'chg_min': chg_min(), 'ask_up_min': ask_up_min(), 'ba_few_dates': ba_few_dates(), 'ba_cluster_dates': ba_cluster_dates(), 'bus_min_mi': bus_min_mi(),
      'signal_from_year': year(signal_from()), 'deaths_min': deaths_min(), 'repeat_years': repeat_years(),
      'sw_fast_days': sw_fast_days(), 'sw_min_age_days': sw_min_age_days()} as cfg,
     hist_start() as crash_hist_from,
@@ -1074,6 +1151,9 @@ copy (
     -- crash reports SDOT places at places WSDOT runs (freeways, ramps, state bridges), in the scored years
     (select count(*) from collisions c join locations l using (location)
        where l.state_route is not null and c.date >= ws() and c.date < we()) as wsdot_crashes,
+    -- each route WSDOT runs here, with its places and crash reports (most first), so the page names every one
+    (select list({'r': state_route, 'n': n, 'c': c} order by c desc, state_route) from (
+       select state_route, count(*) as n, sum(crashes)::int as c from locations where state_route is not null group by 1)) as wsdot_routes,
     (select list({'k': k, 'v': v} order by k) from weights)       as weights,
     (select list({'type': type, 'w': w} order by w desc, type) from request_weights) as request_weights
 ) to 'site/data/meta.json' (format json, array false);

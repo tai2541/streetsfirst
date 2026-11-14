@@ -101,17 +101,44 @@ $ranks = Import-Csv (Join-Path $PSScriptRoot 'data\ranks_raw.csv') -Encoding UTF
 if ($ranks.Count -lt 1000) { throw "ranks_raw.csv has only $($ranks.Count) places" }
 $q = { param($v) $s = [string]$v; if ($s -match '[",\r\n]') { '"' + $s.Replace('"', '""') + '"' } else { $s } }
 $sb = New-Object Text.StringBuilder
-[void]$sb.AppendLine((@('Data as of', 'Rank', 'Type', "Place (SDOT's name)", 'Council district', 'Also in council district', 'Neighborhood',
+[void]$sb.AppendLine((@('Data as of', 'Rank', 'Type', "Place (SDOT's name)", 'Council district', 'Also in council district', 'Area', 'Neighborhood',
   'All crashes', 'Crashes that killed or seriously hurt someone', 'Crashes that killed someone', 'People killed', 'People seriously injured',
-  'Crashes involving someone walking', 'Crashes involving someone on a bike', 'Run by WSDOT', 'Score (expected harm)',
-  'Crashes from', 'Crashes to', 'Link') | ForEach-Object { & $q $_ }) -join ',')
+  'Crashes involving someone walking', 'Crashes involving someone on a bike', 'Run by WSDOT', 'Score (expected harm x repair-request boost)',
+  'Crashes from', 'Crashes to', 'Link',
+  'Latitude', 'Longitude', 'SDOT intersection key(s) (INTKEY)', 'SDOT street segment key(s) (COMPKEY, called SEGKEY in some layers)',
+  'Block length (ft, longest segment)',
+  'Score part: harm from crashes that did not kill or seriously hurt anyone',
+  "Score part: this place's own deaths and serious injuries (weighted by its crash count)",
+  'Score part: deaths and serious injuries typical for similar streets (the rest of the weight)',
+  'Score part: crashes of unknown severity (typical harm)',
+  "Weight on the place's own record (grows with its crash count)", 'Expected harm (the four parts added)',
+  'Repair-request boost (expected harm x this = score)') | ForEach-Object { & $q $_ }) -join ',')
+# The same list as a map layer (site/data/ranks.geojson): one point per place, for GIS tools.
+$gj = New-Object Text.StringBuilder
+[void]$gj.Append('{"type":"FeatureCollection","name":"streets-first-seattle-ranks","data_as_of":"' + $asOf + '","features":[')
+$jstr = { param($v) if ($null -eq $v -or $v -eq '') { 'null' } else { '"' + ([string]$v).Replace('\', '\\').Replace('"', '\"') + '"' } }
+$num = { param($v) if ($null -eq $v -or $v -eq '') { 'null' } else { [string]$v } }
+$first = $true
 foreach ($r in $ranks) {
-  [void]$sb.AppendLine((@($asOf, $r.rank, $r.type, $r.location, $r.council_district, $r.council_district2, $r.area,
+  $link = $pageUrl + '#p=' + [SfKey]::Of($r.location)
+  [void]$sb.AppendLine((@($asOf, $r.rank, $r.type, $r.location, $r.council_district, $r.council_district2, $r.area, $r.neighborhood,
     $r.crashes, $r.ksi, $r.fatal, $r.killed, $r.seriously_injured, $r.ped_crashes, $r.bike_crashes, $r.state_route, $r.score,
-    $r.crashes_from, $r.crashes_to, ($pageUrl + '#p=' + [SfKey]::Of($r.location))) | ForEach-Object { & $q $_ }) -join ',')
+    $r.crashes_from, $r.crashes_to, $link,
+    $r.lat, $r.lon, $r.intkeys, $r.segkeys, $r.block_ft, $r.part_other, $r.part_ksi_own, $r.part_ksi_typical, $r.part_unknown,
+    $r.eb_weight, $r.expected_harm, $r.request_mult) | ForEach-Object { & $q $_ }) -join ',')
+  if (-not $first) { [void]$gj.Append(',') }; $first = $false
+  [void]$gj.Append('{"type":"Feature","geometry":{"type":"Point","coordinates":[' + $r.lon + ',' + $r.lat + ']},"properties":{' +
+    '"rank":' + $r.rank + ',"type":' + (& $jstr $r.type) + ',"place":' + (& $jstr $r.location) +
+    ',"district":' + (& $num $r.council_district) + ',"district2":' + (& $num $r.council_district2) + ',"area":' + (& $jstr $r.area) + ',"neighborhood":' + (& $jstr $r.neighborhood) +
+    ',"crashes":' + $r.crashes + ',"ksi":' + $r.ksi + ',"killed":' + (& $num $r.killed) + ',"seriously_injured":' + (& $num $r.seriously_injured) +
+    ',"wsdot_route":' + (& $jstr $r.state_route) + ',"score":' + (& $num $r.score) +
+    ',"intkeys":' + (& $jstr $r.intkeys) + ',"segkeys":' + (& $jstr $r.segkeys) + ',"block_ft":' + (& $num $r.block_ft) +
+    ',"crashes_from":"' + $r.crashes_from + '","crashes_to":"' + $r.crashes_to + '","link":"' + $link + '"}}')
 }
+[void]$gj.Append(']}')
 [IO.File]::WriteAllText((Join-Path $PSScriptRoot 'site\data\ranks.csv'), $sb.ToString(), (New-Object Text.UTF8Encoding $true))
-Write-Host "Wrote site\data\ranks.csv: $($ranks.Count) places, data as of $asOf"
+[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'site\data\ranks.geojson'), $gj.ToString(), (New-Object Text.UTF8Encoding $false))
+Write-Host "Wrote site\data\ranks.csv and ranks.geojson: $($ranks.Count) places, data as of $asOf"
 
 # The top 50 as a checking sheet (site/data/top50_check.csv; made in build.sql): how the site reads SDOT's layers at
 # each place, with SDOT's intersection keys, and an empty column for corrections.

@@ -41,7 +41,10 @@ foreach ($f in $dataJs, $lateJs) { if ((Test-Path $f) -and ([IO.File]::ReadAllTe
 # doesn't have, and on a schedule that is no longer weekly.
 $textOut = & node (Join-Path $root 'pipeline\check_text.js') 2>&1
 if ($LASTEXITCODE -ne 0) { $fails += @($textOut | ForEach-Object { "$_" }) } else { Write-Host ($textOut -join "`n") }
-foreach ($f in 'data\increases.csv','vendor\leaflet\leaflet.js', 'vendor\leaflet\leaflet.css', 'vendor\inter\inter.css', 'app.js', 'style.css', 'index.html', 'favicon.svg', 'favicon-32.png', 'apple-touch-icon.png', 'share.png') {
+# The downloads (each week's full list, its map layer, whole streets): columns, places and score parts.
+$dlOut = & node (Join-Path $root 'pipeline\check_downloads.js') $site 2>&1
+if ($LASTEXITCODE -ne 0) { $fails += @($dlOut | ForEach-Object { "$_" }) } else { Write-Host ($dlOut -join "`n") }
+foreach ($f in 'data\increases.csv', 'data\ranks.csv', 'data\ranks.geojson', 'data\streets.csv','vendor\leaflet\leaflet.js', 'vendor\leaflet\leaflet.css', 'vendor\inter\inter.css', 'app.js', 'style.css', 'index.html', 'favicon.svg', 'favicon-32.png', 'apple-touch-icon.png', 'share.png') {
   if (-not (Test-Path (Join-Path $site $f))) { $fails += "$f is missing" }
 }
 

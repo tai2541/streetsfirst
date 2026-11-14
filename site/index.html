@@ -63,8 +63,6 @@
       <section id="tab-priorities" class="tab active" role="tabpanel" aria-labelledby="tabbtn-priorities">
         <p class="phone-intro">Where crashes hurt people in Seattle. Search a street, address or school, or tap a dot on the map.
           <a href="https://www.seattle.gov/customer-service-bureau#popular" class="intro-report">Report a problem to the City</a></p>
-        <div id="citySummary" class="city-summary"></div>
-        <div id="distSummary" class="city-summary" hidden></div>
         <form class="searchbox" id="searchForm" role="search" action="#" novalidate>
           <input id="search" type="search" autocomplete="off" enterkeyhint="search" placeholder="Find a street, corner, address or school"
                  role="combobox" aria-autocomplete="list" aria-label="Find a street, intersection or address" aria-controls="searchResults" aria-expanded="false">
@@ -96,6 +94,9 @@
           </label>
         </div>
         <div id="modeHint" class="hint" aria-live="polite"></div>
+        <!-- the city's (or the district picked's) numbers, under the search and options so the search box is near the top on phones -->
+        <div id="citySummary" class="city-summary"></div>
+        <div id="distSummary" class="city-summary" hidden></div>
         <!-- set from the district card ("Show them"): only places with no work counted or planned; removable -->
         <input type="checkbox" id="onlyOngoing" hidden><input type="checkbox" id="noPlan" hidden>
         <div id="filterChip" class="filter-chip" hidden></div>
@@ -104,12 +105,14 @@
             <div class="dl-pop">
               <button type="button" class="linkbtn" id="listCsvTop">This list (spreadsheet)</button>
               <a href="data/ranks.csv" download>Every place's rank this week</a>
+              <a href="data/ranks.geojson" download title="One point per place with SDOT's intersection and segment keys, for mapping tools">Every place as a map layer (GeoJSON)</a>
               <a href="https://github.com/tai2541/streetsfirst/releases" target="_blank" rel="noopener">Past weeks (each week's full list, with its date)</a>
             </div>
           </details></div>
         <ol id="list" aria-label="Ranked locations"></ol>
         <p class="list-csv"><button type="button" class="linkbtn" id="listCsv">Download this list (CSV)</button>
           · <a href="data/ranks.csv" download>Every place's rank this week</a>
+          · <a href="data/ranks.geojson" download title="One point per place with SDOT's intersection and segment keys, for mapping tools">Map layer (GeoJSON)</a>
           · <a href="https://github.com/tai2541/streetsfirst/releases" target="_blank" rel="noopener" title="Each week's full list, saved with its date, so a rank quoted on a given day can be checked">Past weeks</a></p>
         <p class="note" id="quoteLine"></p>
         <p class="note provenance" id="provenance"></p>

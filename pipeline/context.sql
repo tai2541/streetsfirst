@@ -135,9 +135,25 @@ eq as (select location, arg_min({'q': quintile, 'y': yr}, {'p': pri, 'd': d}) as
        from (select *, min(d) over (partition by location) as d0 from eqd) where d <= d0 + 25 group by location),
 cdd as (select p.location, c.district, c.member, c.url, ST_Distance(p.geom, c.geom) as d
         from loc_pts p join council c on ST_DWithin(p.geom, c.geom, 300)),
-cd as (select location, arg_min({'d': district, 'm': member, 'u': url}, {'x': d, 'd': district}) as c,
+-- A stretch also counts in every district holding at least a fifth of its street's length (a block that crosses a
+-- district line, like a bridge, is in both); a place more than 300 ft from every district (mid-span on a bridge over
+-- water) takes the nearest one.
+segd as (select s.loc_name as location, c.district, sum(ST_Length(ST_Intersection(s.geom, c.geom))) as len
+         from streets s join council c on ST_Intersects(s.geom, c.geom)
+         where s.loc_name in (select location from locations where addr_type = 'B') group by all),
+segt as (select loc_name as location, sum(ST_Length(geom)) as tot from streets
+         where loc_name in (select location from locations where addr_type = 'B') group by all),
+segk as (select location, list(district order by district) as ds from segd join segt using (location)
+         where len >= 0.2 * tot group by location),
+cfar as (select p.location, arg_min({'d': c.district, 'm': c.member, 'u': c.url}, {'x': ST_Distance(p.geom, c.geom), 'd': c.district}) as c
+         from loc_pts p cross join council c where p.location not in (select location from cdd) group by p.location),
+cd0 as (select location, arg_min({'d': district, 'm': member, 'u': url}, {'x': d, 'd': district}) as c,
               list(distinct district) filter (where d <= d0 + 25) as near
-       from (select *, min(d) over (partition by location) as d0 from cdd) group by location)
+       from (select *, min(d) over (partition by location) as d0 from cdd) group by location),
+cd as (select location, coalesce(cd0.c, cfar.c) as c,
+              list_distinct(list_concat(coalesce(cd0.near, [coalesce(cd0.c, cfar.c).d]), coalesce(segk.ds, []))) as near
+       from (select location from cd0 union select location from cfar) a
+       left join cd0 using (location) left join cfar using (location) left join segk using (location))
 select l.location, sch.school, round(sch.school_ft) as school_ft, eq.e.q as rse_quintile, eq.e.y as rse_year,
        cd.c.d as council_district, cd.c.m as council_member, cd.c.u as council_url,
        list_min(list_filter(cd.near, lambda x: x <> cd.c.d)) as council_district2, wz.walk_zones

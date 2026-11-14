@@ -36,6 +36,8 @@ site/data/data-late.js
 site/data/more/
 site/data/addr/
 site/data/ranks.csv
+site/data/ranks.geojson
+site/data/streets.csv
 site/data/top50_check.csv
 site/data/increases.csv
 site/share.png

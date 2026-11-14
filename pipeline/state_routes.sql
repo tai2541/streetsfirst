@@ -94,7 +94,9 @@ c as (
       from wsdot_access a where not a.limited and a.rn = ltrim(m.srn, '0') and ST_DWithin(a.geom, m.part, 50) group by a.rid)), 0) > 0.5 as along_open
   from m
 )
-select location, route,
+-- a place SDOT names for an interstate (I5 SB AND CITY LIMITS) is labelled with it, whichever route line runs closest
+select location,
+  case when regexp_matches(location, '(^| )I ?5( |$)') then 'I-5' when regexp_matches(location, '(^| )I ?90( |$)') then 'I-90' else route end as route,
   case when (struct and (lim or bridge is not null)) or (not struct and along_lim) then 'wsdot'
        when (not struct and not lim_near and bridge is null) or (struct and not lim and bridge is null and along_open) then 'city' end as runs,
   bridge

@@ -1057,3 +1057,13 @@ main { overflow: hidden; overflow: clip; }
   .dist-row .dist-pick select { font-size: 16px; padding: 11px 30px 11px 12px; }
   .list-opts select { font-size: 16px; padding-top: 8px; padding-bottom: 8px; }   /* 16px: iPhone doesn't zoom into it */
 }
+
+/* the bus and sidewalk lists narrowed to the district picked; the report box's phone line */
+.dist-note { margin: 6px 0 0; font-size: 13px; color: var(--ink, #1d2433); }
+.res-call { margin-top: 8px; font-size: 13px; line-height: 1.45; }
+.res-call a { font-weight: 600; white-space: nowrap; }
+/* phone-sized tap targets: the City's number and the district card's links; school results with the caption under the name */
+.res-call a { display: inline-block; padding: 10px 12px; margin: 4px 0; border: 1px solid #c9d3e6; border-radius: 10px; background: #f4f7fe; text-decoration: none; }
+.city-summary .cs-foot a { display: inline-block; padding: 8px 0; }
+#searchResults li.school-opt { flex-direction: column; align-items: flex-start; gap: 2px; }
+#searchResults li.school-opt small { white-space: normal; }

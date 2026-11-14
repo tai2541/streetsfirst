@@ -292,6 +292,15 @@ from locations l
 left join loc_fixes f using (location) left join loc_volhist h using (location)
 left join loc_bus b using (location) left join loc_bus_stretch bs using (location);
 
+-- ---------------------------------------------------------------- council districts of each line
+-- The district shapes only (pipeline/context.sql adds the members, later): which districts each bus stretch and each
+-- sidewalk block runs through, so those lists can follow the district picked. A line on a district boundary is in both.
+create or replace table council_shapes as
+select f.properties.C_DISTRICT::int as district, gj_geom(f.geometry) as geom
+from (select unnest(features) f from read_json('data/raw/council_*.json', maximum_object_size = 50000000))
+where f.geometry is not null;
+create or replace macro dists_of(g) as (select list(c.district order by c.district) from council_shapes c where ST_Intersects(c.geom, g));
+
 -- ---------------------------------------------------------------- export for the Traffic view
 copy (
   select {
@@ -299,7 +308,7 @@ copy (
     'stretches': (select list({
         'id': id, 'from': from_stop, 'to': to_stop, 'base': round(base_min, 1), 'peak': round(peak_min, 1),
         'hr': peak_hr, 'hr0': hr_lo, 'hr1': hr_hi, 'slower': round(slower, 3), 'trips': trips, 'lost': round(lost_min), 'mi': round(miles, 2),
-        'lpm': round(lost_per_mile), 'rank': rank_bus, 'routes': routes,
+        'lpm': round(lost_per_mile), 'rank': rank_bus, 'routes': routes, 'ds': dists_of(geom),
         'pts': [[round(ST_Y(x.geom), 5), round(ST_X(x.geom), 5)] for x in ST_Dump(ST_Points(ST_SimplifyPreserveTopology(line_ll, 0.00005)))]
       } order by id) from bus_stretch where lost_per_mile is not null),
     'segments': (select list({

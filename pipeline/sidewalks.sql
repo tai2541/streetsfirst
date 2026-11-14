@@ -63,15 +63,21 @@ create or replace macro sw_pts(g) as
   [[[round(ST_Y(x.geom), 5), round(ST_X(x.geom), 5)] for x in ST_Dump(ST_Points(part.geom))]
    for part in ST_Dump(ST_LineMerge(ST_SimplifyPreserveTopology(ST_Transform(g, 'EPSG:2926', 'EPSG:4326'), 0.00003)))];
 
+-- Each block's council districts (traffic.sql: dists_of); the export has the top 400 citywide and each district's own top
+-- 100, so the list filtered to one district is complete to that many.
+create or replace table sw_missing_ds as select id, dists_of(geom) as ds from sw_missing_blocks;
+create or replace table sw_poor_ds as select id, dists_of(geom) as ds from sw_poor_blocks;
+create or replace macro sw_keep(t) as table
+  select id from (select id, unnest(ds) as d from query_table(t)) qualify row_number() over (partition by d order by id) <= 100;
 copy (
   select {
-    'missing': (select list({'id': id, 'name': block, 'tier': tier, 'score': score, 'safety': safety_sc, 'equity': equity_sc,
+    'missing': (select list({'id': id, 'name': block, 'ds': ds, 'tier': tier, 'score': score, 'safety': safety_sc, 'equity': equity_sc,
                              'school': school_sc, 'transit': transit_sc, 'art': art, 'sides': sides, 'ft': ft,
                              'hood': sw_hood(geom), 'pts': sw_pts(geom)} order by id)
-                from sw_missing_blocks where id <= 400),
-    'poor': (select list({'id': id, 'name': block, 'vp': very_poor_ft, 'p': poor_ft, 'y0': assessed_from, 'y1': assessed_to,
+                from sw_missing_blocks join sw_missing_ds using (id) where id <= 400 or id in (select id from sw_keep('sw_missing_ds'))),
+    'poor': (select list({'id': id, 'name': block, 'ds': ds, 'vp': very_poor_ft, 'p': poor_ft, 'y0': assessed_from, 'y1': assessed_to,
                           'hood': sw_hood(geom), 'pts': sw_pts(geom)} order by id)
-             from sw_poor_blocks where id <= 400),
+             from sw_poor_blocks join sw_poor_ds using (id) where id <= 400 or id in (select id from sw_keep('sw_poor_ds'))),
     'counts': {
       'missing_blocks': (select count(*) from sw_missing_blocks),
       'tier1_blocks': (select count(*) from sw_missing_blocks where tier = 1),
@@ -81,7 +87,12 @@ copy (
       'missing_miles': (select round(sum(ST_Length(geom)) / 5280) from sw_missing),
       'poor_blocks': (select count(*) from sw_poor_blocks),
       'poor_miles': (select round(sum(ST_Length(geom)) / 5280, 1) from sw_poor),
-      'poor_assessed_median': (select median(assessed) from sw_poor)
+      'poor_assessed_median': (select median(assessed) from sw_poor),
+      -- by council district: blocks missing a sidewalk (and of those, SDOT's Tier 1) and blocks with poor sidewalk
+      'by_district': (select list({'g': d, 'missing': m, 'tier1': t1, 'poor': p} order by d) from (
+          select d, count(*) filter (where k = 'm') as m, count(*) filter (where k = 'm' and tier = 1) as t1, count(*) filter (where k = 'p') as p
+          from (select unnest(x.ds) as d, 'm' as k, b.tier from sw_missing_blocks b join sw_missing_ds x using (id)
+                union all select unnest(x.ds), 'p', null from sw_poor_ds x) group by d))
     }
   } as sidewalks
 ) to 'site/data/sidewalks.json' (format json, array false);

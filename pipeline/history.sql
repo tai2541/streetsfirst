@@ -188,7 +188,9 @@ group by c.location;
 create or replace table recent_fixes as
 select distinct f.location, f.k, f.d, r.rank, r.lat, r.lon
 from place_fixes f join ranked r using (location)
-where f.d >= (select max(date) from collisions) - to_days(recent_fix_days())
+-- a date SDOT gives as the year only (Dec 30/31) counts only when that whole year is inside the window
+where (case when month(f.d) = 12 and day(f.d) >= 30 then make_date(year(f.d), 1, 1) else f.d end)
+        >= (select max(date) from collisions) - to_days(recent_fix_days())
   and (f.d <= current_date or (month(f.d) = 12 and day(f.d) >= 30 and year(f.d) = year(current_date)))
   and f.k not in ('New sidewalk', 'Neighborhood safety project');
 
@@ -300,10 +302,17 @@ from by_g b full join proj_g p using (dim, grp);
 -- complete but totals of different streets can't be added together. Counts only, no costs. Street names are SDOT's.
 -- "No work": a top-100 place on a city street with no dated safety fix since the window began and no planned
 -- work (as in the district table); places WSDOT runs are counted apart.
+-- Length: SDOT's street segments with the street's name, each block once (a split roadway's two sides are one block, as
+-- for crashes), so crashes per mile can be compared with safety plans that rank corridors that way.
 create or replace table street_totals as
-with sp as (
-  select unnest(case when addr_type = 'B' then [split_part(location, ' BETWEEN ', 1)]
-                     else list_distinct(string_split(location, ' AND ')) end) as street, *
+-- (a block SDOT names for one side of a divided street, ER/WR/NR/SR, counts half: the other side runs beside it)
+with len as (select street, sum(ft * case when side then 0.5 else 1 end) / 5280.0 as miles from (
+    select road_norm(split_part(loc_name, ' BETWEEN ', 1)) as street, road_norm(loc_name) as blk,
+           regexp_matches(split_part(loc_name, ' BETWEEN ', 1), ' (WR|ER|NR|SR) ') as side, max(ST_Length(geom)) as ft
+    from streets where loc_name like '% BETWEEN %' group by all) group by street),
+sp as (
+  select unnest(case when addr_type = 'B' then [road_norm(split_part(location, ' BETWEEN ', 1))]
+                     else list_distinct(list_transform(string_split(location, ' AND '), lambda x: road_norm(x))) end) as street, *
   from place_work
 )
 select street, count(*) as places, sum(crashes) as crashes, sum(ksi) as ksi, sum(killed) as killed, sum(fatal) as fatal,
@@ -311,9 +320,22 @@ select street, count(*) as places, sum(crashes) as crashes, sum(ksi) as ksi, sum
   count(*) filter (where rank <= top_n()) as top50, count(*) filter (where rank <= wide_n()) as top100,
   count(*) filter (where rank <= wide_n() and state_route is not null) as top100_state,
   count(*) filter (where rank <= wide_n() and state_route is null and not fixed_recently and not proj_planned) as top100_nothing,
-  list_sort(list_distinct(list(district) filter (where district <> 'none'))) as districts,
-  arg_min(location, rank) as worst, min(rank) as worst_rank
-from sp where street <> '' group by street;
+  list_sort(list_distinct(flatten(list(list_filter([district, council_district2::varchar], lambda x: x is not null and x <> 'none'))))) as districts,   -- both districts of a place on a line
+  arg_min(location, rank) as worst, min(rank) as worst_rank,
+  any_value(len.miles) as miles, case when any_value(len.miles) >= street_min_mi() then sum(ksi) / any_value(len.miles) end as ksi_per_mile
+from sp left join len using (street) where street <> '' group by street;
+
+-- Every street with a crash that killed or seriously hurt someone, as a spreadsheet (site/data/streets.csv).
+copy (
+  select street as "Street (SDOT's name)", array_to_string(districts, ' and ') as "Council district(s)",
+    round(miles, 2) as "Length (miles, SDOT street segments)", places as "Places with crashes", crashes as "All crashes",
+    ksi as "Crashes that killed or seriously hurt someone", round(ksi_per_mile, 2) as "Of those, per mile",
+    fatal as "Crashes that killed someone", killed as "People killed", hurt as "People seriously injured",
+    ped as "Crashes involving someone walking", bike as "Crashes involving someone on a bike",
+    worst_rank as "Highest-ranked place: rank", worst as "Highest-ranked place",
+    ws() as "Crashes from", (we() - interval 1 day)::date as "Crashes to"
+  from street_totals where ksi > 0 order by ksi desc, crashes desc, street
+) to 'site/data/streets.csv' (header true);
 
 -- ---------------------------------------------------------------- is it working?
 -- Each dated fix, the crashes it's meant to reduce in equal periods before and after (context.sql: before_after), next
@@ -449,7 +471,7 @@ copy (
     },
     'streets': (select list({'s': street, 'n': places, 'c': crashes, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'ped': ped, 'bike': bike,
                               't50': top50, 't100': top100, 't100_state': top100_state, 't100_none': top100_nothing,
-                              'dist': districts, 'worst': worst, 'wr': worst_rank} order by ksi desc, crashes desc, street)
+                              'dist': districts, 'worst': worst, 'wr': worst_rank, 'mi': round(miles, 2), 'pm': round(ksi_per_mile, 1)} order by ksi desc, crashes desc, street)
                  from (select * from street_totals order by ksi desc, crashes desc, street limit 30)),
     'sidewalk': {
       'rows': (select list({'g': g, 'n': n, 'fixed': fixed, 'fast': fast, 'med': med, 'open': open, 'owner': owner, 'dup': dup, 'nowork': nowork,
