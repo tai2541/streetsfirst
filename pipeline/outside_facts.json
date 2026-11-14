@@ -37,6 +37,13 @@
       "expect": ["Seattle City Light", "\\(206\\) 684-7056"]
     },
     {
+      "id": "sdot-contact",
+      "what": "SDOT's general phone line and email, for safety changes bigger than a repair",
+      "says": ["684-Road@seattle.gov", "(206) 684-7623", "tel:+12066847623"],
+      "source": "https://www.seattle.gov/transportation/about-us/contact-us",
+      "expect": ["684-Road@seattle\\.gov", "\\(206\\) 684-7623"]
+    },
+    {
       "id": "rcw-47-24",
       "what": "State law: in a large city, the City runs state highways on city streets (signals, crossings, lanes)",
       "says": ["RCW 47.24"],

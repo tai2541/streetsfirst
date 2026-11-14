@@ -1099,6 +1099,9 @@ copy (
     (select round(count(*) filter (where sdot_hin is not null) * 1.0 / count(*), 3) from locations where crashes >= busy_min_crashes()) as busy_share_on_hin,
     (select count(*) from locations where crashes >= busy_min_crashes())    as busy_locations,
     (select list({'method': method, 'k50': future_ksi_50, 'k200': future_ksi_200, 'b50': b_ksi_50, 'b200': b_ksi_200} order by future_ksi_50 desc, method) from validation) as validation,
+    -- this year's budget lines named for a bus route rather than a street (RapidRide R Line): not matched to places by name
+    (select coalesce(list(distinct trim(regexp_replace(project, '^MC-TR-C[0-9]+\s*-\s*', ''))), []) from capital_budget
+       where dept = 'Seattle Department of Transportation' and amount > 0 and year >= year(fetched()) and regexp_matches(project, '(?i)rapidride|route [0-9]+')) as cip_route_lines,
     (select list({'test': test, 'n': n, 'shared': shared, 'a_only': a_only, 'b_only': b_only} order by test, n) from val_overlap) as val_overlap,
     (select {'top_before': top_before, 'top_after': top_after, 'city_before': city_before, 'city_after': city_after} from val_rtm) as val_rtm,
     (select list({'set': set, 'ksi': ksi, 'injury': injury, 'pdo': pdo, 'pb': ped_bike_mult, 'stay': stay_50, 'k50': future_ksi_50} order by o) from weight_tests) as weight_tests,

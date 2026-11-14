@@ -452,6 +452,9 @@ copy (
                 'places': (select list({'r': w.rank_then, 'loc': w.location, 'ksi': w.ksi_then, 'c': w.crashes_then,
                                         'now': w.rank_now, 'ksi_cmp': w.ksi_cmp, 'c_cmp': w.crashes_cmp, 'd': w.district,
                                         'state': w.state_route, 'g': w.fix_group, 'fx': w.fixes,
+                                        -- a stretch's dated fixes at the corners at its ends since that year: listed, not counted as its own
+                                        'ex': (select list(distinct {'k': f.k, 'y': f.y}) from block_ends e join place_fixes f on f.location = e.ix
+                                               where e.block = w.location and f.d >= p.d0 and f.k not in ('New sidewalk', 'Neighborhood safety project')),
                                         't': coalesce((select hp.addr_type from hist_places hp where hp.location = w.location), 'B')} order by w.rank_then)
                            from worst_then w where w.yr = p.yr and w.rank_then <= worst_n())} order by p.yr)
               from hist_periods p, cmp_window cw where p.kind = 'year' and p.d1 <= cw.c0),
