@@ -35,7 +35,7 @@ try {
   const col = k => { const h = Object.keys(R[0] || {}).find(x => x.startsWith(k)); if (!h) problems.push(`ranks.csv has no column "${k}..."`); return h; };
   const cLat = col('Latitude'), cLon = col('Longitude'), cType = col('Type'), cIk = col('SDOT intersection key'), cSk = col('SDOT street segment key');
   const parts = ['Score part: harm from', "Score part: this place's own", 'Score part: deaths and serious injuries typical', 'Score part: crashes of unknown'].map(col);
-  const cEh = col('Expected harm (the four parts'), cBoost = col('Repair-request boost'), cScore = col('Score (expected harm');
+  const cEh = col('Estimated harm (the four parts'), cBoost = col('Repair-request boost'), cScore = col('Score (estimated harm');
   let bad = { pt: [], sum: [], key: [], score: [] };
   for (const r of R) {
     if (!inCity(+r[cLat], +r[cLon])) bad.pt.push(r.Rank);

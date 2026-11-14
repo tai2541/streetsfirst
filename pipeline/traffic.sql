@@ -140,7 +140,10 @@ select distinct
 from (select filename, unnest(features) as f
       from read_json('data/raw/volhist_*.json', columns = {'features': 'JSON[]'}, filename = true, maximum_object_size = 50000000))
 where json_type(f->'geometry') = 'OBJECT'
-  and coalesce(f->'properties'->>'START_DATE', f->'properties'->>'COUNTSTART') is not null;
+  and coalesce(f->'properties'->>'START_DATE', f->'properties'->>'COUNTSTART') is not null
+  -- (a count whose two SDOT figures disagree: build.sql count_suspect)
+  and not exists (select 1 from count_suspect c where c.id = (f->'properties'->>'FLOWSEGID')
+                  and c.awdt = try_cast(coalesce(f->'properties'->>'AWDT', f->'properties'->>'COUNTAAWDT') as double));
 
 -- one row per street name (some counts list two streets), split-roadway names normalized like loc_names
 -- A counted stretch's identity across years' layers (SDOT redraws them): its middle, to 100 ft.

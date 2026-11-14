@@ -376,7 +376,7 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 #list li.t2 .rank { background: #f0a020; color: #3b2600; }
 .row1 { align-items: center; }
 .chips, .sdotrow { margin-left: 0; }
-.chip { border-radius: 999px; font-weight: 500; }
+.chip { border-radius: 10px; font-weight: 500; }   /* (10px: a one-line chip still reads as a pill; a wrapped one keeps its words inside) */
 
 /* detail panel */
 #detail { border: 0; border-radius: 14px; box-shadow: 0 12px 40px rgba(16,27,51,.22), 0 2px 6px rgba(16,27,51,.08); animation: detailIn .25s ease both; }
@@ -1171,3 +1171,5 @@ td.nowrap .sub2 { white-space: normal; max-width: 7em; }
 /* Round 36: in a window up to 1300px wide, the district table's small notes wrap so its last column (places with no
    work) shows without scrolling sideways */
 @media (max-width: 1300px) { .pg-need small.pg-n { white-space: normal; } }
+/* Round 37: the repair-request tile's note is readable on a phone (it was under 10px) */
+.stat.st-req small { font-size: 12px; }

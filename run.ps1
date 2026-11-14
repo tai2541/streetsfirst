@@ -103,7 +103,7 @@ $q = { param($v) $s = [string]$v; if ($s -match '[",\r\n]') { '"' + $s.Replace('
 $sb = New-Object Text.StringBuilder
 [void]$sb.AppendLine((@('Data as of', 'Rank', 'Type', "Place (SDOT's name; the two sides of a divided street merged)", 'Council district', 'Also in council district', 'Area', 'Neighborhood',
   'All crashes', 'Crashes that killed or seriously hurt someone', 'Crashes that killed someone', 'People killed', 'People seriously injured',
-  'Crashes involving someone walking', 'Crashes involving someone on a bike', 'Run by WSDOT', 'Score (expected harm)',
+  'Crashes involving someone walking', 'Crashes involving someone on a bike', 'Run by WSDOT', 'Score (estimated harm)',
   'Crashes from', 'Crashes to', 'Link',
   'Latitude', 'Longitude', 'SDOT intersection key(s) (INTKEY)', 'SDOT street segment key(s) (COMPKEY, called SEGKEY in some layers)',
   'Block length (ft, longest segment)',
@@ -111,7 +111,7 @@ $sb = New-Object Text.StringBuilder
   "Score part: this place's own deaths and serious injuries (weighted by its crash count)",
   'Score part: deaths and serious injuries typical for similar streets (the rest of the weight)',
   'Score part: crashes of unknown severity (typical harm)',
-  "Weight on the place's own record (grows with its crash count)", 'Expected harm (the four parts added)',
+  "Weight on the place's own record (grows with its crash count)", 'Estimated harm (the four parts added)',
   'Repair-request boost (no longer used: always 1, repair requests do not change the score)') | ForEach-Object { & $q $_ }) -join ',')
 # The same list as a map layer (site/data/ranks.geojson): one point per place, for GIS tools.
 $gj = New-Object Text.StringBuilder

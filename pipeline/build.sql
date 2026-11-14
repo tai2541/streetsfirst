@@ -256,13 +256,25 @@ select f.properties.COMPKEY as compkey, f.properties.UNITDESC as unitdesc,
 from (select unnest(features) f from read_json('data/raw/streets_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
+-- Counts whose two SDOT figures disagree: in the newest yearly count layer, a count whose AWDT and SDOT's own rounded
+-- figure for it (AWDT_ROUND) differ by more than count_round_x() times (the West Seattle Bridge's two directions,
+-- 10,525 and 50,036, have 50,000 and 10,000: swapped). Left out here and in the yearly history (traffic.sql).
+create or replace macro count_round_x() as 2;
+create or replace table count_suspect as
+with r as (select filename, unnest(features) as f
+           from read_json('data/raw/volhist_*.json', columns = {'features': 'JSON[]'}, filename = true, maximum_object_size = 50000000)),
+v as (select regexp_extract(filename, 'volhist_(\d+)', 1) as yr, (f->'properties'->>'FLOWSEGID') as id,
+             try_cast(f->'properties'->>'AWDT' as double) as awdt, try_cast(f->'properties'->>'AWDT_ROUND' as double) as rnd from r)
+select distinct id, awdt, rnd from v
+where yr = (select max(yr) from v) and rnd > 0 and awdt > 0 and greatest(rnd / awdt, awdt / rnd) > count_round_x();
 create or replace table volumes as
 select f.properties.STNAME_ORD as street, nullif(f.properties.AWDT, 0) as awdt,
        f.properties.DATAQUALIT as quality,
        year(make_timestamp(f.properties.START_DATE::bigint * 1000)) as count_year,
        gj_geom(f.geometry) as geom
 from (select unnest(features) f from read_json('data/raw/volumes_*.json', maximum_object_size = 50000000))
-where f.geometry is not null;
+where f.geometry is not null
+  and not exists (select 1 from count_suspect c where c.id = f.properties.FLOWSEGID::varchar and c.awdt = f.properties.AWDT::double);
 
 create or replace table hin as   -- SDOT Vision Zero High Injury Network
 select f.properties.PRIORITY as priority, gj_geom(f.geometry) as geom
@@ -351,18 +363,23 @@ create or replace table loc_context as
 with
 -- the street pieces at each place (a freeway or ramp passing over or beside a place isn't its street: it gave downtown
 -- corners I-5's 60 mph; unless the place is that ramp)
-sx as (select p.location, s.speed, s.artclass, s.pci, own.name as own_name,
+sx as (select p.location, s.speed, s.artclass, s.pci, own.name as own_name, s.loc_name = p.location as own_seg,
               regexp_matches(s.unitdesc, ' BETWEEN .* RP( |$)') and not regexp_matches(p.location, ' RP( |$)') as rp_end
       from loc_pts p join streets s on ST_DWithin(p.geom, s.geom, 60)
       left join loc_names own on own.location = p.location and own.name = name_key(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''))
-      -- (a ramp named in the place's own name is one of its streets: "Dearborn St off-ramp & S Dearborn St" gets the ramp's limit)
+      -- (a ramp named in the place's own name is one of its streets: "4th Ave SB off-ramp & Edgar Martinez Dr S" gets the
+      -- ramp's limit; but not a piece that runs to a freeway, which can carry the freeway's: "CLOVERDALE ST OFF RP BETWEEN
+      -- SR509 NB CLOVERDALE RP AND S CLOVERDALE ST" is 60 mph where it meets a 35 mph street)
       where ST_Distance(p.geom, s.geom) <= p.r
-        and (s.loc_name = p.location or own.name is not null
+        and (s.loc_name = p.location
+             or (own.name is not null and not regexp_matches(regexp_replace(s.unitdesc, '^.* BETWEEN ', ''), '(^| )(I ?5|I ?90|I ?405|SR ?[0-9]+)( |$)'))
              or not regexp_matches(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''), '^(I ?5|I ?90|I ?405|SR ?[0-9]+)( |$)| RP( |$)'))),
 -- each of the place's own streets: its speed, from its pieces that don't run to a ramp when it has any (a piece that runs
 -- to a ramp can carry the ramp's speed: "S HOLDEN ST BETWEEN HOLDEN ST OFF RP AND WEST MARGINAL WAY S" is 60 mph where
 -- S Holden St is 25), else from those that do (1st Ave S at Olson Pl SW has only such pieces, at its own 35)
-own_sp as (select location, own_name, coalesce(max(speed) filter (where not rp_end), max(speed)) as sp
+-- (a stretch with its own segment uses that segment's limit, not the next block's: SR 509 NB between the Holden St ramps
+-- is 40 mph, the block past it 60)
+own_sp as (select location, own_name, coalesce(max(speed) filter (where own_seg), max(speed) filter (where not rp_end), max(speed)) as sp
       from sx where own_name is not null group by all),
 s as (select x.location,
         -- (at a corner, the higher of its own streets' limits; on a bridge or tunnel, the streets around it are not its
@@ -1247,6 +1264,13 @@ copy (
     (select round(avg((status = 'Reported')::int), 3) from requests where date < fetched() - interval 365 day) as requests_old_reported,
     (select list({'y': y, 'n': n} order by y) from (select year(date) as y, count(*) as n from requests group by 1)
        where y > (select year(min(date)) from requests) and y < year(fetched())) as requests_by_year,
+    -- the request types the City's data added after it starts (a place's chart can step up when one joins), and the
+    -- full years counted with only the types there from the start
+    (select list({'t': type, 'd': d0} order by d0, type) from (select type, min(date)::date as d0 from requests group by type)
+       where year(d0) > (select year(min(date)) from requests)) as requests_types_later,
+    (select list({'y': y, 'n': n} order by y) from (select year(date) as y, count(*) as n from requests
+         where type in (select type from requests group by type having year(min(date)) = (select year(min(date)) from requests)) group by 1)
+       where y > (select year(min(date)) from requests) and y < year(fetched())) as requests_by_year_base,
     -- crash reports SDOT places at places WSDOT runs (freeways, ramps, state bridges), in the scored years
     (select count(*) from collisions c join locations l using (location)
        where l.state_route is not null and c.date >= ws() and c.date < we()) as wsdot_crashes,
