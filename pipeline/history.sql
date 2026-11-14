@@ -268,14 +268,14 @@ places as (
     r.location in (select location from end_planned) as ends_planned,
     coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned' or len(r.cip) > 0
              -- a planned radar speed sign or a bike lane being built (SDOT's fix layers; the place's page lists them as planned)
-             or len(list_filter(coalesce(r.fixes, []), lambda f: f.s <> 'Built' and f.k <> 'Bus lane')) > 0, false) as proj_planned,
+             or len(list_filter(coalesce(r.fixes, []), lambda f: f.s <> 'Built' and f.k <> 'Bus lane' and not (f.s = 'Under construction' and year(f.d::date) < yr.cy - 2))) > 0, false) as proj_planned,
     -- "planned" only because a budget line is named for its street (the budget doesn't say which blocks it covers)
     coalesce(len(r.cip), 0) > 0 and not coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned'
-      or len(list_filter(coalesce(r.fixes, []), lambda f: f.s <> 'Built' and f.k <> 'Bus lane')) > 0, false) as budget_only,
+      or len(list_filter(coalesce(r.fixes, []), lambda f: f.s <> 'Built' and f.k <> 'Bus lane' and not (f.s = 'Under construction' and year(f.d::date) < yr.cy - 2))) > 0, false) as budget_only,
     r.state_route, r.council_district2, r.crashes, r.ped_crashes, r.bike_crashes,
     -- head-start walk signals need a traffic signal: compared with the intersections that have one
     r.addr_type = 'I' and coalesce(r.signalized, false) as sig, r.addr_type = 'I' and coalesce(r.signalized, false) and r.lpi_status = 'Existing' as sig_lpi
-  from ranked r left join fx using (location)
+  from ranked r left join fx using (location) cross join (select year(we() - interval 1 day) as cy) yr
 )
 select * from places;
 
