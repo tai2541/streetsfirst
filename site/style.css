@@ -1137,7 +1137,13 @@ td.nowrap .sub2 { white-space: normal; max-width: 7em; }
   #list li.selected, .tlist li.selected { outline: 3px solid Highlight; outline-offset: 1px; }
   .linkbtn, .show-none { color: LinkText !important; text-decoration: underline !important; }
   .legend i, .rh-legend i, .lg-tline { border: 1px solid CanvasText; }
+  /* Round 35: the keys keep their colors, but their words follow the system's text color so they show on a dark background */
+  .legend, .rh-legend, #legend, .lg-safety, .lg-tl, .legend span, #legend span { color: CanvasText; }
+  .graphs svg text, .tchart svg text { fill: CanvasText; }
 }
+/* Round 35: selects shrink within a narrow screen; map layer choices are 24px targets */
+.controls select { max-width: 100%; min-width: 0; }
+.leaflet-control-layers-base label, .leaflet-control-layers-overlays label { min-height: 24px; display: flex; align-items: center; }
 
 /* A narrow window: an open place covers the list instead of the map (app.js applyLayout, "cover") */
 @media (min-width: 761px) {

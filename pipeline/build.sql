@@ -312,7 +312,9 @@ from locations_all;
 -- Street names at each location, from SDOT's location text: "A AND B" (intersection) or "A BETWEEN x AND y" (block).
 -- (also without the direction letter SDOT puts inside some names, "S GENESEE S ST", which its counts leave out)
 -- (and the travel direction inside a split roadway's name, "7TH NB AVE N", so it is 7th Ave N at its corners)
-create or replace macro name_key(t) as regexp_replace(road_norm(t), '(\S) (N|S|E|W|NB|SB|EB|WB) (\S)', '\1 \3', 'g');
+-- (but not in a ramp's name: "4TH AVE NB OFF RP" and "4TH AVE SB OFF RP" are two ramps, with counts of their own)
+create or replace macro name_key(t) as regexp_replace(road_norm(t),
+  case when regexp_matches(road_norm(t), ' RP( |$)') then '(\S) (N|S|E|W) (\S)' else '(\S) (N|S|E|W|NB|SB|EB|WB) (\S)' end, '\1 \3', 'g');
 create or replace table loc_names as
 select location, name_key(name) as name from (
   select location, unnest(case when addr_type = 'I' then string_split(location, ' AND ')
