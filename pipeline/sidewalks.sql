@@ -12,7 +12,8 @@ select f.properties.SEGKEY as segkey,
        trim(regexp_replace(f.properties.UNITDESC, ',\s*[A-Z]+ SIDE\s*$', '')) as block,
        f.properties.Tier as tier, f.properties.TotalSc as score, f.properties.SafetySc as safety_sc,
        f.properties.EquitySc as equity_sc, f.properties.SchSC as school_sc, f.properties.TransitSC as transit_sc,
-       f.properties.ArtClass as art, gj_geom(f.geometry) as geom
+       f.properties.ArtClass as art, gj_geom(f.geometry) as geom,
+       nullif(regexp_extract(f.properties.UNITDESC, ',\s*([A-Z]+) SIDE\s*$', 1), '') as side
 from (select unnest(features) f from read_json('data/raw/sw_missing_*.json', maximum_object_size = 50000000))
 where f.geometry is not null and f.properties.Tier is not null and coalesce(f.properties.Remove::varchar, '') <> '1';
 
@@ -20,7 +21,10 @@ create or replace table sw_missing_blocks as
 select row_number() over (order by tier, score desc, ft desc, segkey) as id, *
 from (select segkey, min(block) as block, min(tier) as tier, max(score) as score, max(safety_sc) as safety_sc,
              max(equity_sc) as equity_sc, max(school_sc) as school_sc, max(transit_sc) as transit_sc, min(art) as art,
-             count(*) as sides, round(max(ST_Length(geom))) as ft, ST_Union_Agg(geom) as geom
+             -- the sides SDOT names (two records can be one side, in pieces; four can be both), else one per record
+             case when count(side) = count(*) then count(distinct side) else count(*) end as sides,
+             case when count(side) = count(*) and count(distinct side) = 1 then min(side) end as side1,
+             round(max(ST_Length(geom))) as ft, ST_Union_Agg(geom) as geom
       from sw_missing group by segkey);
 
 -- ---------------------------------------------------------------- sidewalks in poor condition
@@ -79,12 +83,15 @@ create or replace macro sw_keep(t) as table
 copy (
   select {
     'missing': (select list({'id': id, 'name': block, 'ds': ds, 'tier': tier, 'score': score, 'safety': safety_sc, 'equity': equity_sc,
-                             'school': school_sc, 'transit': transit_sc, 'art': art, 'sides': sides, 'ft': ft,
+                             'school': school_sc, 'transit': transit_sc, 'art': art, 'sides': sides, 'side1': side1, 'ft': ft,
                              'hood': sw_hood(geom), 'pts': sw_pts(geom)} order by id)
                 from sw_missing_blocks join sw_missing_ds using (id) where id <= 400 or id in (select id from sw_keep('sw_missing_ds'))),
     'poor': (select list({'id': id, 'name': block, 'ds': ds, 'vp': very_poor_ft, 'p': poor_ft, 'y0': assessed_from, 'y1': assessed_to,
-                          'hood': sw_hood(geom), 'pts': sw_pts(geom)} order by id)
-             from sw_poor_blocks join sw_poor_ds using (id) where id <= 400 or id in (select id from sw_keep('sw_poor_ds'))),
+                          'hood': sw_hood(geom), 'pts': sw_pts(geom), 'len': len} order by id)
+             -- len: the block's own length (SDOT's street segment): the poor length adds both sides, so it can be near twice that
+             from sw_poor_blocks join sw_poor_ds using (id)
+             left join (select compkey, round(max(ST_Length(geom))) as len from streets group by compkey) st on st.compkey = sw_poor_blocks.segkey
+             where id <= 400 or id in (select id from sw_keep('sw_poor_ds'))),
     'counts': {
       'missing_blocks': (select count(*) from sw_missing_blocks),
       'tier1_blocks': (select count(*) from sw_missing_blocks where tier = 1),

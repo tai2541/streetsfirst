@@ -913,7 +913,7 @@ create or replace table spot_export as
          first_crash, last_crash, requests, request_types,
          fixes, end_fixes, end_planned, vol_history, bus_trips, bus_routes, bus_stretch_id,
          sw_missing_tier, sw_poor_ft, sw_poor_assessed, proj_ids, side_ids, proj_planned, cip, signal_installed,
-         crosswalks, crosswalks_midblock, crosswalk_school, crosswalk_controls, curb_ramps, curb_ramps_poor, bike_facilities, lights_out, lights_out_major,
+         crosswalks, crosswalks_midblock, crosswalk_school, crosswalk_controls, curb_ramps, curb_ramps_poor, curb_ramp_conds, bike_facilities, lights_out, lights_out_major,
          school, school_ft, walk_zones, rse_quintile, rse_year, council_district, council_district2, council_member, council_url, before_after,
          rank_years, rank_month_ago, rank_year_ago, month_moves, merged
   from ranked left join place_history using (location) left join end_fixes using (location) left join end_planned using (location)

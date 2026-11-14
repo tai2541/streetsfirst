@@ -91,6 +91,8 @@
       // trails: "MTS DEARBORN CONNCTR TRL" -> Mountains to Sound Dearborn Connector Trail
       .replace(/ TRL /g, ' TRAIL ').replace(/ CONNC?TR? /g, ' CONNECTOR ').replace(/ MTS /g, ' MOUNTAINS TO SOUND ').replace(/ RDWY /g, ' ROADWAY ')
       // SDOT's codes: "2ND AVE ET S" (Extension), "DEAD END 1" (numbered dead ends), "CITY LIMITS C"
+      // "15TH AVS TURN RD": a turn roadway (a short connecting road), AVS for AVE S
+      .replace(/ AVS /g, ' AVE S ').replace(/ AVN /g, ' AVE N ').replace(/ TURN RD /g, ' TURN ROADWAY ')
       .replace(/ (AVE|ST) ET /g, ' $1 EXTENSION ').replace(/ DEAD END \d+ /g, ' DEAD END ').replace(/ CITY LIMITS C /g, ' CITY LIMITS ')
       // (a letter tells two blocks apart: "City Limits (south crossing)"; "North City Limits" would read as the north border)
       .replace(/ (CITY LIMITS|DEAD END) ([NSEW]) /g, (m, w, d) => w === 'CITY LIMITS' ? ` CITY LIMITS (${{ N: 'NORTH', S: 'SOUTH', E: 'EAST', W: 'WEST' }[d]} CROSSING) ` : ` ${{ N: 'NORTH', S: 'SOUTH', E: 'EAST', W: 'WEST' }[d]} ${w} `);
@@ -219,7 +221,9 @@
   // (at a school or in a school's walk zone, the school-crossing form comes first)
   // (school: at a school or within the school_ft setting of one; noLink: a found address or school, which has no link of its own)
   // (state: a place WSDOT runs: a bigger change there is WSDOT's, so the "bigger change" line sends people there)
-  const reportBox = (place, school, noLink, state) => { const R = school ? [RESOURCES.find(r => /near a school/.test(r[0])), ...RESOURCES.filter(r => !/near a school/.test(r[0]))] : RESOURCES;
+  // (ada: a sidewalk block, or a place with a ramp rated poor: the curb ramp / ADA request comes first, after a school's form)
+  const reportBox = (place, school, noLink, state, ada) => { const first = r => (school && /near a school/.test(r[0])) ? 0 : (ada && /^Curb ramp/.test(r[0])) ? 1 : 2;
+    const R = RESOURCES.map((r, i) => [r, i]).sort((a, b) => first(a[0]) - first(b[0]) || a[1] - b[1]).map(x => x[0]);
     return `<div class="report" data-loc="${esc(place)}">
       <div><h3 class="rep-h">See a problem here?</h3> Reports are how problems get on the City's repair list. Opening a form also copies
         this location (<b>${esc(place)}</b>) so you can paste it in.</div>
@@ -1812,7 +1816,8 @@
       ${row('Pavement', pciLabel + (pci != null ? ' <span class="muted">(worst block here)</span>' : ''))}
       ${p.crosswalks != null ? row('Marked crosswalks', crosswalkText(p)) : ''}
       ${p.addr_type === 'I' && p.crosswalks != null ? row('Curb ramps', p.curb_ramps
-          ? `${p.curb_ramps}${p.curb_ramps_poor ? `, <b>${p.curb_ramps_poor} rated poor</b>` : ', none rated poor'}` : 'none in SDOT data') : ''}
+          ? `${p.curb_ramps}: ${((c) => c ? [c.vp ? `<b>${c.vp} very poor</b>` : '', c.p ? `<b>${c.p} poor</b>` : '', c.f ? `${c.f} fair` : '', c.g ? `${c.g} good` : '', c.u ? `${c.u} not rated` : ''].filter(Boolean).join(', ')
+              : p.curb_ramps_poor ? `<b>${p.curb_ramps_poor} rated poor</b>` : 'none rated poor')(p.curb_ramp_conds)} <span class="muted">(SDOT's ratings)</span>` : 'none in SDOT data') : ''}
       ${p.crosswalks != null ? row('Bike facility', p.bike_facilities && p.bike_facilities.length ? esc(p.bike_facilities.join(', ')) : 'none') : ''}
       ${p.school ? row('Nearby school', `${esc(schoolName(p.school))} <span class="muted">(about ${fmt(Math.round(p.school_ft / 10) * 10)} ft)</span>`) : ''}
       ${(p.walk_zones || []).length ? row('School walk zone', `Inside the walk zone${p.walk_zones.length > 1 ? 's' : ''} of ${esc(p.walk_zones.length > 1 ? p.walk_zones.slice(0, -1).join(', ') + ' and ' + p.walk_zones.slice(-1) : p.walk_zones[0])} <button type="button" class="linkbtn wz-show">Show walk zones on the map</button>`) : ''}
@@ -1845,7 +1850,8 @@
     else if (p.ntor_status === 'Planned') items.push(`No turn on red <b>planned</b>${plannedFor(p.ntor_planned)}.`);
     else if (p.ntor_status === 'Not Feasible') items.push(`No turn on red judged <b>not feasible</b> by SDOT.`);
     if (p.lt_protected) items.push(`Protected left-turn signal${p.lt_installed ? ' since ' + p.lt_installed.slice(0, 4) : ''} <span class="muted">(SDOT's signal data marks one; it doesn't say on which approaches, or whether left turns are also allowed on a green)</span>.`);
-    if (p.signalized && p.ped_audio) items.push('Accessible (audible) pedestrian signals.');
+    // (SDOT's signal records: at least one signal here has a push button with sound and vibration)
+    if (p.signalized && p.ped_audio) items.push('Accessible pedestrian signal (a push button with sound and vibration) at one or more crossings here, in SDOT\'s signal data.');
     (p.fixes || []).forEach(f => {
       if (f.s !== 'Built') items.push(`${esc(f.k)} <b>${esc(f.s.toLowerCase())}</b>.`);
       else items.push(`<b>${esc(f.k)}</b>${f.n > 1 ? ` (${f.n})` : ''}${f.d ? (f.u ? ` (one section dated ${fixDate(f.d)}; SDOT gives no date for the rest)` : ' since ' + fixDate(f.d)) : ''}${f.d1 ? `, newest section ${fixDate(f.d1)}` : ''}.`);
@@ -2229,7 +2235,7 @@
           SDOT's official counts come from a later-checked version of the crash data, so they can differ.</p>` : ''}
         ${whyRank(p)}
         <div class="chips dchips">${chips.map(r => `<span class="chip ${r.cls}">${esc(r.text)}</span>`).join('')}</div>
-        ${reportBox(p.name, !!p.school, false, !!p.state_route)}
+        ${reportBox(p.name, !!p.school, false, !!p.state_route, p.curb_ramps_poor > 0)}
         ${civicBox(p.council_district ? { d: p.council_district, member: p.council_member, url: p.council_url, d2: p.council_district2, ...(({ since, until }) => ({ since, until }))((CTX.council || []).find(x => String(x.d) === String(p.council_district) && x.member === p.council_member) || {}) } : councilAt(p.lat, p.lon),
                    { q: p.rse_quintile, y: p.rse_year }, !!p.state_route)}
       </div>
@@ -2521,6 +2527,13 @@
     history.replaceState(history.state, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
   };
   document.getElementById('distFilter').addEventListener('change', distToUrl);
+  // the bus and sidewalk views' own district pickers: the same choice as the places list's (which those views hide)
+  {
+    const df = document.getElementById('distFilter'), vs = [...document.querySelectorAll('.vdist')];
+    const sync = () => vs.forEach(v => { v.value = df.value; });
+    df.addEventListener('change', sync); sync();
+    vs.forEach(v => v.addEventListener('change', () => { df.value = v.value; df.dispatchEvent(new Event('change')); }));
+  }
   document.getElementById('distFilter').addEventListener('change', () => { if (map.hasLayer(tLayer)) { if (tSel) closeDetail(false); renderTraffic(); refreshHome(); } });
   ['topN', 'addrFilter', 'distFilter', 'onlyOngoing', 'noPlan'].forEach(id => (document.getElementById(id).onchange = () => {
     filterChip(); render(); refreshHome();
@@ -3503,7 +3516,9 @@
     return best;
   }
   const safetyAlong = pts => D.priorities
-    .filter(p => p.rank_ksi != null && p.rank_ksi <= LIST && distToLine(p.lat, p.lon, pts) <= 25)
+    // (on the line, or at a corner where the stretch starts or ends: its stops sit back from the corner)
+    .filter(p => p.rank_ksi != null && p.rank_ksi <= LIST && (distToLine(p.lat, p.lon, pts) <= 25
+      || lines(pts).some(l => [l[0], l[l.length - 1]].some(e => metersBetween(p.lat, p.lon, e[0], e[1]) <= 70))))
     .sort((a, b) => a.rank_ksi - b.rank_ksi);
 
   // a stretch with several routes: whose minutes these are (RapidRide lines by their name: "the H Line")
@@ -3540,9 +3555,9 @@
       detail: s => `
       <div class="dhead">
         <div class="where">${esc(TMODES.bus.sub(s))} · ${copyLoc(stretchName(s))}</div>
-        <p class="verdict">${Math.round(100 * s.slower) ? `${hourSpan(s).replace(/^./, c => c.toUpperCase())} on a weekday, Metro gives ${s.routes.length > 1 && s.rt ? `its busiest route here, ${esc(rtName(s.rt))},` : 'buses'} <b>${s.peak} minutes</b> for this
-          ${s.mi}-mile stretch, compared with ${s.base} minutes in its quickest hours: <b>${Math.round(100 * s.slower)}% slower</b>.`
-          : `On a weekday, Metro gives ${s.routes.length > 1 && s.rt ? `its busiest route here, ${esc(rtName(s.rt))},` : 'buses'} <b>${s.peak} minutes</b> for this ${s.mi}-mile stretch: <b>hardly any slower</b> at its slowest hours.`}
+        <p class="verdict">${Math.round(100 * s.slower) ? `${hourSpan(s).replace(/^./, c => c.toUpperCase())} on a weekday, the timetable gives ${s.routes.length > 1 && s.rt ? `its busiest route here, ${esc(rtName(s.rt))},` : 'buses'} <b>${s.peak} minutes</b> for this
+          ${s.mi}-mile stretch, compared with ${s.base} minutes in its quickest hours (often late night or early morning, when traffic is lightest): <b>${Math.round(100 * s.slower)}% slower</b>.`
+          : `On a weekday, the timetable gives ${s.routes.length > 1 && s.rt ? `its busiest route here, ${esc(rtName(s.rt))},` : 'buses'} <b>${s.peak} minutes</b> for this ${s.mi}-mile stretch: <b>hardly any slower</b> at its slowest hours.`}
           ${fmt(s.trips)} buses run it each weekday; together they lose ${s.lost < 0.5 ? '' : 'about '}<b>${lostTxt(s.lost)} a day</b> here.
           <span class="muted">(Counted: the routes Metro times at both of these stops; other buses on this street, timed at other stops, aren't in these numbers.)</span></p>
         <div class="stat-grid">
@@ -3595,6 +3610,8 @@
     return `<div class="pg-bar"><span class="pg-bar-l">${label}${help ? ` <small class="muted">(${help})</small>` : ''}</span>
       <span class="pg-bar-t" aria-hidden="true"><span class="pg-bar-f w" style="width:${(100 * v / m).toFixed(1)}%"></span></span>
       <span class="pg-bar-v">${outOf(v, k)}</span></div>`; };
+  // the one side SDOT names for a block missing a sidewalk on one side: " (west side)"
+  const sideWord = s => { const w = { N: "north", S: "south", E: "east", W: "west", NE: "northeast", NW: "northwest", SE: "southeast", SW: "southwest" }[s.side1]; return w ? ` (${w} side)` : ""; };
   const SMODES = {
     missing: {
       hint: `Blocks with no sidewalk, in SDOT's own order of priority. SDOT scores each missing block for safety, equity, schools,
@@ -3604,7 +3621,7 @@
       sub: s => [s.hood, s.art && s.art !== 'Not Designated' ? stType(s.art[0] + s.art.slice(1).toLowerCase()) : 'Neighborhood street'].filter(Boolean).join(' · '),
       score: s => `Tier ${s.tier} <small><span class="nw">need score</span> <span class="nw">${outOf(s.score, 'score')}</span></small>`,
       chips: s => [
-        { cls: 'serious', text: s.sides === 2 ? 'No sidewalk on either side' : 'No sidewalk on one side' },
+        { cls: 'serious', text: s.sides >= 2 ? 'No sidewalk on either side' : `No sidewalk on one side${sideWord(s)}` },
         ...(s.safety ? [{ cls: 'fatal', text: `safety points ${outOf(s.safety, 'safety')}` }] : []),
         ...(s.school ? [{ cls: 'ped', text: 'near a school' }] : []),
         ...(s.transit ? [{ cls: 'state', text: 'near transit' }] : []),
@@ -3616,7 +3633,7 @@
       detail: s => `
       <div class="dhead">
         <div class="where">${esc(SMODES.missing.sub(s))} · ${copyLoc(blockName(s.name))}</div>
-        <p class="verdict"><b>${s.sides === 2 ? 'No sidewalk on either side' : 'No sidewalk on one side'}</b> of this
+        <p class="verdict"><b>${s.sides >= 2 ? 'No sidewalk on either side' : `No sidewalk on one side${sideWord(s)}`}</b> of this
           ${ftText(s.ft)} block. SDOT puts building one in <b>Tier ${s.tier}</b> of ${meta.sw_max_tier} (Tier 1 = highest priority). Its need score
           is <b>${s.score ?? 0}</b>${swMax('score') ? `; the highest any block got is ${swMax('score')}` : ''}.</p>
         ${swProj.get(s.id) ? `<p class="proj-callout">${swProj.get(s.id).stage === 'done'
@@ -3630,7 +3647,7 @@
         ${swBar('Safety', 'safety', s, 'crashes and speeds')}${swBar('Equity', 'equity', s, 'neighborhoods the City\'s equity index puts first')}
         ${swBar('Schools', 'school', s, 'near a school')}${swBar('Transit', 'transit', s, 'near bus or rail')}
       </div>
-      ${reportBox(blockName(s.name))}
+      ${reportBox(blockName(s.name), false, false, false, true)}
       <h3>Safety spots along this block</h3>${safetyList(safetyAlong(s.pts))}
       <h3>About this measure</h3>
       <div class="note">SDOT's Seattle Transportation Plan scores every block missing a sidewalk; higher scores mean more need
@@ -3649,16 +3666,16 @@
         ...(s.vp ? [{ cls: 'fatal', text: `${ftText(s.vp)} very poor` }] : []),
         ...(s.p ? [{ cls: 'serious', text: `${ftText(s.p)} poor` }] : [])],
       note: `From SDOT's sidewalk inventory. Ratings come from SDOT surveys (most poor ratings are from ${SW.counts.poor_assessed_median || 'past years'});
-        a block can be fixed after it was rated. Ranked by length, so long blocks rank high. In Seattle, the owner of the
-        adjacent property is often responsible for sidewalk repair; this site doesn't show owners.`,
+        a block can be fixed after it was rated. Ranked by length, both sides of the street added, so long blocks rank high. Under City code the owner of the
+        adjacent property is generally responsible for sidewalk repair (curb ramps and accessible signals are SDOT's, through its ADA program); this site doesn't show owners.`,
       detail: s => `
       <div class="dhead">
         <div class="where">${esc(SMODES.poor.sub(s))} · ${copyLoc(blockName(s.name))}</div>
-        <p class="verdict"><b>${ftText(s.vp + s.p)}</b> of sidewalk on this block rated poor or very poor by SDOT
+        <p class="verdict"><b>${ftText(s.vp + s.p)}</b> of sidewalk${s.len ? `, counting both sides of this ${fmt(s.len)} ft block,` : ' on this block (both sides added)'} rated poor or very poor by SDOT
           (${s.y0 === s.y1 ? 'in ' + s.y1 : s.y0 + ' to ' + s.y1}).</p>
         <div class="stat-grid">${stat(ftText(s.vp), 'very poor')}${stat(ftText(s.p), 'poor')}</div>
       </div>
-      ${reportBox(blockName(s.name))}
+      ${reportBox(blockName(s.name), false, false, false, true)}
       <h3>Safety spots along this block</h3>${safetyList(safetyAlong(s.pts))}`
     }
   };
@@ -3859,8 +3876,10 @@
     const out = [];
     const st = p.bus_stretch_id && T.stretches.find(x => x.id === p.bus_stretch_id);
     if (p.bus_trips) out.push(`<p><b>${plural(p.bus_trips, 'bus', 'buses')}</b> a weekday${p.bus_routes && p.bus_routes.length ? ` <span class="muted">(${esc(routeList(p.bus_routes, 12).replace(/^Routes? /, m => m.toLowerCase()).replace(/^The /, 'the '))})</span>` : ''}.</p>`);
+    // (the minutes are its busiest route's, named when several run here)
+    const whose = st && st.routes.length > 1 && st.rt ? ` (${esc(rtName(st.rt))}, its busiest route)` : '';
     if (st) out.push(`<p>On the bus route section through here (${esc(stretchName(st))}), buses are <b>${Math.round(100 * st.slower) ? `${Math.round(100 * st.slower)}% slower
-        ${hourSpan(st)}` : 'about as quick at every hour'}</b>: ${st.base} minutes in its quickest hours (usually late night or early morning), ${st.peak} at its slowest.
+        ${hourSpan(st)}` : 'hardly any slower at their slowest hours'}</b>${whose}: ${plural(st.base, 'minute', 'minutes')} in its quickest hours (often late night or early morning), ${plural(st.peak, 'minute', 'minutes')} at its slowest.
         <button type="button" class="linkbtn" data-traffic="${st.id}">See this bus stretch on the map</button></p>`);
     const by = {};
     (p.vol_history || []).forEach(x => (by[x.s] = by[x.s] || []).push({ y: x.y, v: x.v, k: x.k }));

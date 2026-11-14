@@ -49,7 +49,11 @@ with cw as (
     and (s.r <> 40 or c.midblock)   -- on a block, only mid-block crosswalks (SDOT marks the ones at its end corners as not mid-block)
   group by s.location),
 rp as (
-  select p.location, count(*) as n, count(*) filter (where r.cond in ('POOR', 'VERY-POOR')) as poor
+  select p.location, count(*) as n, count(*) filter (where r.cond in ('POOR', 'VERY-POOR')) as poor,
+         -- each of SDOT's ratings, and the ramps it hasn't rated, so a page says "1 poor, 3 fair", not just "1 rated poor"
+         {'vp': count(*) filter (where r.cond = 'VERY-POOR'), 'p': count(*) filter (where r.cond = 'POOR'),
+          'f': count(*) filter (where r.cond = 'FAIR'), 'g': count(*) filter (where r.cond = 'GOOD'),
+          'u': count(*) filter (where coalesce(r.cond, '') not in ('VERY-POOR', 'POOR', 'FAIR', 'GOOD'))} as conds
   from loc_pts p join curbramps r on ST_DWithin(p.geom, r.geom, near_ix_ft()) where p.r = 60 group by p.location),
 -- Bike facilities: at an intersection, any within 60 ft; on a block, only one running along most of it (not a cross street)
 bk as (
@@ -66,7 +70,7 @@ tc as (
 select l.location,
   coalesce(cw.n, 0) as crosswalks, coalesce(cw.midblock, 0) as crosswalks_midblock, coalesce(cw.school, false) as crosswalk_school,
   coalesce(cw.controls, []) as crosswalk_controls,
-  rp.n as curb_ramps, rp.poor as curb_ramps_poor,
+  rp.n as curb_ramps, rp.poor as curb_ramps_poor, rp.conds as curb_ramp_conds,
   bk.kinds as bike_facilities,
   tc.d as circle_d, tc.location is not null as circle, coalesce(lo.n, 0) as lights_out, coalesce(lo.major, 0) as lights_out_major
 from locations l left join cw using (location) left join rp using (location) left join bk using (location) left join tc using (location) left join lo using (location);
