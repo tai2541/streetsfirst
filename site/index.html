@@ -71,35 +71,34 @@
           <ul id="searchResults" role="listbox" aria-label="Matching locations" hidden></ul>
           <div id="searchStatus" class="sr-only" role="status" aria-live="polite"></div>
         </form>
-        <div class="controls">
-          <label>Ranking
-            <select id="mode">
-              <option value="ksi">Most likely to hurt people</option>
-              <option value="risk">Most dangerous for how busy it is</option>
-            </select>
-          </label>
-          <label>Show top
-            <select id="topN"><option>10</option><option>25</option><option selected>50</option><option>100</option><option>200</option></select>
-          </label>
-        </div>
-        <p id="modeHint" class="hint" aria-live="polite"></p>
-        <div class="controls">
-          <label title="Intersections and the stretches of street between them are ranked together. Pick one kind to rank it on its own (#1, #2, ...), with the citywide rank beside each.">Show
-            <select id="addrFilter">
-              <option value="">Both</option><option value="I">Intersections</option><option value="B">Stretches between</option>
-            </select>
-          </label>
-          <label title="Ranks places again within one City Council district. The citywide rank is shown beside each.">District
+        <!-- the council district first: most people come for their own district -->
+        <div class="controls dist-row">
+          <label class="dist-pick" title="Ranks places again within one City Council district. The citywide rank is shown beside each.">Council district
             <select id="distFilter">
               <option value="">All Seattle</option><option value="1">District 1</option><option value="2">District 2</option><option value="3">District 3</option><option value="4">District 4</option><option value="5">District 5</option><option value="6">District 6</option><option value="7">District 7</option>
             </select>
           </label>
         </div>
-        <div class="tags" role="group" aria-label="Only show">
-          <span class="tags-l" aria-hidden="true">Only show</span>
-          <label class="tag" title="Only spots where someone was killed or seriously injured in several different years"><input type="checkbox" id="onlyOngoing">Repeat serious crashes</label>
-          <label class="tag" title="Only spots with no safety work SDOT dated since the crash years began and nothing planned in the SDOT layers this site reads: the same test as the district counts and each place's page. SDOT may have plans it doesn't publish."><input type="checkbox" id="noPlan">No work counted or planned</label>
+        <div class="controls list-opts">
+          <label title="Intersections and the stretches of street between them are ranked together. Pick one kind to rank it on its own (#1, #2, ...), with the citywide rank beside each."><span>Show</span>
+            <select id="addrFilter">
+              <option value="">Both</option><option value="I">Intersections</option><option value="B">Stretches between</option>
+            </select>
+          </label>
+          <label class="opt-rank"><span>Ranking</span>
+            <select id="mode">
+              <option value="ksi">Most likely to hurt people</option>
+              <option value="risk">Most dangerous for how busy it is</option>
+            </select>
+          </label>
+          <label><span>Top</span>
+            <select id="topN"><option>10</option><option>25</option><option selected>50</option><option>100</option><option>200</option></select>
+          </label>
         </div>
+        <div id="modeHint" class="hint" aria-live="polite"></div>
+        <!-- set from the district card ("Show them"): only places with no work counted or planned; removable -->
+        <input type="checkbox" id="onlyOngoing" hidden><input type="checkbox" id="noPlan" hidden>
+        <div id="filterChip" class="filter-chip" hidden></div>
         <div class="list-top"><span id="listAsOf"></span>
           <details class="dl-menu"><summary>Download</summary>
             <div class="dl-pop">

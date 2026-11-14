@@ -1029,3 +1029,31 @@ main { overflow: hidden; overflow: clip; }
 .pg-sw small { color: #555; }
 .pg-sw-city { font-weight: 600; }
 .pg-swt td { text-align: right; }
+
+/* ---- list options, clean: the council district first (full width), then one row of three small menus with their
+   labels above, a one-line description of the ranking (the rest behind "How it's ranked") ---- */
+.dist-row { margin: 0 0 12px; }
+.dist-row .dist-pick { flex: 1 1 100%; display: flex; flex-direction: column; gap: 4px; font-weight: 700; color: var(--ink); font-size: 13px; }
+.dist-row .dist-pick select { width: 100%; margin-left: 0; padding: 9px 30px 9px 12px; font-size: 15px; font-weight: 600;
+  border: 1.5px solid #2f55c7; background-color: #f4f7fe; }
+.list-opts { display: grid; grid-template-columns: 1fr minmax(76px, auto); gap: 8px 10px; margin: 0 0 6px; }
+.list-opts label:first-child { grid-column: 1 / -1; }   /* Show (both, intersections, stretches) on its own row, above Ranking and Top */
+.list-opts label { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 11.5px; font-weight: 600;
+  letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+.list-opts select { width: 100%; margin-left: 0; min-width: 0; text-transform: none; letter-spacing: 0; font-size: 13.5px; }
+#modeHint { margin: 0 0 10px; font-size: 12.5px; color: #3a4456; line-height: 1.45; }
+.hint-more { display: inline; }
+.hint-more summary { display: inline; cursor: pointer; color: #2f55c7; font-weight: 600; list-style: none; }
+.hint-more summary::-webkit-details-marker { display: none; }
+.hint-more[open] summary { margin-right: 4px; }
+.hint-more[open] { display: block; margin-top: 4px; }
+.filter-chip[hidden] { display: none; }
+.filter-chip { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 10px; padding: 7px 8px 7px 12px;
+  border-radius: 10px; background: #1d2430; color: #fff; font-size: 13px; font-weight: 600; }
+.filter-chip .chip-x { flex: none; font: inherit; font-size: 12.5px; border: 0; border-radius: 7px; padding: 5px 9px; background: rgba(255,255,255,.16); color: #fff; cursor: pointer; }
+.filter-chip .chip-x:hover { background: rgba(255,255,255,.28); }
+.show-none { color: var(--amber); font-weight: 600; }
+@media (max-width: 760px) {
+  .dist-row .dist-pick select { font-size: 16px; padding: 11px 30px 11px 12px; }
+  .list-opts select { font-size: 16px; padding-top: 8px; padding-bottom: 8px; }   /* 16px: iPhone doesn't zoom into it */
+}

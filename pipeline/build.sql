@@ -84,6 +84,9 @@ create or replace macro wide_n() as 100;            -- "Whole streets": places i
 create or replace macro cmp_lag_months() as 6;      -- past rankings are compared with the last full years ending this long ago (severity fills in late)
 create or replace macro chg_min() as 30;             -- "Is it getting fixed?": a change is given as a percent only when both counts are at least this
 create or replace macro ask_up_min() as 2;          -- a printed question about a fix: its targeted crashes rose by at least this many, more than the city's change
+-- fixes left out of "no drop after the fix" and the printed question about a rise: a bus lane isn't aimed at one kind of
+-- crash, and more people ride a street once it has a protected lane, so more bike crashes there can mean more riders
+create or replace macro no_drop_skip() as ['Bus lane', 'Protected bike lane'];
 create or replace macro print_cip_n() as 6;          -- a district's printout lists this many of its budget lines (the largest; the budget tab has all)
 create or replace macro move_min() as 5;             -- "what changed since last month": top places that moved at least this many ranks
 create or replace macro deaths_min() as 2;          -- places where at least this many people died are always listed
@@ -1039,7 +1042,7 @@ copy (
      'school_ft': school_ft(), 'merge_ft': round(merge_dlat() * 111320 / 0.3048, -1)::int, 'hist_from_year': hist_from_year(),
      'worst_n': worst_n(), 'worst_ref_to': worst_ref_to(), 'recent_fix_days': recent_fix_days(), 'ba_min_days': ba_min_days(),
      'ba_max_days': ba_max_days(), 'inc_min_crashes': inc_min_crashes(), 'inc_min_days': inc_min_days(), 'wide_n': wide_n(),
-     'cmp_lag_months': cmp_lag_months(), 'move_min': move_min(), 'print_cip_n': print_cip_n(), 'chg_min': chg_min(), 'ask_up_min': ask_up_min(), 'ba_few_dates': ba_few_dates(), 'ba_cluster_dates': ba_cluster_dates(), 'bus_min_mi': bus_min_mi(),
+     'cmp_lag_months': cmp_lag_months(), 'move_min': move_min(), 'print_cip_n': print_cip_n(), 'no_drop_skip': no_drop_skip(), 'chg_min': chg_min(), 'ask_up_min': ask_up_min(), 'ba_few_dates': ba_few_dates(), 'ba_cluster_dates': ba_cluster_dates(), 'bus_min_mi': bus_min_mi(),
      'signal_from_year': year(signal_from()), 'deaths_min': deaths_min(), 'repeat_years': repeat_years(),
      'sw_fast_days': sw_fast_days(), 'sw_min_age_days': sw_min_age_days()} as cfg,
     hist_start() as crash_hist_from,

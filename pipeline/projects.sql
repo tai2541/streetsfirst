@@ -27,10 +27,11 @@ where f.geometry is not null;
 -- One row per project. Sidewalk projects are listed per side of a block; both sides of one block become one row.
 create or replace table proj as
 -- (many planned walk signals share a name and year: their place breaks the tie, so ids match from build to build)
--- work: whether it counts as safety work (done or planned) anywhere on the site. Pavement art is listed among a place's
--- projects but isn't counted. The one place this rule lives: the page reads 'work' from the projects file.
+-- work: whether it counts as safety work (done or planned) anywhere on the site. Pavement art and bus stop improvements
+-- (a transit project, like a bus lane) are listed among a place's projects but aren't counted. The one place this rule
+-- lives: the page reads 'work' from the projects file.
 select row_number() over (order by kind, stage, year nulls last, name, scope, ST_AsText(geom)) as id, *,
-       coalesce(scope, '') not ilike '%pavement art%' as work
+       not regexp_matches(coalesce(scope, ''), '(?i)pavement art|bus stop') as work
 from (
   select 'sidewalk' as kind,
          case when planning = 'Y' then 'design' else 'done' end as stage,
@@ -74,7 +75,9 @@ from locations l left join loc_proj j using (location);
 -- list kept by hand. The project's exact limits aren't published, so the site shows it as "a budget project named for
 -- this street", never as a fix at the place. Rules: street names are compared in one spelling (Avenue = Ave,
 -- North = N, ...); a direction written after the name must match exactly (1st Ave NE is not 1st Ave S); a direction
--- written before a named street may be left out (Madison St covers E Madison St); when a title names a
+-- written before a named street may be left out (Madison St covers E Madison St); a title may also leave out the
+-- direction after the name or the street type ("NE 130th St/NE 125th", "Roosevelt Multimodal Corridor", "Shoreline
+-- 145th"), but such a short name links only when it fits one street; when a title names a
 -- neighborhood ("Northgate ..."), only places in that neighborhood match; when it names a light-rail station, built or
 -- planned ("Graham Street Station ..."), only places within station_area_ft of it. A name used with more than one
 -- leading direction (S Graham St, SW Graham St) links only when those place rules leave places on just one of them.
@@ -98,8 +101,15 @@ with cip as (
         from capital_budget where dept = 'Seattle Department of Transportation' and amount > 0 and year >= budget_from())
   group by pid having max(year) >= year(current_date) - 1
 ),
-cipn as (select *, ' ' || street_norm(title) || ' ' as tn from cip),
-hood_names as (select distinct upper(n) as hn from (select area as n from hoods union select neighborhood from hoods) where length(n) >= 5),
+-- "/" and "&" join two names ("NE 130th St/NE 125th"): read as "and", so the second name's direction isn't taken for
+-- the first name's suffix
+cipn0 as (select *, ' ' || street_norm(regexp_replace(title, '\s*[/&]\s*', ' and ', 'g')) || ' ' as tn from cip),
+-- a title naming a crossing by its number alone ("Roosevelt and 85th") is about the places at that crossing
+cipn as (select *, case when not regexp_matches(tn, ' AND [0-9]+(ST|ND|RD|TH) (ST|AVE|WAY|PL|BLVD|DR|RD|CT|LN|TER|PKWY) ')
+                        then nullif(regexp_extract(tn, ' AND ([0-9]+(ST|ND|RD|TH)) ', 1), '') end as cross_n
+         from cipn0),
+hood_names as (select distinct upper(n) as hn from (select area as n from hoods union select neighborhood from hoods) where length(n) >= 5
+                     and not regexp_matches(street_norm(n), '^(N|S|E|W|NE|NW|SE|SW)$')),   -- "Northeast" isn't a name in a title
 cip_hoods as (select c.pid, list(street_norm(h.hn)) as hns from cipn c join hood_names h on c.tn like '% ' || street_norm(h.hn) || ' %' group by c.pid),
 cip_station as (select c.pid, s.geom from cipn c join stations s on c.tn like '% ' || street_norm(s.name) || ' %'),
 streets_at as (   -- the streets a place is on: a block's own street, or both streets of an intersection
@@ -112,25 +122,62 @@ cand0 as (        -- each street, and for a named street with a leading directio
   select location, s, regexp_replace(s, '^(N|S|E|W|NE|NW|SE|SW) ', ''), true from streets_at
   where regexp_matches(s, '^(N|S|E|W|NE|NW|SE|SW) [A-Z]') and regexp_replace(s, '^(N|S|E|W|NE|NW|SE|SW) ', '') like '% %'
 ),
-ambiguous as (    -- a name used with more than one leading direction (E Harrison St, W Harrison St)
-  select m from cand0 where dropped group by m having count(distinct full_s) > 1
+-- Shorter names a title may use for a street: without the direction after it ("E Marginal Way" for E Marginal Way S);
+-- without "St"/"Ave"/... ("NE 125th" for NE 125th St, "Roosevelt" for Roosevelt Way NE, "145th" for N and NE 145th St,
+-- which are one street). A name without its street type links only when the title goes on with a corridor word
+-- ("Roosevelt Multimodal Corridor") or names a crossing ("Roosevelt and 85th"), and never when the title gives a
+-- different type or a direction in front of it.
+cand1 as (
+  select location, full_s, regexp_replace(m, ' (N|S|E|W|NE|NW|SE|SW)$', '') as m, dropped from cand0
+  where regexp_matches(m, '. (N|S|E|W|NE|NW|SE|SW)$') and regexp_replace(m, ' (N|S|E|W|NE|NW|SE|SW)$', '') like '% %'
+),
+bare0 as (
+  select location, full_s, regexp_replace(m, ' (ST|AVE|WAY|PL|BLVD|DR|RD|CT|LN|TER|PKWY)$', '') as m, dropped
+  from (select * from cand0 union select * from cand1)
+  where regexp_matches(m, ' (ST|AVE|WAY|PL|BLVD|DR|RD|CT|LN|TER|PKWY)$')
+),
+bare as (
+  select * from bare0 where regexp_matches(m, '^(N|S|E|W|NE|NW|SE|SW) [0-9]+(ST|ND|RD|TH)$')        -- NE 125th
+     or (not regexp_matches(m, '[0-9]') and length(replace(m, ' ', '')) >= 5 and not regexp_matches(m, '^(N|S|E|W|NE|NW|SE|SW) '))
+  union                                                                                              -- 145th (N, NE, NW)
+  select location, full_s, regexp_replace(m, '^(N|NE|NW) ', ''), true from bare0 where regexp_matches(m, '^(N|NE|NW) [0-9]+(ST|ND|RD|TH)$')
+),
+forms as (
+  select *, 'full' as kind from cand0 union select *, 'nodir' from cand1 union select *, 'bare' from bare
+),
+fam as (          -- one street under its spellings: N, NE and NW of a numbered street are one street (N 145th St runs
+                  -- on as NE 145th St); SDOT sometimes writes a direction inside the name (Roosevelt N Way NE)
+  select *, regexp_replace(regexp_replace(full_s, '^(N|NE|NW) ([0-9])', 'N \2'), '(\S) (N|S|E|W) (\S)', '\1 \3', 'g') as f from forms
+),
+amb_lead as (     -- a name without its leading direction that fits more than one street: E and W Harrison St
+  select m from fam where dropped group by m having count(distinct f) > 1
+),
+amb_tail as (     -- a name without its direction after it or its type that fits more than one street: 3rd Ave, 3rd Ave N
+  select m from fam where kind <> 'full' or not dropped group by m having count(distinct f) > 1
 ),
 hits0 as (
-  select distinct k.location, k.full_s, k.m, k.dropped and k.m in (select m from ambiguous) as amb, c.pid, c.title, c.y0, c.y1
-  from cand0 k join cipn c on c.tn like '% ' || k.m || ' %'
+  select distinct k.location, k.full_s, k.f, k.m,
+         (k.dropped and k.m in (select m from amb_lead)) or (k.kind <> 'full' and k.m in (select m from amb_tail)) as amb,
+         c.pid, c.title, c.y0, c.y1
+  from fam k join cipn c on c.tn like '% ' || k.m || ' %'
   join locations l using (location)
   left join cip_hoods h on h.pid = c.pid
   where (h.hns is null or list_has_any(h.hns, [street_norm(coalesce(l.area, '')), street_norm(coalesce(l.neighborhood, ''))]))
+    and (c.cross_n is null or ' ' || street_norm(l.location) || ' ' like '% ' || c.cross_n || ' %')
+    and (k.kind = 'full' or not regexp_matches(c.tn, ' (N|S|E|W|NE|NW|SE|SW) ' || k.m || ' ') or regexp_matches(k.m, '^(N|S|E|W|NE|NW|SE|SW) '))
+    and (k.kind <> 'bare' or (not regexp_matches(c.tn, ' ' || k.m || ' (ST|AVE|WAY|PL|BLVD|DR|RD|CT|LN|TER|PKWY) ')
+         and (regexp_matches(k.m, '[0-9]') or c.cross_n is not null
+              or regexp_matches(c.tn, ' ' || k.m || ' (CORRIDOR|MULTIMODAL|COMPLETE|SAFETY|TRANSIT|IMPROVEMENTS?|REPAVING|PAVING) '))))
     and (c.pid not in (select pid from cip_station)
          or exists (select 1 from cip_station st join loc_pts lp on lp.location = l.location where st.pid = c.pid and ST_DWithin(st.geom, lp.geom, station_area_ft())))
     -- a direction written after the street in the title must be the place's own (1st Ave S is not 1st Ave)
     and not regexp_matches(c.tn, ' ' || k.m || ' (N|S|E|W|NE|NW|SE|SW) ')
     -- a bridge, viaduct or tunnel project is about that structure, so only places on a structure match it
     --   (on the structure itself: a ramp leading to a bridge isn't the bridge)
-    and (not regexp_matches(c.tn, ' (BRIDGE|VIADUCT|TUNNEL|SPAN) ') or (l.structure and regexp_matches(' ' || l.location || ' ', ' (BR|BRIDGE|VI|VIADUCT|TUNNEL|TUN|SPAN) ')))
+    and (not regexp_matches(c.tn, ' (BRIDGE|BRDG|VIADUCT|TUNNEL|SPAN) ') or (l.structure and regexp_matches(' ' || l.location || ' ', ' (BR|BRIDGE|VI|VIADUCT|TUNNEL|TUN|SPAN) ')))
 ),
 settled as (      -- an ambiguous name counts only when the rules above left places on one of its streets
-  select pid, m from hits0 where amb group by pid, m having count(distinct full_s) = 1
+  select pid, m from hits0 where amb group by pid, m having count(distinct f) = 1
 ),
 hits as (
   select distinct location, pid, title, y0, y1 from hits0 h

@@ -104,12 +104,13 @@ select location, kind, case when d >= date '1990-01-01' then d end as d, status 
   where along > 0.5 * greatest(len, 1)
 );
 
--- d = the oldest dated piece; u = some pieces here have no date (often older ones, e.g. most bus lanes), so "since d"
+-- d = the oldest dated piece; d1 = the newest, when later (a lane extended later: "Is it getting fixed?" counts it by its
+-- newest piece, so the page names that date too); u = some pieces here have no date (often older ones, e.g. most bus lanes), so "since d"
 -- may not be the start, and a before/after around d would compare against a street that already had one.
 create or replace table loc_fixes as
 select location, list({'k': kind, 'n': case when kind in ('Speed humps', 'Speed cushions', 'Radar speed sign') then n end,
-                       'd': d, 's': status, 'u': u} order by kind, status) as fixes
-from (select location, kind, status, count(*) as n, min(d) as d, count(d) > 0 and count(*) > count(d) as u
+                       'd': d, 'd1': case when d1 > d then d1 end, 's': status, 'u': u} order by kind, status) as fixes
+from (select location, kind, status, count(*) as n, min(d) as d, max(d) as d1, count(d) > 0 and count(*) > count(d) as u
       from loc_fix_hits group by all)
 group by location;
 

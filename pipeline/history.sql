@@ -255,7 +255,11 @@ places as (
     r.location in (select location from recent) as fixed_recently,
     r.location in (select location from end_fixes) as ends_fixed,
     coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned' or len(r.cip) > 0, false) as proj_planned,
-    r.state_route, r.council_district2, r.crashes, r.ped_crashes, r.bike_crashes
+    -- "planned" only because a budget line is named for its street (the budget doesn't say which blocks it covers)
+    coalesce(len(r.cip), 0) > 0 and not coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned', false) as budget_only,
+    r.state_route, r.council_district2, r.crashes, r.ped_crashes, r.bike_crashes,
+    -- head-start walk signals need a traffic signal: compared with the intersections that have one
+    r.addr_type = 'I' and coalesce(r.signalized, false) as sig, r.addr_type = 'I' and coalesce(r.signalized, false) and r.lpi_status = 'Existing' as sig_lpi
   from ranked r left join fx using (location)
 )
 select * from places;
@@ -276,7 +280,9 @@ by_g as (
     count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null) as top50_nothing,
     count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null and ends_fixed) as top50_ends,
     count(*) filter (where top50 and state_route is not null) as top50_state,
-    list({'loc': location, 'r': rank, 't': addr_type, 'fixed': fixed_recently, 'ends': ends_fixed, 'planned': proj_planned, 'state': state_route, 'k': ksi,
+    count(*) filter (where top50 and not fixed_recently and budget_only and state_route is null) as top50_budget,
+    count(*) filter (where sig) as sig, count(*) filter (where sig_lpi) as sig_lpi,
+    list({'loc': location, 'r': rank, 't': addr_type, 'fixed': fixed_recently, 'ends': ends_fixed, 'planned': proj_planned, 'b': budget_only, 'state': state_route, 'k': ksi,
           'line': line}
          order by rank) filter (where top50) as top50_list
   from long group by dim, grp
@@ -336,7 +342,7 @@ from working_fix group by k, m;
 
 -- places where the targeted crashes didn't go down: at least inc_min_crashes() before and after, no fewer after
 create or replace table working_places as
-select * from working_fix where a >= inc_min_crashes() and a >= b and b >= inc_min_crashes() and k not in ('Bus lane', 'Protected bike lane') and not other
+select * from working_fix where a >= inc_min_crashes() and a >= b and b >= inc_min_crashes() and not list_contains(no_drop_skip(), k) and not other
   and days >= inc_min_days()
 qualify row_number() over (partition by k order by a - b desc, a desc, rank nulls last, location) <= 40;
 
@@ -427,10 +433,10 @@ copy (
       'recent_ksi': (select list({'loc': location, 'f': fatal, 'kd': killed, 's': serious, 'last': last_date, 'rank': rank}
                                  order by fatal desc, serious desc, last_date desc, location) from recent_ksi),
       'recent_ksi_total': (select {'f': sum(fatal), 'kd': sum(killed), 's': sum(serious), 'from': we(), 'to': max(last_date)} from recent_ksi),
-      'recent_fixes': (select list({'loc': location, 'k': k, 'd': d, 'rank': rank} order by d desc, rank) from recent_fixes)
+      'recent_fixes': (select list({'loc': location, 'k': k, 'd': d, 'yo': month(d) = 12 and day(d) >= 30, 'rank': rank} order by d desc, rank) from recent_fixes)
     },
     'district_line': (select {'n': count(*), 'ksi': coalesce(sum(ksi), 0), 'top': count(*) filter (where top50)} from place_work where council_district2 is not null),
-    'need': (select list({'dim': dim, 'g': grp, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'top50': top50, 'top50_nothing': top50_nothing, 'top50_state': top50_state, 'top50_ends': top50_ends,
+    'need': (select list({'dim': dim, 'g': grp, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'top50': top50, 'top50_nothing': top50_nothing, 'top50_state': top50_state, 'top50_ends': top50_ends, 'top50_budget': top50_budget, 'sig': sig, 'sig_lpi': sig_lpi,
                           'lpi': fixes_lpi, 'other': fixes_other, 'proj_planned': proj_planned, 'list': top50_list}
                          order by dim, grp) from need_work),
     'working': {
@@ -438,7 +444,7 @@ copy (
                              'b': b, 'a': a, 'cb': cb, 'ca': ca, 'e_n': e_n, 'eb': eb, 'ea': ea, 'ecb': ecb, 'eca': eca,
                              'p_had': p_had, 'p_fewer': p_fewer}
                             order by n desc, k) from working_kind where n > 0),
-      'places': (select list({'loc': location, 'k': k, 'm': m, 'd': d, 'yo': yo, 'days': days, 'b': b, 'a': a, 'pb': pb, 'rank': rank, 'dist': district}
+      'places': (select list({'loc': location, 'k': k, 'm': m, 'd': d, 'yo': yo, 'days': days, 'b': b, 'a': a, 'pb': pb, 'cb': cb, 'ca': ca, 'rank': rank, 'dist': district}
                              order by k, a - b desc, a desc, rank nulls last, location) from working_places)
     },
     'streets': (select list({'s': street, 'n': places, 'c': crashes, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'ped': ped, 'bike': bike,
