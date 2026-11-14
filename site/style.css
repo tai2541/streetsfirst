@@ -1125,10 +1125,10 @@ td.nowrap .sub2 { white-space: normal; max-width: 7em; }
    their own colors, so they keep them; a selected tab, filter or card shows in the system's highlight colors; link-style
    buttons look like links. */
 @media (forced-colors: active) {
-  .graphs, .tchart, .legend, .rh-legend, #legend, .leaflet-marker-icon, .leaflet-overlay-pane, .sev, .lg-safety, .lg-tline, .chip, .hc-rank, .rank {
+  .graphs, .tchart, .legend, .rh-legend, #legend, .leaflet-marker-icon, .leaflet-overlay-pane, .sev, .lg-safety, .lg-tline, .lg-pline, .lg-ppt, .chip, .hc-rank, .rank {
     forced-color-adjust: none; }
   [role=tab][aria-selected=true], [aria-pressed=true], .seg-btn.on, .fbtn.on, .tag:has(input:checked) {
-    background: Highlight !important; color: HighlightText !important; border: 2px solid HighlightText !important; }
+    background: Highlight !important; color: HighlightText !important; border: 2px solid HighlightText !important; forced-color-adjust: none; }
   #list li.selected, .tlist li.selected { outline: 3px solid Highlight; outline-offset: 1px; }
   .linkbtn, .show-none { color: LinkText !important; text-decoration: underline !important; }
   .legend i, .rh-legend i, .lg-tline { border: 1px solid CanvasText; }

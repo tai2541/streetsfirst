@@ -349,8 +349,11 @@ s as (select p.location,
         -- (on a bridge or tunnel, the streets around it are not its street: no speed rather than theirs)
         coalesce(max(s.speed) filter (where own.name is not null), case when not on_structure(p.location) then max(s.speed) end) as speed_limit,
         -- (a stretch's own street segment gives its class when it has one: the SR 99 tunnel isn't 1st Ave above it)
-        coalesce(min(s.artclass) filter (where s.artclass between 1 and 5 and own.name is not null and p.location like '% BETWEEN %'),
-                 min(s.artclass) filter (where s.artclass between 1 and 5)) as art_class,
+        -- (even when its own segment is a neighborhood street: a local block crossing an arterial isn't that arterial;
+        -- the SR 99 tunnel's junctions: below)
+        case when p.location like '% BETWEEN %' and bool_or(own.name is not null)
+               then coalesce(min(s.artclass) filter (where s.artclass between 1 and 5 and own.name is not null), 0)
+             else min(s.artclass) filter (where s.artclass between 1 and 5) end as art_class,
         min(s.pci) as pavement_min
       from loc_pts p join streets s on ST_DWithin(p.geom, s.geom, 60)
       left join loc_names own on own.location = p.location and own.name = name_key(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''))
@@ -403,7 +406,9 @@ sg as (select a.location, bool_or(ped_signal) ped_signal, bool_or(ped_audio) ped
        from locations_all a join loc_pts p using (location)
        join signals g on g.intkey = a.intkey or (a.addr_type = 'I' and g.geom is not null and ST_DWithin(p.geom, g.geom, 80))
        group by a.location)
-select a.location, a.addr_type, a.intkey, s.speed_limit, s.art_class, s.pavement_min,
+select a.location, a.addr_type, a.intkey, s.speed_limit,
+       -- (a junction in the SR 99 tunnel is on the state route: no street segment of it is within reach to say so)
+       case when a.addr_type = 'I' and a.location like 'SR99 TUNNEL %' then 4 else s.art_class end as art_class, s.pavement_min,
        case when a.addr_type <> 'I' then len.block_ft end as block_ft,
        v.volume, v.volume_streets, v.volume_year, v.volume_estimated,
        h.hin_level, coalesce(c.hcl_years, []) as hcl_years, c.hcl_types,
@@ -412,7 +417,8 @@ select a.location, a.addr_type, a.intkey, s.speed_limit, s.art_class, s.pavement
        sg.location is not null as signalized, sg.ped_signal, sg.ped_audio, sg.lt_protected, sg.lt_installed, sg.signal_installed,
        -- reference group for expected harm
        case when a.addr_type = 'I' then 'I' else 'B' end as addr_class,
-       case s.art_class when 1 then 'principal' when 2 then 'minor' when 3 then 'collector'
+       case case when a.addr_type = 'I' and a.location like 'SR99 TUNNEL %' then 4 else s.art_class end
+                        when 1 then 'principal' when 2 then 'minor' when 3 then 'collector'
                         when 4 then 'state' when 5 then 'state' else 'local' end as street_bucket
 from locations_all a
 left join s using (location) left join len using (location) left join loc_volume v using (location)

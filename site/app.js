@@ -91,7 +91,7 @@
       // trails: "MTS DEARBORN CONNCTR TRL" -> Mountains to Sound Dearborn Connector Trail
       .replace(/ TRL /g, ' TRAIL ').replace(/ CONNC?TR? /g, ' CONNECTOR ').replace(/ MTS /g, ' MOUNTAINS TO SOUND ').replace(/ RDWY /g, ' ROADWAY ')
       // SDOT's codes: "2ND AVE ET S" (Extension), "DEAD END 1" (numbered dead ends), "CITY LIMITS C"
-      .replace(/ (AVE|ST) ET /g, ' $1 EXTENSION ').replace(/ DEAD END \d+ /g, ' DEAD END ').replace(/ CITY LIMITS C /g, ' CITY LIMITS ');
+      .replace(/ (AVE|ST) ET /g, ' $1 EXTENSION ').replace(/ DEAD END \d+ /g, ' DEAD END ').replace(/ CITY LIMITS [NSEWC] /g, ' CITY LIMITS ').replace(/ DEAD END [NSEW] /g, ' DEAD END ');
     // one travel direction goes to the end in words; several stay where they are, in words
     const dirs = t.match(/ (EB|WB|NB|SB)(?= )/g) || [];
     if (dirs.length === 1) t = t.replace(/ (EB|WB|NB|SB) /, ' ') + `(${DIRW[dirs[0].trim()]})`;
@@ -492,6 +492,8 @@
   }
 
   // 2010, 2011, 2014, 2023, 2024 -> "2010–2011, 2014 and 2023–2024"
+  // (the place's note explains the High Collision listing: the treatments line doesn't repeat it)
+  const hclNoted = p => { const hy = p.sdot_hcl_years || []; return !!hy[0] && hy[0] <= +meta.window_from.slice(0, 4) && p.ksi_after_hcl >= 2; };
   function yearRuns(ys) {
     const r = [];
     [...ys].map(Number).sort((a, b) => a - b).forEach(y => { const l = r[r.length - 1]; if (l && y === l[1] + 1) l[1] = y; else r.push([y, y]); });
@@ -511,8 +513,8 @@
             ? 'For the years before and after the signal, see "Before and after" below.'
             : 'Crash data from far enough before the signal isn\'t available here, so this doesn\'t show whether it helped, only the crashes since.'}` };
     }
-    const hy = p.sdot_hcl_years || [], first = hy[0], last = hy[hy.length - 1];
-    if (first && first <= +meta.window_from.slice(0, 4) && p.ksi_after_hcl >= 2)
+    const hy = p.sdot_hcl_years || [];
+    if (hclNoted(p))
       // every year listed (runs of years joined), so a place off the list for years isn't read as listed all along
       return { short: `On SDOT's High Collision list in ${yearRuns(hy)} (a listing asks for an engineering review; what a review found or changed isn't in SDOT's open data); ${plural(p.ksi_after_hcl, 'crash', 'crashes')} that killed or seriously hurt someone ${windowTxt()}`,
         long: `SDOT's High Collision Locations list flags places for engineering review; it isn't a list of planned projects, and what a review found or changed (signal timing, signs, enforcement requests) isn't in SDOT's open data. Listed here in ${yearRuns(hy)}; ${p.ksi_after_hcl} crashes killed or seriously injured someone in the scored years.` };
@@ -1791,7 +1793,7 @@
     // SDOT keeps separate lists (signalized and unsignalized corners, mid-block, pedestrian, bicycle): say which.
     const hclType = { Signalized: 'signalized intersections', 'Non-Signalized': 'intersections without a signal', 'Mid-Block': 'mid-block', Pedestrian: 'pedestrian', Bicycle: 'bicycle' };
     if (p.sdot_hcl_years && p.sdot_hcl_years.length) items.push(`On SDOT's <b>High Collision Locations</b> list${(p.sdot_hcl_types || []).length
-      ? ` (${p.sdot_hcl_types.map(t => hclType[t] || esc(t)).join(', ')})` : ''} in ${esc(p.sdot_hcl_years.join(', '))} <span class="muted">(a listing asks for an engineering review; what a review found or changed isn't in SDOT's open data)</span>.`);
+      ? ` (${p.sdot_hcl_types.map(t => hclType[t] || esc(t)).join(', ')})` : ''} in ${esc(yearRuns(p.sdot_hcl_years))}${hclNoted(p) ? '' : ` <span class="muted">(a listing asks for an engineering review; what a review found or changed isn't in SDOT's open data)</span>`}.`);
     if (p.lpi_status === 'Existing') items.push(`<b>Head-start walk signal</b> (Leading Pedestrian Interval: the walk light comes on a few seconds before cars get a green) since ${p.lpi_installed ? (/-01-01$/.test(p.lpi_installed) ? p.lpi_installed.slice(0, 4) : monthYear(p.lpi_installed)) : 'an unknown date'}.`);
     else if (p.lpi_status === 'Planned') items.push(`Head-start walk signal <b>planned</b>${plannedFor(p.lpi_planned)}.`);
     else if (p.lpi_status === 'Not Feasible') items.push(`Head-start walk signal judged <b>not feasible</b> by SDOT.`);
@@ -1983,7 +1985,8 @@
     // why it ranks where it does when most of its score isn't from crashes that killed or seriously hurt someone
     const why = !p.ksi && rk <= LIST ? ' It ranks this high because of how many crashes happen here: the estimate counts every crash, weighed by how badly people were hurt.'
       // ("most" only when its other crashes are past half the whole score, as in "Why #N": the typical part can be larger)
-      : p.harm && p.ksi_harm != null && p.expected_harm && p.harm - p.ksi_harm > p.expected_harm / 2 ? ' Most of its score comes from its other crashes, where people were hurt less badly.' : '';
+      : p.harm && p.ksi_harm != null && p.expected_harm && p.harm - p.ksi_harm > p.expected_harm / 2 ? (p.ksi ? ' Most of its score comes from its other crashes, where people were hurt less badly.'
+        : ` Most of its score comes from ${p.crashes === 1 ? 'this crash' : 'these crashes'}; the rest is the risk of a fatal or serious crash typical for similar streets.`) : '';
     // a death or serious injury after the scored years: on the page from the first day, in the ranking once it's scored
     const late = ((det && det.crashes) || []).filter(c => c.n && c.d > meta.window_to && (c.s === 'F' || c.s === 'S')).sort((a, b) => b.d.localeCompare(a.d));
     const lateTxt = !late.length ? '' : ` Not counted yet: ${late.slice(0, 3).map(c => `${c.fat ? `${plural(c.fat, 'person', 'people')} killed` : `${plural(c.ser || 1, 'person', 'people')} seriously injured`} here on ${new Date(c.d + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`).join('; ')}${late.length > 3 ? `, and ${late.length - 3} more` : ''}. Police reports arrive months late, so the ranking adds ${late.length > 1 ? 'them' : 'it'} later.`;
@@ -2203,8 +2206,8 @@
             ${fileNote(det, p)}
             ${untyped ? `<div class="note">${untyped} crash${untyped > 1 ? 'es have' : ' has'} no type recorded.</div>` : ''}
             <ul class="tight">
-              ${p.road_known ? `<li>Wet/icy road: ${p.wet_crashes} of the ${p.road_known} scored crashes with known road conditions (${pct(p.wet_crashes, p.road_known)}%; city ${Math.round(100 * meta.city_wet_share)}%)` : ''}</li>
-              ${p.light_known ? `<li>Dark: ${p.dark_crashes} of the ${p.light_known} scored crashes with known light (${pct(p.dark_crashes, p.light_known)}%; city ${Math.round(100 * meta.city_dark_share)}%) · streetlights off/none: ${p.unlit_crashes}</li>` : ''}
+              ${p.road_known ? `<li>Wet/icy road: ${p.wet_crashes} of the ${plural(p.road_known, 'scored crash', 'scored crashes')} with known road conditions (${pct(p.wet_crashes, p.road_known)}%; city ${Math.round(100 * meta.city_wet_share)}%)</li>` : ''}
+              ${p.light_known ? `<li>Dark: ${p.dark_crashes} of the ${plural(p.light_known, 'scored crash', 'scored crashes')} with known light (${pct(p.dark_crashes, p.light_known)}%; city ${Math.round(100 * meta.city_dark_share)}%) · streetlights off/none: ${p.unlit_crashes}</li>` : ''}
               ${lightsOutLine(p)}
             </ul>`)}
           ${sec('reqtypes', `Repair requests within ${R} ft`, `
@@ -2734,7 +2737,19 @@
   // The typed address goes to Esri's geocoder (OpenStreetMap's if Esri fails) only when someone asks to pin it.
   const SEA = { w: -122.46, s: 47.48, e: -122.22, n: 47.74 };
   // inside the city limits (the boundary the map draws), not just its box: Mercer Island, White Center and Skyway are in the box
-  const inSeattle = (lat, lon) => lat > SEA.s && lat < SEA.n && lon > SEA.w && lon < SEA.e && (!D.boundary || inPoly(lon, lat, D.boundary));
+  // The drawn outline follows the shoreline and the 145th St centerline, so a point within 150 m of it counts as inside
+  // (houseboats, bridges, the north side of N 145th St); Mercer Island and White Center are farther than that.
+  const nearEdge = (lon, lat, g, m) => {
+    const kx = 111320 * Math.cos(lat * Math.PI / 180), ky = 110540;
+    return (g.type === 'Polygon' ? [g.coordinates] : g.coordinates).some(poly => poly.some(r => r.some((p, i) => {
+      if (!i) return false;
+      const ax = (r[i - 1][0] - lon) * kx, ay = (r[i - 1][1] - lat) * ky, bx = (p[0] - lon) * kx, by = (p[1] - lat) * ky;
+      const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy, t = l2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)) : 0;
+      return Math.hypot(ax + t * dx, ay + t * dy) < m;
+    })));
+  };
+  const inBox = (lat, lon) => lat > SEA.s && lat < SEA.n && lon > SEA.w && lon < SEA.e;
+  const inSeattle = (lat, lon) => inBox(lat, lon) && (!D.boundary || inPoly(lon, lat, D.boundary) || nearEdge(lon, lat, D.boundary, 150));
   map.createPane('pin'); map.getPane('pin').style.zIndex = 660;
   const pinLayer = L.layerGroup().addTo(map);
   // Each lookup gives up after 8 s. If both lookups fail to connect, the answer is { offline: true }, not "not found".
@@ -2776,7 +2791,7 @@
     if (tok !== geoToken) return;   // a newer lookup has started
     if (g && g.offline) return searchMsg('Address search needs a connection. Check your signal and try again.');
     if (!g) return searchMsg(`Couldn't find “${esc(text)}”. Try a street address like “600 4th Ave”.`);
-    if (!inSeattle(g.lat, g.lon)) return searchMsg(`“${esc(g.label)}” is outside Seattle. This map covers Seattle only.`);
+    if (!inSeattle(g.lat, g.lon)) return searchMsg(`“${esc(g.label)}” is outside Seattle's city limits${/\bSeattle\b/i.test(g.label) ? ' (its mailing address says Seattle)' : ''}. This map covers Seattle only.`);
     await lateReady;   // the nearby counts need the search data
     if (streetChanged(text, g.label)) g.note = `You typed “${text}”. The map's address search found this instead; check it's the place you meant.`;
     closeList();
@@ -2853,8 +2868,8 @@
   const pinMarkers = new Map();
   let pendingRename = null;
   let pins = (() => {
-    try { const a = JSON.parse(localStorage.getItem(PIN_KEY)); if (Array.isArray(a)) return a.filter(g => g && inSeattle(g.lat, g.lon)).map(g => ({ ...g, id: +g.id || Date.now() + Math.random() })); } catch { /* none */ }
-    try { const g = JSON.parse(localStorage.getItem('ipm.pin')); if (g && inSeattle(g.lat, g.lon)) return [{ ...g, id: 1 }]; } catch { /* none */ }
+    try { const a = JSON.parse(localStorage.getItem(PIN_KEY)); if (Array.isArray(a)) return a.filter(g => g && inBox(g.lat, g.lon)).map(g => ({ ...g, id: +g.id || Date.now() + Math.random() })); } catch { /* none */ }
+    try { const g = JSON.parse(localStorage.getItem('ipm.pin')); if (g && inBox(g.lat, g.lon)) return [{ ...g, id: 1 }]; } catch { /* none */ }
     return [];
   })();
   function savePins() {
@@ -3464,18 +3479,20 @@
     const t = [head, ...lines].filter(Boolean).join(', ').replace(/^the /, 'The ');
     return t + ((rs || []).length > nums.length + named.length ? '…' : ''); };
   const rtOf = s => s.routes.length > 1 && s.rt ? ', ' + rtName(s.rt) : '';
+  // bus time lost a day: minutes under an hour (never "0.0 hours")
+  const lostTxt = m => m < 0.5 ? "under a minute" : m < 60 ? plural(Math.round(m), "minute", "minutes") : `${(m / 60).toFixed(1)} hours`;
   const TMODES = {
     bus: {
       hint: `Stretches of bus route where the timetable gives buses the most extra time per mile, compared with the quickest
         hours (usually late night or early morning), added up over every weekday bus. Ranked by bus time lost per mile, so short, badly jammed stretches rank high. From King County Metro's published weekday timetable${T.weekday ? ' (the schedule for ' + longDate(T.weekday) + ', a typical weekday)' : ''}.`,
       items: () => T.stretches.filter(s => s.rank).sort((a, b) => a.rank - b.rank), byDist: true,
       rank: s => s.rank, name: stretchName,
-      sub: s => `${routeList(s.routes, 8)} · ${s.mi} mi, about ${s.lpm < 60 ? (s.lpm / 60).toFixed(1) : Math.round(s.lpm / 60)} h a day per mile`,
-      score: s => `${(s.lost / 60).toFixed(1)} h <small>a day</small>`,
+      sub: s => `${routeList(s.routes, 8)} · ${s.mi} mi, about ${s.lpm < 60 ? Math.round(s.lpm) + ' min' : Math.round(s.lpm / 60) + ' h'} a day per mile`,
+      score: s => s.lost < 60 ? `${Math.round(s.lost)} min <small>a day</small>` : `${(s.lost / 60).toFixed(1)} h <small>a day</small>`,
       chips: s => [
         { cls: 'serious', text: `+${(s.peak - s.base).toFixed(1)} min a bus${s.routes.length > 1 && s.rt ? ` on ${esc(rtName(s.rt))}` : ''} ${hourSpan(s)} (${Math.round(100 * s.slower)}% slower)` },
         { cls: 'ped', text: `${fmt(s.trips)} buses a weekday` },
-        { cls: 'state', text: `Buses lose ${(s.lost / 60).toFixed(1)} hours a day here` }],
+        { cls: 'state', text: `Buses lose ${lostTxt(s.lost)} a day here` }],
       note: `Metro sets each trip's scheduled time from how long buses really take at that hour, so busy-hour times include
          traffic and extra time for people getting on and off. It's measured between Metro's timed stops${stopSpacing()},
          so the slowdown could be anywhere along the stretch. Stretches under ${distWords(cfg('bus_min_mi') * 1609.344)} are
@@ -3483,13 +3500,14 @@
       detail: s => `
       <div class="dhead">
         <div class="where">${esc(TMODES.bus.sub(s))} · ${copyLoc(stretchName(s))}</div>
-        <p class="verdict">${hourSpan(s).replace(/^./, c => c.toUpperCase())} on a weekday, Metro gives ${s.routes.length > 1 && s.rt ? `its busiest route here, ${esc(rtName(s.rt))},` : 'buses'} <b>${s.peak} minutes</b> for this
-          ${s.mi}-mile stretch, compared with ${s.base} minutes in its quickest hours: <b>${Math.round(100 * s.slower) ? Math.round(100 * s.slower) + '% slower' : 'about the same, to the minute'}</b>.
-          ${fmt(s.trips)} buses run it each weekday; together they lose about <b>${(s.lost / 60).toFixed(1)} hours a day</b> here.
+        <p class="verdict">${Math.round(100 * s.slower) ? `${hourSpan(s).replace(/^./, c => c.toUpperCase())} on a weekday, Metro gives ${s.routes.length > 1 && s.rt ? `its busiest route here, ${esc(rtName(s.rt))},` : 'buses'} <b>${s.peak} minutes</b> for this
+          ${s.mi}-mile stretch, compared with ${s.base} minutes in its quickest hours: <b>${Math.round(100 * s.slower)}% slower</b>.`
+          : `On a weekday, Metro gives ${s.routes.length > 1 && s.rt ? `its busiest route here, ${esc(rtName(s.rt))},` : 'buses'} <b>${s.peak} minutes</b> for this ${s.mi}-mile stretch: <b>about the same at every hour</b>, to the minute.`}
+          ${fmt(s.trips)} buses run it each weekday; together they lose about <b>${lostTxt(s.lost)} a day</b> here.
           <span class="muted">(Counted: the routes Metro times at both of these stops; other buses on this street, timed at other stops, aren't in these numbers.)</span></p>
         <div class="stat-grid">
-          ${stat(s.base + ' min', 'quickest hours' + rtOf(s))}${stat(s.peak + ' min', hourSpan(s) + rtOf(s))}
-          ${stat(fmt(s.trips), 'buses a weekday')}${stat((s.lost / 60).toFixed(1) + ' h', 'bus time lost a day')}
+          ${Math.round(100 * s.slower) ? stat(s.base + ' min', 'quickest hours' + rtOf(s)) + stat(s.peak + ' min', hourSpan(s) + rtOf(s)) : stat(s.peak + ' min', 'every hour' + rtOf(s))}
+          ${stat(fmt(s.trips), 'buses a weekday')}${stat(s.lost < 60 ? Math.round(s.lost) + ' min' : (s.lost / 60).toFixed(1) + ' h', 'bus time lost a day')}
         </div>
       </div>
       ${reportBox(stretchName(s))}
