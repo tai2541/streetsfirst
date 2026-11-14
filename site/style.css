@@ -391,7 +391,7 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 .stat:nth-child(3) { background: #eef4fe; } .stat:nth-child(3) b { color: #1f4fa8; }
 .stat:nth-child(4) { background: #ebf8f2; } .stat:nth-child(4) b { color: #147a55; }
 /* repair requests: neutral, so a count of problems doesn't read as good news */
-.stat.st-req { background: #f1f3f6; } .stat.st-req b { color: #3a4352; }
+.stat.st-req, .stat.st-neutral { background: #f1f3f6; } .stat.st-req b, .stat.st-neutral b { color: #3a4352; }
 .phone-intro { display: none; margin: 0 0 10px; font-size: 14px; line-height: 1.45; color: #2a3342; }
 .phone-intro .intro-report { display: inline-block; margin-top: 4px; font-weight: 700; color: #0f7a54; }
 .pg-need small.pg-n { color: #5a6475; font-size: 11.5px; white-space: nowrap; }
@@ -405,7 +405,7 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 .pg-stats .stat:nth-child(1), .pg-stats .stat:nth-child(2) { background: #ebf8f2; }
 .pg-stats .stat:nth-child(1) b, .pg-stats .stat:nth-child(2) b { color: #147a55; }
 .pg-stats .stat:nth-child(3) { background: #f1f3f6; } .pg-stats .stat:nth-child(3) b { color: #3a4352; }
-.pg-stats .stat:nth-child(4) { background: #fff0ef; } .pg-stats .stat:nth-child(4) b { color: #b3141b; }
+.pg-stats .stat:last-child { background: #fff0ef; } .pg-stats .stat:last-child b { color: #b3141b; }
 .callout { border-radius: 0 10px 10px 0; }
 
 /* map chrome */
@@ -1137,9 +1137,9 @@ td.nowrap .sub2 { white-space: normal; max-width: 7em; }
   #list li.selected, .tlist li.selected { outline: 3px solid Highlight; outline-offset: 1px; }
   .linkbtn, .show-none { color: LinkText !important; text-decoration: underline !important; }
   .legend i, .rh-legend i, .lg-tline { border: 1px solid CanvasText; }
-  /* Round 35: the keys keep their colors, but their words follow the system's text color so they show on a dark background */
-  .legend, .rh-legend, #legend, .lg-safety, .lg-tl, .legend span, #legend span { color: CanvasText; }
-  .graphs svg text, .tchart svg text { fill: CanvasText; }
+  /* Round 35: the map key keeps its colors, but its words follow the system's text color so they show on a dark background
+     (the charts keep their own light card, so their words keep their own dark color) */
+  #legend, .lg-safety, .lg-tl, #legend span { color: CanvasText; }
 }
 /* Round 35: selects shrink within a narrow screen; map layer choices are 24px targets */
 .controls select { max-width: 100%; min-width: 0; }
@@ -1168,3 +1168,6 @@ td.nowrap .sub2 { white-space: normal; max-width: 7em; }
   header nav button { padding-top: 4px; padding-bottom: 4px; white-space: nowrap; }
   header nav.more-right { -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
 }
+/* Round 36: in a window up to 1300px wide, the district table's small notes wrap so its last column (places with no
+   work) shows without scrolling sideways */
+@media (max-width: 1300px) { .pg-need small.pg-n { white-space: normal; } }

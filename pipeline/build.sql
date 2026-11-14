@@ -313,7 +313,8 @@ from locations_all;
 -- (also without the direction letter SDOT puts inside some names, "S GENESEE S ST", which its counts leave out)
 -- (and the travel direction inside a split roadway's name, "7TH NB AVE N", so it is 7th Ave N at its corners)
 -- (but not in a ramp's name: "4TH AVE NB OFF RP" and "4TH AVE SB OFF RP" are two ramps, with counts of their own)
-create or replace macro name_key(t) as regexp_replace(road_norm(t),
+-- (SDOT's traffic counts sometimes spell Avenue "AV" where its street names say "AVE": "4TH AV SB OFF RP")
+create or replace macro name_key(t) as regexp_replace(regexp_replace(road_norm(t), ' AV( |$)', ' AVE\1', 'g'),
   case when regexp_matches(road_norm(t), ' RP( |$)') then '(\S) (N|S|E|W) (\S)' else '(\S) (N|S|E|W|NB|SB|EB|WB) (\S)' end, '\1 \3', 'g');
 create or replace table loc_names as
 select location, name_key(name) as name from (
@@ -354,8 +355,9 @@ sx as (select p.location, s.speed, s.artclass, s.pci, own.name as own_name,
               regexp_matches(s.unitdesc, ' BETWEEN .* RP( |$)') and not regexp_matches(p.location, ' RP( |$)') as rp_end
       from loc_pts p join streets s on ST_DWithin(p.geom, s.geom, 60)
       left join loc_names own on own.location = p.location and own.name = name_key(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''))
+      -- (a ramp named in the place's own name is one of its streets: "Dearborn St off-ramp & S Dearborn St" gets the ramp's limit)
       where ST_Distance(p.geom, s.geom) <= p.r
-        and (s.loc_name = p.location
+        and (s.loc_name = p.location or own.name is not null
              or not regexp_matches(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''), '^(I ?5|I ?90|I ?405|SR ?[0-9]+)( |$)| RP( |$)'))),
 -- each of the place's own streets: its speed, from its pieces that don't run to a ramp when it has any (a piece that runs
 -- to a ramp can carry the ramp's speed: "S HOLDEN ST BETWEEN HOLDEN ST OFF RP AND WEST MARGINAL WAY S" is 60 mph where

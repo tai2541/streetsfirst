@@ -272,7 +272,7 @@ places as (
     -- "planned" only because a budget line is named for its street (the budget doesn't say which blocks it covers)
     coalesce(len(r.cip), 0) > 0 and not coalesce(r.proj_planned or r.lpi_status = 'Planned' or r.ntor_status = 'Planned'
       or len(list_filter(coalesce(r.fixes, []), lambda f: f.s <> 'Built' and f.k <> 'Bus lane' and not (f.s = 'Under construction' and year(f.d::date) < yr.cy - 2))) > 0, false) as budget_only,
-    r.state_route, r.council_district2, r.crashes, r.ped_crashes, r.bike_crashes,
+    r.state_route, r.council_district2, r.crashes, r.ped_crashes, r.bike_crashes, r.pb_crashes,
     -- head-start walk signals need a traffic signal: compared with the intersections that have one
     r.addr_type = 'I' and coalesce(r.signalized, false) as sig, r.addr_type = 'I' and coalesce(r.signalized, false) and r.lpi_status = 'Existing' as sig_lpi
   from ranked r left join fx using (location) cross join (select year(we() - interval 1 day) as cy) yr
@@ -281,7 +281,7 @@ select * from places;
 
 -- Need and work by council district and by the City's equity index.
 create or replace table need_work as
-with places as (select * exclude (crashes, ped_crashes, bike_crashes) from place_work),
+with places as (select * exclude (crashes, ped_crashes, bike_crashes, pb_crashes) from place_work),
 -- A place on a district line (the boundary runs down its street) counts in both districts, as on the map's district lists,
 -- so each office sees it; district totals then add up to more than the city's (the page says by how many places).
 long as (
@@ -335,6 +335,8 @@ sp as (
 )
 select street, count(*) as places, sum(crashes) as crashes, sum(ksi) as ksi, sum(killed) as killed, sum(fatal) as fatal,
   sum(seriously_injured) as hurt, sum(ped_crashes) as ped, sum(bike_crashes) as bike,
+  -- crashes with someone walking or biking, each once (a crash can involve both)
+  sum(pb_crashes) as pb,
   count(*) filter (where rank <= top_n()) as top50, count(*) filter (where rank <= wide_n()) as top100,
   count(*) filter (where rank <= wide_n() and state_route is not null) as top100_state,
   count(*) filter (where rank <= wide_n() and state_route is null and not fixed_recently and not proj_planned) as top100_nothing,
@@ -501,7 +503,7 @@ copy (
       'places': (select list({'loc': location, 'k': k, 'm': m, 'd': d, 'yo': yo, 'days': days, 'b': b, 'a': a, 'pb': pb, 'cb': cb, 'ca': ca, 'rank': rank, 'dist': district}
                              order by k, a - b desc, a desc, rank nulls last, location) from working_places)
     },
-    'streets': (select list({'s': street, 'n': places, 'c': crashes, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'ped': ped, 'bike': bike,
+    'streets': (select list({'s': street, 'n': places, 'c': crashes, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'ped': ped, 'bike': bike, 'pb': pb,
                               't50': top50, 't100': top100, 't100_state': top100_state, 't100_none': top100_nothing, 't100_bud': top100_budget,
                               'dist': districts, 'worst': worst, 'wr': worst_rank, 'mi': round(miles, 2), 'pm': round(ksi_per_mile, 1)} order by ksi desc, crashes desc, street)
                  -- the 30 with the most, and every street tied with the last of them
