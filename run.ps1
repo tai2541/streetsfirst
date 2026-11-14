@@ -220,6 +220,8 @@ Copy-Item (Join-Path $PSScriptRoot 'site') $city -Recurse
 Remove-Item (Join-Path $city 'data\*.json')
 if (Test-Path 'data\raw\counts.json') { Copy-Item 'data\raw\counts.json' (Join-Path $city 'data\counts.json') }
 # The map credit lines too, so next week's run can fall back to them if an Esri layer can't be reached.
+# And the list of datasets read, for the weekly outside check (it runs without the downloaded data).
+if (Test-Path 'data\raw\sources.json') { Copy-Item 'data\raw\sources.json' (Join-Path $city 'data\sources.json') }
 if (Test-Path 'data\raw\basemap_credits.json') { Copy-Item 'data\raw\basemap_credits.json' (Join-Path $city 'data\basemap_credits.json') }
 $idx = Join-Path $city 'index.html'
 $html = [IO.File]::ReadAllText($idx)

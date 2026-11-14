@@ -61,7 +61,12 @@ async function get(url, tries = 3) {
   // 4. the source datasets listed on the site (data/raw/sources.json, written by the fetch step): each link still opens.
   //    Asked with HEAD, so a large download (the bus timetable) isn't fetched; a server that refuses HEAD is asked again with GET.
   const srcFile = path.join(root, 'data/raw/sources.json');
-  const srcs = fs.existsSync(srcFile) ? JSON.parse(fs.readFileSync(srcFile, 'utf8').replace(/^\uFEFF/, '')) : [];
+  let srcs = fs.existsSync(srcFile) ? JSON.parse(fs.readFileSync(srcFile, 'utf8').replace(/^\uFEFF/, '')) : [];
+  //    (the weekly job runs this without the downloaded data, so there it reads the list the live site published)
+  if (!srcs.length && process.env.SITE_URL) {
+    try { const r = await fetch(process.env.SITE_URL + '/seattle/data/sources.json', { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(30000) });
+      if (r.ok) srcs = JSON.parse((await r.text()).replace(/^\uFEFF/, '')); } catch { }
+  }
   if (!srcs.length) problems.push('no source list (data/raw/sources.json): the site\'s Sources section would be empty');
   for (const u of [...new Set(srcs.map(x => x.link))]) {
     let st = 0;

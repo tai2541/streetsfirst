@@ -137,8 +137,11 @@ jobs:
 
   # Facts on the site that can't come from the data (phone numbers, a state law, City request forms, outside links):
   # each checked against its official page (pipeline/outside_facts.json). A failure opens its own issue but doesn't
-  # stop the data update, so a City website redesign never freezes the crash data.
+  # stop the data update, so a City website redesign never freezes the crash data. It runs after the deploy, since it
+  # reads the list of source datasets the newly published site carries (data/sources.json).
   outside-facts:
+    needs: deploy
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
