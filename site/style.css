@@ -417,7 +417,7 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 }
 @media (max-width: 760px) {
   .cs-nums b { font-size: 20px; }
-  .cs-nums span, .cs-foot, .cs-note { font-size: 12.5px; }   /* the district and city cards readable on a phone */
+  .cs-nums span, .cs-foot, .cs-note, .city-summary .cs-note { font-size: 12.5px; }   /* the district and city cards readable on a phone */
   header { padding: 10px 14px 13px; }
 }
 .controls select, #reqType { appearance: none; -webkit-appearance: none; border: 1px solid #d6dce6; border-radius: 8px; background: #fff
@@ -539,6 +539,7 @@ header nav { margin-left: 0; }
 .pin-near li .muted { white-space: nowrap; flex: none; }
 
 .city-summary .cs-note { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.14); font-size: 11.5px; color: #b9c5dc; line-height: 1.45; }
+@media (max-width: 760px) { .city-summary .cs-note { font-size: 12.5px; } }
 
 .chip.fixable { background: #e8f1ff; color: #1d3f8f; border: 1px dashed #8fb0e8; }
 .not-live { margin: 0 0 10px; padding: 7px 10px; background: #eef4f2; border-left: 3px solid #0f7a54; border-radius: 4px; font-size: 12.5px; color: #33443f; }
@@ -780,6 +781,7 @@ body.sheet-open #expandPanel, body.sheet-open #expandDetail, body.sheet-open #pa
   /* every counted place is listed (up to the top list's size): small type and narrow margins keep it to one page */
   body.print-dist > #distPrint { font-size: 10.5px; line-height: 1.3; } #distPrint .dp-t { font-size: 9.5px; } #distPrint .dp-t td small { font-size: 9px; }
   body.print-dist #distPrint p { margin: 4px 0; }
+  #distPrint .note { font-size: 9.5px; } #distPrint ul { margin: 2px 0; padding-left: 16px; }   /* one page for every district */
 }
 
 /* ---------- since last month (list), rank over the years (details), "Is it getting fixed?" sheet ---------- */

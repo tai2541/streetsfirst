@@ -175,8 +175,11 @@ select coalesce(ik.location, m.location, trim(r.LOCATION)) as location,
 from raw r left join ik on r.ADDRTYPE = 'I' and ik.intkey = r.INTKEY
 left join loc_merge m on m.raw = trim(r.LOCATION)
 where r.LOCATION is not null and r.coordinates is not null
--- the same duplicate-report rule as the scored crashes
-qualify row_number() over (partition by r.LOCATION, r.INCDATE, r.MAXSEVERITYDESC, r.ST_COLDESC, r.PEDCOUNT, r.PEDCYLCOUNT order by r.INCKEY) = 1;
+-- Probable duplicate reports counted once, as near the scored crashes' rule as these older records allow (they have no
+-- time, injury or vehicle counts): same place, day, severity, crash type and people walking and biking; a report with no
+-- crash type is never treated as a duplicate (as nearly blank reports aren't in the scored crashes).
+qualify row_number() over (partition by r.LOCATION, r.INCDATE, r.MAXSEVERITYDESC, r.ST_COLDESC, r.PEDCOUNT, r.PEDCYLCOUNT order by r.INCKEY) = 1
+     or nullif(trim(r.ST_COLDESC), '') is null;
 
 create or replace table crash_all as
 select location, date, peds, cyclists, coll_type from crash_hist where date < ws()

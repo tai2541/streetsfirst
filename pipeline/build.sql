@@ -306,15 +306,17 @@ select location, ST_Transform(ST_Point(lon, lat), 'EPSG:4326', 'EPSG:2926') as g
 from locations_all;
 
 -- Street names at each location, from SDOT's location text: "A AND B" (intersection) or "A BETWEEN x AND y" (block).
+-- (also without the direction letter SDOT puts inside some names, "S GENESEE S ST", which its counts leave out)
+create or replace macro name_key(t) as regexp_replace(road_norm(t), '(\S) (N|S|E|W) (\S)', '\1 \3', 'g');
 create or replace table loc_names as
-select location, road_norm(name) as name from (
+select location, name_key(name) as name from (
   select location, unnest(case when addr_type = 'I' then string_split(location, ' AND ')
                                else [split_part(location, ' BETWEEN ', 1)] end) as name
   from locations_all);
 
 -- Count names can list several streets ("20TH AVE S,S JUDKINS ST"): one row per street name.
 create or replace table volumes_named as
-select road_norm(trim(unnest(string_split(street, ',')))) as street, awdt, quality, count_year, geom
+select name_key(trim(unnest(string_split(street, ',')))) as street, awdt, quality, count_year, geom
 from volumes where street is not null;
 
 -- Traffic volume. For each street at the spot, the nearest SDOT count on that same street within 300 ft
@@ -323,8 +325,9 @@ from volumes where street is not null;
 create or replace table loc_volume as
 with nearest as (
   select n.location, n.name,
+         -- ties (within 5 ft: counts on one block are drawn a hair apart): the newest count
          arg_min({'awdt': v.awdt, 'yr': v.count_year, 'est': v.quality = 'Estimate'},
-                 {'d': ST_Distance(p.geom, v.geom), 'y': -v.count_year, 'a': v.awdt}) as hit   -- ties: newest count
+                 {'d': round(ST_Distance(p.geom, v.geom) / 5), 'y': -v.count_year, 'a': v.awdt}) as hit
   from loc_names n join loc_pts p using (location)
   join volumes_named v on v.street = n.name and v.awdt is not null and ST_DWithin(p.geom, v.geom, 300)
   group by n.location, n.name
@@ -341,7 +344,7 @@ s as (select p.location,
         min(s.artclass) filter (where s.artclass between 1 and 5) as art_class,
         min(s.pci) as pavement_min
       from loc_pts p join streets s on ST_DWithin(p.geom, s.geom, 60)
-      left join loc_names own on own.location = p.location and own.name = road_norm(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''))
+      left join loc_names own on own.location = p.location and own.name = name_key(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''))
       where ST_Distance(p.geom, s.geom) <= p.r
         -- a freeway or ramp passing over or beside a place isn't its street (it gave downtown corners I-5's 60 mph),
         -- unless the place is that ramp

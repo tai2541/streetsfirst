@@ -46,11 +46,17 @@ create or replace macro sw_hood(g) as (select arg_min(h.neighborhood, {'d': ST_D
                                        from hoods h where ST_DWithin(ST_PointOnSurface(g), h.geom, 300));
 
 -- ---------------------------------------------------------------- at each safety location
+-- A block: SDOT's own records for that block (its segment key; a bridge too), so a sidewalk set back on a wide street
+-- isn't missed and a cross street's isn't picked up. An intersection: the blocks within its radius.
 create or replace table loc_sidewalk as
-with m as (select p.location, min(s.tier) as tier
-           from loc_pts p join sw_missing s on ST_DWithin(p.geom, s.geom, p.r) and not on_structure(p.location) group by p.location),
-q as (select p.location, round(sum(ST_Length(s.geom))) as poor_ft, max(s.assessed) as poor_assessed
-      from loc_pts p join sw_poor s on ST_DWithin(p.geom, s.geom, p.r) and not on_structure(p.location) group by p.location)
+with blk as (select distinct a.location, s.compkey from locations a join streets s on s.loc_name = a.location where a.addr_type <> 'I'),
+ix as (select p.location, p.geom, p.r from loc_pts p join locations a using (location) where a.addr_type = 'I' and not on_structure(p.location)),
+m as (select location, min(tier) as tier from (
+        select b.location, s.tier from blk b join sw_missing s on s.segkey = b.compkey
+        union all select p.location, s.tier from ix p join sw_missing s on ST_DWithin(p.geom, s.geom, p.r)) group by location),
+q as (select location, round(sum(ft)) as poor_ft, max(assessed) as poor_assessed from (
+        select b.location, ST_Length(s.geom) as ft, s.assessed from blk b join sw_poor s on s.segkey = b.compkey
+        union all select p.location, ST_Length(s.geom), s.assessed from ix p join sw_poor s on ST_DWithin(p.geom, s.geom, p.r)) group by location)
 select coalesce(m.location, q.location) as location, m.tier as sw_missing_tier, q.poor_ft as sw_poor_ft, q.poor_assessed as sw_poor_assessed
 from m full join q using (location);
 

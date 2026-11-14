@@ -43,7 +43,7 @@ where coalesce(st, 'INSVC') not in ('TEMPOUTSVC', 'REMOVED', 'RETIRED');
 -- e.g. S Othello St at MLK, a painted lane in the current layer. Pieces the current layer doesn't cover at all are kept.
 create or replace table pbl_old as
 with old as (
-  select row_number() over () as id, to_timestamp(f.properties.DATE_COMPLETED::double / 1000)::date as d,
+  select row_number() over () as id, f.properties.SEGKEY::bigint as segkey, to_timestamp(f.properties.DATE_COMPLETED::double / 1000)::date as d,
          case f.properties.STATUS when 'CONST' then 'Under construction' else 'Built' end as status, gj_geom(f.geometry) as geom
   from (select unnest(features) f from read_json('data/raw/bikelanes_*.json', maximum_object_size = 50000000)) where f.geometry is not null),
 fac as (
@@ -56,17 +56,17 @@ other as (
   select m.id from m join old o using (id) group by m.id, o.geom
   having arg_max(m.cat, m.along) <> 'BKF-PBL'
      and coalesce(sum(m.along) filter (where m.cat = 'BKF-PBL'), 0) <= 0.5 * greatest(ST_Length(o.geom), 1))
-select d, status, geom from old where id not in (select id from other);
+select segkey, d, status, geom from old where id not in (select id from other);
 
 create or replace table fix_lines as
-select 'Protected bike lane' as kind, d, status, geom from pbl_old
+select 'Protected bike lane' as kind, segkey, d, status, geom from pbl_old
 union all
 -- SDOT's protected bike lane layer above stopped being updated; the bike facilities layer has the newer lanes (and some
 -- old ones re-dated). A facilities lane counts only where it isn't already in the older layer: less than half of it
 -- within 30 ft of an older-layer lane. Its own date if it has one (none = shown without a date), never in the future;
 -- SDOT dates a lane built this year Dec 30 or 31 of this year (a year-only date), so those count as built now.
-select 'Protected bike lane', d, 'Built', geom from (
-  select to_timestamp(f.properties.INSTALL_DATE::double / 1000)::date as d, gj_geom(f.geometry) as geom
+select 'Protected bike lane', segkey, d, 'Built', geom from (
+  select f.properties.SEGKEY::bigint as segkey, to_timestamp(f.properties.INSTALL_DATE::double / 1000)::date as d, gj_geom(f.geometry) as geom
   from (select unnest(features) f from read_json('data/raw/bikefac_*.json', maximum_object_size = 50000000))
   where f.geometry is not null and f.properties.CATEGORY = 'BKF-PBL') n
 where (d is null or d <= current_date or (month(d) = 12 and day(d) >= 30 and year(d) = year(current_date)))
@@ -74,15 +74,16 @@ where (d is null or d <= current_date or (month(d) = 12 and day(d) >= 30 and yea
        from (select unnest(features) f from read_json('data/raw/bikelanes_*.json', maximum_object_size = 50000000))
        where f.geometry is not null))) < 0.5 * greatest(ST_Length(n.geom), 1)
 union all
-select 'Bus lane', to_timestamp(f.properties.InstallationDate::double / 1000)::date,
+select 'Bus lane', f.properties.SegKey::bigint, to_timestamp(f.properties.InstallationDate::double / 1000)::date,
        case f.properties.Status when 'Planned' then 'Planned' else 'Built' end, gj_geom(f.geometry)
 from (select unnest(features) f from read_json('data/raw/buslanes_*.json', maximum_object_size = 50000000))
 where f.geometry is not null and f.properties.RemovalDate is null;
 
 -- Points (humps, cushions, radar signs) belong to the street block they're on (SDOT's segment key);
--- at intersections, anything within 100 ft. Lanes: at an intersection, any passing within its radius; on a block, only
--- lanes running along most of the block's own street line (within 30 ft of it for over half its length), so a lane on a
--- cross street at the block's end, or a cycle track set back from the centre line, is judged on the block itself.
+-- at intersections, anything within 100 ft. Lanes: at an intersection, any passing within its radius; on a block, a lane
+-- SDOT records on the block's own segment key, or, for a lane with no key there, pieces running along the block's own
+-- street line (each piece within 30 ft of it for at least a quarter of the block, together over half), so a lane on a
+-- cross street that only touches the block's ends never counts, nor its date.
 -- Every match, with its own install date (dates before 1990 are placeholders in SDOT's data). Kept for the history view.
 create or replace table loc_fix_hits as
 select location, kind, case when d >= date '1990-01-01' then d end as d, status from (
@@ -97,10 +98,18 @@ select location, kind, case when d >= date '1990-01-01' then d end as d, status 
   select p.location, fl.kind, fl.d, fl.status
   from loc_pts p join fix_lines fl on ST_DWithin(p.geom, fl.geom, p.r) where p.r <> 40
   union all
+  select a.location, fl.kind, fl.d, fl.status
+  from locations_all a join streets s on s.loc_name = a.location join fix_lines fl on fl.segkey = s.compkey
+  where a.addr_type <> 'I'
+  union all
   select location, kind, d, status from (
-    select s.location, fl.kind, fl.d, fl.status, ST_Length(s.geom) as len,
-           sum(ST_Length(ST_Intersection(s.geom, ST_Buffer(fl.geom, 30)))) over (partition by s.location, fl.kind) as along
-    from loc_shape s join fix_lines fl on ST_DWithin(s.geom, fl.geom, 30) where s.r = 40)
+    select location, kind, d, status, len, piece, sum(piece) over (partition by location, kind) as along from (
+      select s.location, fl.kind, fl.d, fl.status, ST_Length(s.geom) as len,
+             ST_Length(ST_Intersection(s.geom, ST_Buffer(fl.geom, 30))) as piece
+      from loc_shape s join fix_lines fl on ST_DWithin(s.geom, fl.geom, 30) where s.r = 40
+        -- (a kind already found on the block's own key is taken from there)
+        and not exists (select 1 from streets k join fix_lines f2 on f2.segkey = k.compkey where k.loc_name = s.location and f2.kind = fl.kind))
+    where piece >= 0.25 * greatest(len, 1))
   where along > 0.5 * greatest(len, 1)
 );
 
@@ -131,7 +140,7 @@ where json_type(f->'geometry') = 'OBJECT'
 
 -- one row per street name (some counts list two streets), split-roadway names normalized like loc_names
 create or replace table volhist_named as
-select yr, road_norm(trim(unnest(string_split(street, ',')))) as street, awdt, geom from volhist where street is not null;
+select yr, name_key(trim(unnest(string_split(street, ',')))) as street, awdt, geom from volhist where street is not null;
 
 -- Per street at the spot: every real count on that street within 300 ft, the nearest one per count year.
 -- Kept per street, not added up at intersections: cross streets are counted in different years.
