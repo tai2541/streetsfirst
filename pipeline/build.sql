@@ -347,7 +347,11 @@ create or replace table loc_context as
 with
 s as (select p.location,
         -- (on a bridge or tunnel, the streets around it are not its street: no speed rather than theirs)
-        coalesce(max(s.speed) filter (where own.name is not null), case when not on_structure(p.location) then max(s.speed) end) as speed_limit,
+        -- (a piece of the street that runs to a ramp carries the ramp's speed: "S HOLDEN ST BETWEEN HOLDEN ST OFF RP AND
+        -- WEST MARGINAL WAY S" is 60 mph at a 35 mph corner; such pieces count only when nothing else does, or the place is a ramp)
+        coalesce(max(s.speed) filter (where own.name is not null and not (s.rp_end and not regexp_matches(p.location, ' RP( |$)'))),
+                 case when not on_structure(p.location) then max(s.speed) filter (where not (s.rp_end and not regexp_matches(p.location, ' RP( |$)'))) end,
+                 max(s.speed) filter (where own.name is not null), case when not on_structure(p.location) then max(s.speed) end) as speed_limit,
         -- (a stretch's own street segment gives its class when it has one: the SR 99 tunnel isn't 1st Ave above it)
         -- (even when its own segment is a neighborhood street: a local block crossing an arterial isn't that arterial;
         -- the SR 99 tunnel's junctions: below)
@@ -355,7 +359,7 @@ s as (select p.location,
                then coalesce(min(s.artclass) filter (where s.artclass between 1 and 5 and own.name is not null), 0)
              else min(s.artclass) filter (where s.artclass between 1 and 5) end as art_class,
         min(s.pci) as pavement_min
-      from loc_pts p join streets s on ST_DWithin(p.geom, s.geom, 60)
+      from loc_pts p join (select *, regexp_matches(unitdesc, ' BETWEEN .* RP( |$)') as rp_end from streets) s on ST_DWithin(p.geom, s.geom, 60)
       left join loc_names own on own.location = p.location and own.name = name_key(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''))
       where ST_Distance(p.geom, s.geom) <= p.r
         -- a freeway or ramp passing over or beside a place isn't its street (it gave downtown corners I-5's 60 mph),

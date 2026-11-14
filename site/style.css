@@ -1146,3 +1146,18 @@ td.nowrap .sub2 { white-space: normal; max-width: 7em; }
   /* nothing open in a narrow window: the overview steps aside so the map has room beside the list */
   main.tight #detail.home:not(.place) { display: none; }
 }
+
+/* A short, wide screen (a phone on its side, 844x390): one slim header row (title, report button, tabs), so the list and
+   the search box keep the screen; the tagline gives way to "Independent: not the City." as on a phone */
+@media (min-width: 761px) and (max-height: 500px) {
+  header { padding: 4px 12px 6px; align-items: center; flex-wrap: nowrap; }
+  header h1 { font-size: 17px; margin: 0; }
+  header .sub { display: block; font-size: 0; margin: 0; line-height: 1; }
+  header .sub .indep { font-size: 11px; line-height: 1.3; }
+  header > div:first-child { flex: none; }
+  header nav { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .tab-long { display: none; }
+  .tab-short { display: inline; }
+  .report-head { padding: 5px 10px; font-size: 12.5px; }
+  header nav button { padding-top: 4px; padding-bottom: 4px; }
+}
