@@ -1560,7 +1560,8 @@
       }
       return;
     }
-    if (e.key === 'Escape') closeDetail(true);
+    // (Esc in an open dialog, such as the report dialog, closes only the dialog: the browser does that itself)
+    if (e.key === 'Escape' && !document.querySelector('dialog[open]')) closeDetail(true);
     else if ((e.key === 'e' || e.key === 'E') && inDetail && !isNarrow()) toggleExpand();
   });
 
