@@ -405,7 +405,7 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 .pg-stats .stat:nth-child(1), .pg-stats .stat:nth-child(2) { background: #ebf8f2; }
 .pg-stats .stat:nth-child(1) b, .pg-stats .stat:nth-child(2) b { color: #147a55; }
 .pg-stats .stat:nth-child(3) { background: #f1f3f6; } .pg-stats .stat:nth-child(3) b { color: #3a4352; }
-.pg-stats .stat:last-child { background: #fff0ef; } .pg-stats .stat:last-child b { color: #b3141b; }
+.pg-stats .stat:last-child { background: #f1f3f6; } .pg-stats .stat:last-child b { color: #3a4352; }   /* (grey: staying near the top is mostly how busy a street is, not a verdict) */
 .callout { border-radius: 0 10px 10px 0; }
 
 /* map chrome */

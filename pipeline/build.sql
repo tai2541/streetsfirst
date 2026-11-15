@@ -215,10 +215,10 @@ from e;
 create or replace macro budget_from() as year(current_date) - 2;
 create or replace macro ws() as (select w_start from scoring_window);
 -- Work since the crash window began: dated on or after its first day. SDOT gives some dates as a year only (stored as
--- 30/31 December); one in the window's first year can't be placed on either side of its start, so it isn't counted as
--- since (the place's page lists it as earlier, "month not given"). The page's sinceWin() is the same rule.
-create or replace macro since_ws(d) as (d >= ws() and not (year(d) = year(ws()) and month(d) = 12 and day(d) >= 30
-                                                      and ws() > make_date(year(ws())::int, 1, 1)));
+-- 30/31 December); one in the window's first year can't be placed on either side of its start, so it is counted as
+-- since, giving SDOT the benefit of the doubt (the place's page says the year may be before the start: a place isn't
+-- called "no work" on a date that may be after it). The page's sinceWin() is the same rule.
+create or replace macro since_ws(d) as (d >= ws());
 create or replace macro we() as (select w_end from scoring_window);
 -- The fetch starts a few months before the scored years; if SDOT's data ever fell far enough behind that the scored years
 -- began before the first crash fetched, the early months would be silently missing. Stop instead.
@@ -256,17 +256,16 @@ select f.properties.COMPKEY as compkey, f.properties.UNITDESC as unitdesc,
 from (select unnest(features) f from read_json('data/raw/streets_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
--- Counts whose two SDOT figures disagree: in the newest yearly count layer, a count whose AWDT and SDOT's own rounded
--- figure for it (AWDT_ROUND) differ by more than count_round_x() times (the West Seattle Bridge's two directions,
--- 10,525 and 50,036, have 50,000 and 10,000: swapped). Left out here and in the yearly history (traffic.sql).
-create or replace macro count_round_x() as 2;
+-- Counts SDOT flags as affected by the West Seattle Bridge's closure (its FLAGS field reads "WSB" in a yearly count layer):
+-- left out here and in the yearly history (traffic.sql), so a place uses another count on its street or none. (The bridge's
+-- eastbound 10,525 sat between counts of 71,425 and 35,000 on the same roadway.) Matched by segment and count, and by street
+-- name and count for the oldest layers, which have no segment id.
 create or replace table count_suspect as
-with r as (select filename, unnest(features) as f
-           from read_json('data/raw/volhist_*.json', columns = {'features': 'JSON[]'}, filename = true, maximum_object_size = 50000000)),
-v as (select regexp_extract(filename, 'volhist_(\d+)', 1) as yr, (f->'properties'->>'FLOWSEGID') as id,
-             try_cast(f->'properties'->>'AWDT' as double) as awdt, try_cast(f->'properties'->>'AWDT_ROUND' as double) as rnd from r)
-select distinct id, awdt, rnd from v
-where yr = (select max(yr) from v) and rnd > 0 and awdt > 0 and greatest(rnd / awdt, awdt / rnd) > count_round_x();
+with r as (select unnest(features) as f
+           from read_json('data/raw/volhist_*.json', columns = {'features': 'JSON[]'}, maximum_object_size = 50000000))
+select distinct (f->'properties'->>'FLOWSEGID') as id, (f->'properties'->>'STNAME_ORD') as street,
+       round(try_cast(f->'properties'->>'AWDT' as double)) as awdt
+from r where (f->'properties'->>'FLAGS') ilike '%WSB%' and try_cast(f->'properties'->>'AWDT' as double) > 0;
 create or replace table volumes as
 select f.properties.STNAME_ORD as street, nullif(f.properties.AWDT, 0) as awdt,
        f.properties.DATAQUALIT as quality,
@@ -274,7 +273,7 @@ select f.properties.STNAME_ORD as street, nullif(f.properties.AWDT, 0) as awdt,
        gj_geom(f.geometry) as geom
 from (select unnest(features) f from read_json('data/raw/volumes_*.json', maximum_object_size = 50000000))
 where f.geometry is not null
-  and not exists (select 1 from count_suspect c where c.id = f.properties.FLOWSEGID::varchar and c.awdt = f.properties.AWDT::double);
+  and not exists (select 1 from count_suspect c where c.id = f.properties.FLOWSEGID::varchar and c.awdt = round(f.properties.AWDT::double));
 
 create or replace table hin as   -- SDOT Vision Zero High Injury Network
 select f.properties.PRIORITY as priority, gj_geom(f.geometry) as geom
@@ -356,30 +355,26 @@ with nearest as (
   group by n.location, n.name
 )
 select location, sum(hit.awdt)::int as volume, count(*) as volume_streets,
-       min(hit.yr) as volume_year, bool_or(hit.est) as volume_estimated
+       min(hit.yr) as volume_year, bool_or(hit.est) as volume_estimated,
+       -- (an estimate and a count beside it each keep their own year: the page says which is which)
+       min(hit.yr) filter (where not hit.est) as volume_count_year, max(hit.yr) filter (where hit.est) as volume_est_year
 from nearest group by location;
 
 create or replace table loc_context as
 with
 -- the street pieces at each place (a freeway or ramp passing over or beside a place isn't its street: it gave downtown
 -- corners I-5's 60 mph; unless the place is that ramp)
-sx as (select p.location, s.speed, s.artclass, s.pci, own.name as own_name, s.loc_name = p.location as own_seg,
+sx as (select p.location, s.speed, s.artclass, s.pci, own.name as own_name,
               regexp_matches(s.unitdesc, ' BETWEEN .* RP( |$)') and not regexp_matches(p.location, ' RP( |$)') as rp_end
       from loc_pts p join streets s on ST_DWithin(p.geom, s.geom, 60)
       left join loc_names own on own.location = p.location and own.name = name_key(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''))
-      -- (a ramp named in the place's own name is one of its streets: "4th Ave SB off-ramp & Edgar Martinez Dr S" gets the
-      -- ramp's limit; but not a piece that runs to a freeway, which can carry the freeway's: "CLOVERDALE ST OFF RP BETWEEN
-      -- SR509 NB CLOVERDALE RP AND S CLOVERDALE ST" is 60 mph where it meets a 35 mph street)
       where ST_Distance(p.geom, s.geom) <= p.r
         and (s.loc_name = p.location
-             or (own.name is not null and not regexp_matches(regexp_replace(s.unitdesc, '^.* BETWEEN ', ''), '(^| )(I ?5|I ?90|I ?405|SR ?[0-9]+)( |$)'))
              or not regexp_matches(regexp_replace(s.unitdesc, ' BETWEEN .*$', ''), '^(I ?5|I ?90|I ?405|SR ?[0-9]+)( |$)| RP( |$)'))),
 -- each of the place's own streets: its speed, from its pieces that don't run to a ramp when it has any (a piece that runs
 -- to a ramp can carry the ramp's speed: "S HOLDEN ST BETWEEN HOLDEN ST OFF RP AND WEST MARGINAL WAY S" is 60 mph where
 -- S Holden St is 25), else from those that do (1st Ave S at Olson Pl SW has only such pieces, at its own 35)
--- (a stretch with its own segment uses that segment's limit, not the next block's: SR 509 NB between the Holden St ramps
--- is 40 mph, the block past it 60)
-own_sp as (select location, own_name, coalesce(max(speed) filter (where own_seg), max(speed) filter (where not rp_end), max(speed)) as sp
+own_sp as (select location, own_name, coalesce(max(speed) filter (where not rp_end), max(speed)) as sp
       from sx where own_name is not null group by all),
 s as (select x.location,
         -- (at a corner, the higher of its own streets' limits; on a bridge or tunnel, the streets around it are not its
@@ -441,7 +436,7 @@ select a.location, a.addr_type, a.intkey, s.speed_limit,
        -- (the SR 99 tunnel is the state route: its junctions have no street segment within reach, its stretches take the streets above)
        case when a.location like 'SR99 TUNNEL %' then 4 else s.art_class end as art_class, s.pavement_min,
        case when a.addr_type <> 'I' then len.block_ft end as block_ft,
-       v.volume, v.volume_streets, v.volume_year, v.volume_estimated,
+       v.volume, v.volume_streets, v.volume_year, v.volume_estimated, v.volume_count_year, v.volume_est_year,
        h.hin_level, coalesce(c.hcl_years, []) as hcl_years, c.hcl_types,
        lp.lpi.status as lpi_status, lp.lpi.installed as lpi_installed, lp.lpi.planned as lpi_planned,
        nt.ntor.status as ntor_status, nt.ntor.installed as ntor_installed, nt.ntor.planned as ntor_planned, nt.ntor.approaches as ntor_approaches,
@@ -546,8 +541,8 @@ from c group by location;
 --   own-record weight  w = crashes / (crashes + A)              (A = ksi_prior_crashes)
 --   expected harm      = other-crash harm + w * own KSI harm + (1 - w) * crashes * typical KSI harm per crash
 -- A spot with 3 crashes leans mostly on the typical share; one with 60 leans on its own record. Every crash
--- is evidence of exposure, so busy spots with many minor crashes still count. Chosen because it predicted
--- future fatal/serious crashes better than the alternatives (see the validation table below).
+-- is evidence of exposure, so busy spots with many minor crashes still count. Chosen on the first validation test
+-- (see the validation table below); it does about as well as simply counting crashes, the gaps within chance.
 create or replace macro eb_in(d0, d1) as table
 with h as (
   select h.* exclude (ksi_harm_raw), coalesce(h.ksi_harm_raw, 0) as ksi_harm, x.addr_class, x.street_bucket, x.addr_class || ' / ' || x.street_bucket as ref_group
@@ -573,7 +568,7 @@ create or replace table locations as
 select e.*, x.addr_type, x.intkey, x.speed_limit, x.art_class,
   case x.art_class when 1 then 'Principal arterial' when 2 then 'Minor arterial' when 3 then 'Collector arterial'
                    when 4 then 'State route' when 5 then 'Freeway' else 'Neighborhood street' end as street_type,
-  x.pavement_min, x.block_ft, x.volume, x.volume_streets, x.volume_year, x.volume_estimated,
+  x.pavement_min, x.block_ft, x.volume, x.volume_streets, x.volume_year, x.volume_estimated, x.volume_count_year, x.volume_est_year,
   case x.hin_level when 1 then 'High' when 2 then 'Mid' when 3 then 'Low' end as sdot_hin,
   x.hcl_years as sdot_hcl_years, x.hcl_types as sdot_hcl_types,
   x.area, x.neighborhood,
@@ -598,6 +593,10 @@ select l.*,
   (select count(*) from collisions c where c.location = l.location and c.date >= ws() and c.date < we()
      and c.severity in ('Fatal Collision', 'Serious Injury Collision')
      and len(l.sdot_hcl_years) > 0 and year(c.date) > l.sdot_hcl_years[1]) as ksi_after_hcl,
+  -- after its latest listing: crashes before a listing are what put it on the list, so only later ones are set beside it
+  (select count(*) from collisions c where c.location = l.location and c.date >= ws() and c.date < we()
+     and c.severity in ('Fatal Collision', 'Serious Injury Collision')
+     and len(l.sdot_hcl_years) > 0 and year(c.date) > list_max(l.sdot_hcl_years)) as ksi_after_hcl_last,
   (select count(*) from collisions c where c.location = l.location and c.date >= ws() and c.date < we()
      and c.peds > 0 and l.lpi_status = 'Existing' and c.date > l.lpi_installed) as ped_after_lpi,
   (select count(*) from collisions c where c.location = l.location and c.date >= ws() and c.date < we()
@@ -935,8 +934,8 @@ create or replace table spot_export as
          round(request_boost, 3) request_boost, round(request_points, 1) request_points, scored_requests,
          round(pts_old, 1) pts_old,
          area, neighborhood, speed_limit, street_type, state_route, state_hwy, state_bridge, structure, pavement_min,
-         volume, volume_streets, volume_year, volume_estimated,
-         sdot_hin, sdot_hcl_years, sdot_hcl_types, ksi_after_hcl,
+         volume, volume_streets, volume_year, volume_estimated, volume_count_year, volume_est_year,
+         sdot_hin, sdot_hcl_years, sdot_hcl_types, ksi_after_hcl, ksi_after_hcl_last,
          lpi_status, lpi_installed, lpi_planned, ntor_status, ntor_installed, ntor_planned, ntor_approaches, ped_after_lpi, signalized, ped_signal, ped_audio, lt_protected, lt_installed,
          confidence, crashes, unknown_sev, fatal, serious, injury, ksi, ksi_years, killed, seriously_injured, assumed_killed, assumed_hurt,
          pb_crashes, ped_crashes, bike_crashes, speeding_crashes, ped_turn_after_lpi, left_turn_crashes, ped_turn_crashes, ped_right_crashes, typed_crashes, angle_crashes,

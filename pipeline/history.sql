@@ -294,6 +294,9 @@ by_g as (
     count(*) filter (where top50) as top50,
     count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null) as top50_nothing,
     count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null and ends_fixed) as top50_ends,
+    -- of those with no work counted since the crash years began, the ones with dated safety work before then (said beside the count)
+    count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null
+                     and location in (select location from place_fixes where d < ws())) as top50_earlier,
     -- planned work at the corners at a stretch's ends (listed, not counted as the block's own): said beside "nothing planned"
     count(*) filter (where top50 and not fixed_recently and not proj_planned and state_route is null and ends_planned and not ends_fixed) as top50_endplan,
     count(*) filter (where top50 and state_route is not null) as top50_state,
@@ -492,7 +495,7 @@ copy (
                        order by month(d) = 12 and day(d) >= 30, d desc, rank) from recent_fixes)
     },
     'district_line': (select {'n': count(*), 'ksi': coalesce(sum(ksi), 0), 'top': count(*) filter (where top50)} from place_work where council_district2 is not null),
-    'need': (select list({'dim': dim, 'g': grp, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'top50': top50, 'top50_nothing': top50_nothing, 'top50_state': top50_state, 'top50_ends': top50_ends, 'top50_endplan': top50_endplan, 'top50_budget': top50_budget, 'sig': sig, 'sig_lpi': sig_lpi,
+    'need': (select list({'dim': dim, 'g': grp, 'ksi': ksi, 'killed': killed, 'fatal': fatal, 'hurt': hurt, 'top50': top50, 'top50_nothing': top50_nothing, 'top50_state': top50_state, 'top50_ends': top50_ends, 'top50_earlier': top50_earlier, 'top50_endplan': top50_endplan, 'top50_budget': top50_budget, 'sig': sig, 'sig_lpi': sig_lpi,
                           'lpi': fixes_lpi, 'other': fixes_other, 'proj_planned': proj_planned, 'list': top50_list}
                          order by dim, grp) from need_work),
     'working': {
