@@ -256,24 +256,13 @@ select f.properties.COMPKEY as compkey, f.properties.UNITDESC as unitdesc,
 from (select unnest(features) f from read_json('data/raw/streets_*.json', maximum_object_size = 50000000))
 where f.geometry is not null;
 
--- Counts SDOT flags as affected by the West Seattle Bridge's closure (its FLAGS field reads "WSB" in a yearly count layer):
--- left out here and in the yearly history (traffic.sql), so a place uses another count on its street or none. (The bridge's
--- eastbound 10,525 sat between counts of 71,425 and 35,000 on the same roadway.) Matched by segment and count, and by street
--- name and count for the oldest layers, which have no segment id.
-create or replace table count_suspect as
-with r as (select unnest(features) as f
-           from read_json('data/raw/volhist_*.json', columns = {'features': 'JSON[]'}, maximum_object_size = 50000000))
-select distinct (f->'properties'->>'FLOWSEGID') as id, (f->'properties'->>'STNAME_ORD') as street,
-       round(try_cast(f->'properties'->>'AWDT' as double)) as awdt
-from r where (f->'properties'->>'FLAGS') ilike '%WSB%' and try_cast(f->'properties'->>'AWDT' as double) > 0;
 create or replace table volumes as
 select f.properties.STNAME_ORD as street, nullif(f.properties.AWDT, 0) as awdt,
        f.properties.DATAQUALIT as quality,
        year(make_timestamp(f.properties.START_DATE::bigint * 1000)) as count_year,
        gj_geom(f.geometry) as geom
 from (select unnest(features) f from read_json('data/raw/volumes_*.json', maximum_object_size = 50000000))
-where f.geometry is not null
-  and not exists (select 1 from count_suspect c where c.id = f.properties.FLOWSEGID::varchar and c.awdt = round(f.properties.AWDT::double));
+where f.geometry is not null;
 
 create or replace table hin as   -- SDOT Vision Zero High Injury Network
 select f.properties.PRIORITY as priority, gj_geom(f.geometry) as geom
