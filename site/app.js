@@ -846,7 +846,8 @@
     const label = () => {
       if (!btn) return;
       const n = onCount();
-      btn.innerHTML = `<span class="lc-btn">Map layers</span>${n ? `<span class="lc-n">${n} on</span>` : ''}`;
+      // phones show a short "Layers" with just the number in a corner badge (style.css), so the button stays narrow
+      btn.innerHTML = `<span class="lc-btn"><span class="lc-long">Map layers</span><span class="lc-short">Layers</span></span>${n ? `<span class="lc-n">${n}<span class="lc-on"> on</span></span>` : ''}`;
       // the spoken name starts with what's on the button ("Map layers, 2 on")
       // (it starts with the words on the button, as they read: "Map layers 2 on")
       btn.title = 'Map layers'; btn.setAttribute('aria-label', `Map layers${n ? ` ${n} on` : ''}: background map and ${n ? `${n} layer${n > 1 ? 's' : ''} shown` : 'no layers shown'}`);
