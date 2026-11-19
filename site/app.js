@@ -1311,7 +1311,7 @@
   // leaving the map live so nearby crash spots can still be tapped.
   const sheetEase = 'transform .32s cubic-bezier(.22,.9,.24,1)';
   const S = {
-    list: { el: panelEl, bar: panelEl.querySelector('.ptop'), body: document.getElementById('panelBody'), snap: 'half', anim: 0 },
+    list: { el: panelEl, bar: panelEl.querySelector('.ptop'), body: document.getElementById('panelBody'), snap: 'peek', anim: 0 },
     detail: { el: detailEl, bar: detailEl.querySelector('.dtop'), body: document.getElementById('detailBody'), snap: 'half', anim: 0 },
   };
   let cover = 0;              // how much of the map the top sheet hides (px), for centring and fitting the map
