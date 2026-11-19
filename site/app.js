@@ -846,8 +846,8 @@
     const label = () => {
       if (!btn) return;
       const n = onCount();
-      // phones show a short "Layers" with just the number in a corner badge (style.css), so the button stays narrow
-      btn.innerHTML = `<span class="lc-btn"><span class="lc-long">Map layers</span><span class="lc-short">Layers</span></span>${n ? `<span class="lc-n">${n}<span class="lc-on"> on</span></span>` : ''}`;
+      // a small tile: "Layers" under the icon, the number on in a corner badge (style.css)
+      btn.innerHTML = `<span class="lc-btn">Layers</span>${n ? `<span class="lc-n">${n}</span>` : ''}`;
       // the spoken name starts with what's on the button ("Map layers, 2 on")
       // (it starts with the words on the button, as they read: "Map layers 2 on")
       btn.title = 'Map layers'; btn.setAttribute('aria-label', `Map layers${n ? ` ${n} on` : ''}: background map and ${n ? `${n} layer${n > 1 ? 's' : ''} shown` : 'no layers shown'}`);
@@ -1421,7 +1421,7 @@
     const t = e.target;
     lastTap = { where: t.closest('#panel') ? 'list' : t.closest('#progressSheet') ? 'progress' : t.closest('#detail') ? 'detail' : 'map', t: Date.now() };
   }, true);
-  document.querySelectorAll('.intro-report').forEach(a => a.addEventListener('click', e => { e.preventDefault(); document.getElementById('reportHead').click(); }));
+  document.querySelectorAll('.intro-report').forEach(a => a.addEventListener('click', () => document.getElementById('reportHead').click()));
   const backBtn = document.getElementById('backDetail');
   // back to the list: the search box no longer holds the place that was open
   backBtn.onclick = () => { closeDetail(true); const s = document.getElementById('search'); if (s) s.value = ''; };
@@ -3127,10 +3127,35 @@
     flyToMarker(m, pv);
     focusPop(m, '.pin-add');
   }
-  // Right-click (long-press on a phone) anywhere on the map: add a pin there.
-  map.on('contextmenu', e => {
-    const ll = e.latlng;
+  // Right-click (long-press on a phone) anywhere on the map: add a pin there. The Pins list's "Pick a spot on the map"
+  // does the same with the next tap or click on the map.
+  map.on('contextmenu', e => pinAt(e.latlng));
+  let picking = null;
+  function stopPicking(msg) {
+    if (!picking) return;
+    map.off('click', picking.onClick); document.removeEventListener('keydown', picking.onKey, true);
+    map.getContainer().classList.remove('pin-picking'); picking = null;
+    if (msg) toast(msg);
+  }
+  function startPicking() {
+    stopPicking();
+    const onClick = e => { stopPicking(); pinAt(e.latlng, true); };
+    const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); stopPicking('Pin cancelled.'); } };
+    picking = { onClick, onKey };
+    map.once('click', onClick); document.addEventListener('keydown', onKey, true);
+    map.getContainer().classList.add('pin-picking');
+    if (isNarrow() && S.list.snap !== 'peek' && !detailUp()) setSnap(S.list, 'peek');
+    toast(isNarrow() ? 'Tap the map where you want the pin.' : 'Click the map where you want the pin (Esc to cancel).');
+  }
+  // (picked from the Pins list, the tap already says "here": the pin goes straight in, no second "Add pin here" step)
+  async function pinAt(ll, direct) {
     if (!inSeattle(ll.lat, ll.lng)) { L.popup({ closeButton: false }).setLatLng(ll).setContent('This map covers Seattle only.').openOn(map); return; }
+    if (direct) {
+      toast('Finding the nearest address…');
+      const label = await reverseGeocode(ll.lat, ll.lng);
+      addPin({ lat: ll.lat, lon: ll.lng, label, picked: true }, true);
+      return;
+    }
     const pop = L.popup({ className: 'ctx-pop', closeButton: false, offset: [0, -4] }).setLatLng(ll)
       .setContent('<button type="button" class="ctx-add"><span aria-hidden="true">📍</span> Add pin here</button><small class="pin-privacy">Esri’s address search finds the nearest address.</small>').openOn(map);
     const b = pop.getElement().querySelector('.ctx-add');
@@ -3141,13 +3166,13 @@
       map.closePopup(pop);
       addPin({ lat: ll.lat, lon: ll.lng, label, picked: true }, true);
     };
-  });
+  }
   function removePin(g) {
     const m = pinMarkers.get(g.id); if (m) { m.closePopup(); pinLayer.removeLayer(m); }
     pinMarkers.delete(g.id); pins = pins.filter(p => p.id !== g.id); savePins();
     say(`Pin removed: ${pinTitle(g)}.`);
     const pb = document.querySelector('.pinlist-btn');
-    if (pins.length && pb) pb.focus(); else sInput.focus();
+    if (pb) pb.focus();
   }
   function openPin(g, fly, isNew) {
     const m = pinMarkers.get(g.id) || drawPin(g);
@@ -3256,7 +3281,8 @@
     inp.onkeydown = ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); reopen(); } };
   }
 
-  // "My pins": a small map button (only once there's a pin) that opens a short list to go to, rename or remove pins.
+  // "My pins": a small map button (always there) that opens a short list to go to, rename or remove pins; with none yet,
+  // it says how to add one and offers the search box.
   let pinBox = null;
   const PinList = L.Control.extend({
     options: { position: 'topleft' },
@@ -3266,13 +3292,26 @@
         <div class="pinlist-panel" id="pinlistPanel" hidden></div>`;
       L.DomEvent.disableClickPropagation(pinBox); L.DomEvent.disableScrollPropagation(pinBox);
       const btn = pinBox.querySelector('.pinlist-btn'), panel = pinBox.querySelector('.pinlist-panel');
-      const setOpen = open => { panel.hidden = !open; btn.setAttribute('aria-expanded', String(open)); };
+      // open, it scrolls within the part of the map the bottom sheets leave showing (as the layer menu does), above the map key
+      const fitPanel = () => {
+        const mapR = map.getContainer().getBoundingClientRect();
+        let bottom = mapR.bottom;
+        for (const el of [document.getElementById('panel'), document.getElementById('detail')]) {
+          if (!el || el.hidden || getComputedStyle(el).visibility === 'hidden' || getComputedStyle(el).position !== 'absolute') continue;
+          const r = el.getBoundingClientRect();
+          if (r.height && r.left <= mapR.left + 1 && r.right >= mapR.right - 1 && r.top > mapR.top) bottom = Math.min(bottom, r.top);
+        }
+        panel.style.maxHeight = Math.max(120, Math.min(300, Math.floor(bottom - panel.getBoundingClientRect().top - 12))) + 'px';
+      };
+      const setOpen = open => { panel.hidden = !open; btn.setAttribute('aria-expanded', String(open)); pinBox.classList.toggle('open', open); if (open) fitPanel(); };
       btn.onclick = () => setOpen(panel.hidden);
       panel.addEventListener('click', e => {
+        if (e.target.closest('.pinlist-find')) { setOpen(false); openSearch(); return; }
+        if (e.target.closest('.pinlist-pick')) { setOpen(false); startPicking(); return; }
         const row = e.target.closest('[data-pin]'); if (!row) return;
         const g = pins.find(p => p.id === +row.dataset.pin); if (!g) return;
         const act = e.target.closest('[data-act]') && e.target.closest('[data-act]').dataset.act;
-        if (act === 'remove') { removePin(g); if (!pins.length) setOpen(false); return; }
+        if (act === 'remove') { removePin(g); return; }
         setOpen(false);
         if (act === 'rename') pendingRename = g.id;
         openPin(g, true);
@@ -3286,14 +3325,23 @@
   new PinList().addTo(map);
   function renderPinList() {
     if (!pinBox) return;
-    pinBox.hidden = !pins.length;
-    pinBox.querySelector('.pinlist-btn').innerHTML = `<span aria-hidden="true">📍</span> <span class="lc-long">My pins</span><span class="lc-short">Pins</span> <small>${pins.length}</small>`;
-    pinBox.querySelector('.pinlist-btn').title = 'Your pins: go to, rename or remove';
-    pinBox.querySelector('.pinlist-panel').innerHTML = `<ul>${pins.map(g => `<li data-pin="${g.id}">
+    pinBox.querySelector('.pinlist-btn').innerHTML = `<span aria-hidden="true">📍</span> <span>Pins</span>${pins.length ? ` <small>${pins.length}</small>` : ''}`;
+    pinBox.querySelector('.pinlist-btn').title = pins.length ? 'Your pins: go to, rename or remove' : 'Your pins: add one';
+    pinBox.querySelector('.pinlist-btn').setAttribute('aria-label', pins.length ? `My pins, ${pins.length}` : 'My pins, none yet');
+    // adding comes first, on every screen: search an address, or pick a spot on the map
+    const add = pins.length >= MAX_PINS ? `<p class="pinlist-note">You have ${MAX_PINS} pins, the most this site keeps. Remove one to add another.</p>`
+      : `<div class="pinlist-add"><button type="button" class="pinlist-find"><span aria-hidden="true">🔍</span> Search an address</button>
+        <button type="button" class="pinlist-pick"><span aria-hidden="true">📍</span> Pick a spot on the map</button></div>`;
+    if (!pins.length) {
+      pinBox.querySelector('.pinlist-panel').innerHTML = `<p class="pinlist-empty"><b>No pins yet.</b> Pin a place to see the crashes near it and come back to it later.</p>
+        ${add}<p class="pinlist-note">Pins are saved only in this browser.</p>`;
+      return;
+    }
+    pinBox.querySelector('.pinlist-panel').innerHTML = `${add}<ul>${pins.map(g => `<li data-pin="${g.id}">
         <button type="button" class="linkbtn pinlist-go" title="Go to this pin"><b>${esc(pinTitle(g))}</b>${g.name ? `<small>${esc(g.label)}</small>` : ''}</button>
         <span class="pinlist-acts"><button type="button" class="linkbtn" data-act="rename" aria-label="Rename ${esc(pinTitle(g))}">Rename</button>
         <button type="button" class="linkbtn pinlist-x" data-act="remove" aria-label="Remove ${esc(pinTitle(g))}" title="Remove">✕</button></span></li>`).join('')}</ul>
-      <p class="pinlist-note">Saved only in this browser. Search an address to add another (up to ${MAX_PINS}).</p>`;
+      <p class="pinlist-note">Saved only in this browser (up to ${MAX_PINS}).</p>`;
   }
   pins.forEach(drawPin);
   savePins();   // also moves a pin saved by the older single-pin version to the new list
@@ -3395,6 +3443,11 @@
   ['list', 'tlist', 'slist'].forEach(id => new MutationObserver(panelBanner).observe(document.getElementById(id), { childList: true }));
   panelBanner();
   // (on a phone with the list pulled down, its body is inert: raise it first, then focus)
+  // (the Pins list's "Search an address": the search box is in the crash list, so switch to it from another view)
+  function openSearch() {
+    if (!document.getElementById('search').offsetParent && !isNarrow()) { const t = document.querySelector('nav [role=tab]'); if (t && !t.classList.contains('active')) t.click(); }
+    document.getElementById('panelSearch').click();
+  }
   document.getElementById('panelSearch').onclick = () => {
     const low = isNarrow() && S.list.snap === 'peek';
     if (low) { setSnap(S.list, 'half'); S.list.body.inert = false; }   // (the body stays inert until the slide ends otherwise)

@@ -396,7 +396,9 @@ nav button.active { background: #fff; color: var(--navy); border: 0; box-shadow:
 /* repair requests: neutral, so a count of problems doesn't read as good news */
 .stat.st-req, .stat.st-neutral { background: #f1f3f6; } .stat.st-req b, .stat.st-neutral b { color: #3a4352; }
 .phone-intro { display: none; margin: 0 0 10px; font-size: 14px; line-height: 1.45; color: #2a3342; }
-.phone-intro .intro-report { display: inline-block; margin-top: 4px; font-weight: 700; color: #0f7a54; }
+/* (buttons, not links: a tap before the page's script is ready used to follow the link off the site) */
+.phone-intro .intro-report { display: inline-block; margin-top: 4px; padding: 0; border: 0; background: none; font: inherit; font-weight: 700; color: #0f7a54;
+  text-decoration: underline; cursor: pointer; }
 .pg-need small.pg-n { color: #5a6475; font-size: 11.5px; white-space: nowrap; }
 /* (a member's dates and a long note may wrap, so the table fits a 1366px laptop) */
 .pg-need th[scope="row"] small.pg-n, .pg-need td:last-child small.pg-n { white-space: normal; }
@@ -456,7 +458,7 @@ body:not(.traffic-view) .lg-traffic { display: none; }
 .th-street { margin: 8px 0 2px; font-size: 13px; } .th-street svg { margin-top: 4px; }
 
 /* ---- Reporting problems: always one click away ---- */
-.report-head { margin-left: auto; align-self: center; background: #0f7a54; color: #fff; text-decoration: none; font-weight: 700; font-size: 13.5px;
+.report-head { margin-left: auto; align-self: center; background: #0f7a54; color: #fff; text-decoration: none; font: inherit; font-weight: 700; font-size: 13.5px; border: 0; cursor: pointer;
   padding: 8px 14px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.25); white-space: nowrap; transition: background .15s, transform .15s; }
 .report-head:hover { background: #0b6143; transform: translateY(-1px); }
 .report-head:focus-visible, .report-btn:focus-visible { outline: 3px solid #f2b632; outline-offset: 2px; }
@@ -587,14 +589,21 @@ body.proj-on .map-legend .lg-proj { display: flex; }
 .pinlist-x { color: #8a1c1c !important; }
 .pinlist-note { margin: 6px 0 0; color: #5b6576; font-size: 11.5px; }
 .pinlist-panel .linkbtn { margin: 0; }
-/* phones: the same small tile as the Layers button (pin over "Pins", count as a corner badge) */
-@media (max-width: 760px) {
-  .pinlist { position: relative; overflow: visible !important; }
-  .pinlist-btn { position: relative; flex-direction: column; justify-content: center; gap: 4px; width: 52px; height: 50px; padding: 0; font-size: 11px; }
-  .pinlist-btn > span[aria-hidden] { font-size: 18px; line-height: 1; }
-  .pinlist-btn small { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box;
-    display: flex; align-items: center; justify-content: center; border-radius: 9px; background: #1d3461; font: 700 11px/1 inherit; }
-}
+/* the same small tile as the Layers button on every screen (pin over "Pins", count as a corner badge) */
+.pinlist { position: relative; overflow: visible !important; }
+.pinlist-btn { position: relative; flex-direction: column; justify-content: center; gap: 4px; width: 52px; height: 50px; padding: 0; font-size: 11px; }
+.pinlist-btn > span[aria-hidden] { font-size: 18px; line-height: 1; }
+.pinlist-btn small { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; border-radius: 9px; background: #1d3461; font: 700 11px/1 inherit; }
+/* adding a pin, at the top of the list: search an address, or pick a spot on the map */
+.pinlist-empty { margin: 2px 0 8px; color: #1d2430; }
+.pinlist-add { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 6px; }
+.pinlist-add button { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 10px; border: 1px solid #c9d2e3; border-radius: 8px;
+  background: #f3f6fb; color: #24408f; font: 600 13px/1.2 Inter, system-ui, sans-serif; text-align: left; cursor: pointer; }
+.pinlist-add button:hover { background: #e6ecf7; }
+.pinlist-add button:focus-visible { outline: 2px solid #2f55c7; outline-offset: 1px; }
+/* while picking a spot for a pin, the map shows a crosshair */
+.leaflet-container.pin-picking, .leaflet-container.pin-picking .leaflet-interactive { cursor: crosshair; }
 
 /* ---- Detail sections: each in its own tinted box with a colored edge and heading, so they're easy to scan ---- */
 .dsec { --c: #5b6576; --bg: #f6f7f9; background: var(--bg); border: 1px solid color-mix(in srgb, var(--c) 18%, transparent);
@@ -1024,17 +1033,11 @@ main { overflow: hidden; overflow: clip; }
 /* the map layers button: a label and how many layers are on, not just an icon */
 .leaflet-control-layers-toggle { width: auto !important; height: 36px !important; padding: 0 10px 0 34px; background-position: 7px center !important;
   background-size: 20px 20px !important; display: flex !important; align-items: center; gap: 6px; text-decoration: none; color: #1d2430; font: 600 13px/1 inherit; white-space: nowrap; }
-.lc-n { font-weight: 500; font-size: 12px; color: #555; background: #eef1f5; border-radius: 9px; padding: 2px 6px; }
-.lc-short { display: none; }
-/* phones: a small tile like the zoom buttons (icon over "Layers"), the count as a badge on its corner */
-@media (max-width: 760px) {
-  .leaflet-control-layers-toggle { position: relative; flex-direction: column; justify-content: flex-end; gap: 0;
-    width: 52px !important; height: 50px !important; padding: 0 0 6px; background-position: center 6px !important; font-size: 11px; }
-  .lc-long, .lc-on { display: none; }
-  .lc-short { display: inline; }
-  .lc-n { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box;
-    display: flex; align-items: center; justify-content: center; border-radius: 9px; background: #1d3461; color: #fff; font: 700 11px/1 inherit; }
-}
+/* on every screen a small tile like the zoom buttons (icon over "Layers"), the count as a badge on its corner */
+.leaflet-control-layers-toggle { position: relative; flex-direction: column; justify-content: flex-end; gap: 0;
+  width: 52px !important; height: 50px !important; padding: 0 0 6px; background-position: center 6px !important; font-size: 11px; }
+.lc-n { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; border-radius: 9px; background: #1d3461; color: #fff; font: 700 11px/1 inherit; }
 .leaflet-control-layers-list { min-width: 210px; }
 .leaflet-control-layers .lc-h { font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #666; margin: 2px 0 4px; }
 .leaflet-control-layers label { margin: 3px 0; }
@@ -1046,7 +1049,7 @@ main { overflow: hidden; overflow: clip; }
    phones it scrolls within the part of the map the bottom panel leaves showing (app.js sets its height) */
 .leaflet-container .leaflet-control-layers-toggle { color: #1d2430; }
 .leaflet-control-layers-expanded .leaflet-control-layers-toggle { display: none !important; }
-.leaflet-top:has(.leaflet-control-layers-expanded) { z-index: 1002; }
+.leaflet-top:has(.leaflet-control-layers-expanded), .leaflet-top:has(.pinlist.open) { z-index: 1002; }
 .leaflet-control-layers-expanded .leaflet-control-layers-list { overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
 /* above the list: the data date and a small download menu */
 .list-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 2px 0 6px; font-size: 13px; color: #555; }
