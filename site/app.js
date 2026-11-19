@@ -2718,7 +2718,8 @@
     return out.sort((a, b) => b.sc - a.sc).slice(0, 6).map(x => x.s);
   }
   // Suggestions for the typed text from the files already here; asks for the missing ones and searches again when they arrive.
-  function addrSuggest(text) {
+  // (again: what to run once missing files arrive; the search box's own search by default)
+  function addrSuggest(text, again) {
     const q = parseAddr(text); if (!q || !addrStreets.length) return [];
     const streets = addrStreetHits(q.words, q.zip), out = [], missing = [];
     for (const s of streets) {
@@ -2734,7 +2735,7 @@
       if (!any && best >= 0 && q.num.length >= 3 && Math.abs(a[best] - +q.num) <= 100) out.push({ ...pt(best), exact: 0, near: true });
     }
     if (missing.length) Promise.all([...new Set(missing)].map(loadAddr)).then(() => {
-      if (document.activeElement === sInput && sInput.value === text) runSearch();
+      if (again) again(); else if (document.activeElement === sInput && sInput.value === text) runSearch();
     }, () => {});
     const found = out.some(x => !x.near);   // nearest-number guesses only when no street has the number
     return out.filter(x => !found || !x.near).sort((a, b) => b.exact - a.exact || a.label.length - b.label.length).slice(0, 5);
@@ -3306,7 +3307,7 @@
       const setOpen = open => { panel.hidden = !open; btn.setAttribute('aria-expanded', String(open)); pinBox.classList.toggle('open', open); if (open) fitPanel(); };
       btn.onclick = () => setOpen(panel.hidden);
       panel.addEventListener('click', e => {
-        if (e.target.closest('.pinlist-find')) { setOpen(false); openSearch(); return; }
+        if (e.target.closest('.pinlist-find')) { setOpen(false); openPinSearch(); return; }
         if (e.target.closest('.pinlist-pick')) { setOpen(false); startPicking(); return; }
         const row = e.target.closest('[data-pin]'); if (!row) return;
         const g = pins.find(p => p.id === +row.dataset.pin); if (!g) return;
@@ -3342,6 +3343,95 @@
         <span class="pinlist-acts"><button type="button" class="linkbtn" data-act="rename" aria-label="Rename ${esc(pinTitle(g))}">Rename</button>
         <button type="button" class="linkbtn pinlist-x" data-act="remove" aria-label="Remove ${esc(pinTitle(g))}" title="Remove">✕</button></span></li>`).join('')}</ul>
       <p class="pinlist-note">Saved only in this browser (up to ${MAX_PINS}).</p>`;
+  }
+  // Desktop: the Pins list's "Search an address" opens a small window of its own (type, pick, then "Add to my pins"), so
+  // nobody has to find the search box in the list. Phones keep the list's search box, which already rises to the top.
+  let pinDlg = null, pinDlgTok = 0;
+  function openPinSearch() {
+    if (isNarrow()) { openSearch(); return; }
+    if (!pinDlg) {
+      pinDlg = document.createElement('dialog');
+      pinDlg.id = 'pinSearch'; pinDlg.setAttribute('aria-labelledby', 'pinSearchTitle');
+      pinDlg.innerHTML = `<div class="res-top"><h2 id="pinSearchTitle">Add a pin</h2><button type="button" class="ps-close" aria-label="Close">×</button></div>
+        <form class="ps-form" role="search"><label for="pinSearchIn">Address or school in Seattle</label>
+          <div class="ps-row"><input id="pinSearchIn" type="search" autocomplete="off" placeholder="e.g. 600 4th Ave" aria-controls="pinSearchList">
+          <button type="submit" class="ps-go">Search</button></div></form>
+        <ul id="pinSearchList" class="ps-list" aria-live="polite"></ul>
+        <div class="ps-found" hidden></div>
+        <p class="ps-note">Addresses come from the county's list here; one it doesn't have is looked up with Esri's address search
+          (or OpenStreetMap's). Pins are saved only in this browser.</p>`;
+      document.body.appendChild(pinDlg);
+      const inp = pinDlg.querySelector('input'), list = pinDlg.querySelector('.ps-list');
+      let hits = [];
+      const suggest = () => {
+        const t = inp.value.trim(); pinDlg.querySelector('.ps-found').hidden = true;
+        if (!t) { list.innerHTML = ''; hits = []; return; }
+        const words = normQ(t).split(' ').filter(Boolean);
+        const sch = /^\d/.test(t) ? [] : schools().filter(x => words.every(w => x.key.includes(' ' + w))).slice(0, 3);
+        hits = addrSuggest(t, () => { if (inp.value.trim() === t) suggest(); }).concat(sch);
+        list.innerHTML = hits.map((h, i) => `<li><button type="button" data-i="${i}"><span aria-hidden="true">${h.school ? '🏫' : '📍'}</span> ${esc(h.label)}
+            <small>${h.school ? 'Public school' : h.near ? 'nearest listed address' : 'Seattle address'}</small></button></li>`).join('') +
+          `<li><button type="button" data-i="find"><span aria-hidden="true">🔍</span> Look up “${esc(t)}”<small>Esri's address search</small></button></li>`;
+      };
+      inp.addEventListener('input', suggest);
+      list.addEventListener('click', e => {
+        const b = e.target.closest('button[data-i]'); if (!b) return;
+        if (b.dataset.i === 'find') lookUp(inp.value.trim());
+        else { const h = hits[+b.dataset.i]; showFound({ lat: h.lat, lon: h.lon, label: h.school ? h.label : `${h.label}, Seattle, WA`, school: h.school }); }
+      });
+      pinDlg.querySelector('.ps-form').addEventListener('submit', e => {
+        e.preventDefault(); const t = inp.value.trim(); if (!t) return;
+        const first = hits.find(h => !h.near);
+        if (first && /^\d/.test(t)) showFound({ lat: first.lat, lon: first.lon, label: first.school ? first.label : `${first.label}, Seattle, WA`, school: first.school });
+        else lookUp(t);
+      });
+      pinDlg.querySelector('.ps-close').addEventListener('click', () => pinDlg.close());
+      pinDlg.addEventListener('click', e => { if (e.target === pinDlg) pinDlg.close(); });
+      pinDlg.addEventListener('close', () => { pinDlgTok++; });
+      pinDlg.querySelector('.ps-found').addEventListener('click', e => {
+        const g = pinDlg._found; if (!g) return;
+        if (e.target.closest('.ps-add')) { pinDlg.close(); addPin({ lat: g.lat, lon: g.lon, label: g.label }, false); }
+        else if (e.target.closest('.ps-goto')) { pinDlg.close(); openPin(samePin(g), true); }
+        else if (e.target.closest('.ps-again')) { pinDlg.querySelector('.ps-found').hidden = true; list.hidden = false; inp.select(); inp.focus(); }
+      });
+    }
+    const inp = pinDlg.querySelector('input');
+    inp.value = ''; pinDlg.querySelector('.ps-list').innerHTML = ''; pinDlg.querySelector('.ps-list').hidden = false; pinDlg.querySelector('.ps-found').hidden = true;
+    // (the Pins button has focus as it opens, so closing it, by × or Esc, returns there)
+    const pb = document.querySelector('.pinlist-btn'); if (pb) pb.focus({ preventScroll: true });
+    pinDlg.showModal(); inp.focus();
+  }
+  // a typed address the county list doesn't have: Esri (or OpenStreetMap), with the same checks as the search box
+  async function lookUp(text) {
+    const tok = ++pinDlgTok, list = pinDlg.querySelector('.ps-list');
+    const msg = h => { list.innerHTML = `<li class="ps-msg">${h}</li>`; };
+    msg('Finding that address…');
+    const g = await geocode(text);
+    if (tok !== pinDlgTok) return;
+    if (g && g.offline) return msg('Address search needs a connection. Check your signal and try again.');
+    if (!g) return msg(`Couldn't find “${esc(text)}”. Try a street address like “600 4th Ave”.`);
+    if (!inSeattle(g.lat, g.lon)) return msg(`“${esc(g.label)}” is outside Seattle's city limits. This map covers Seattle only.`);
+    if (streetChanged(text, g.label)) g.note = `You typed “${text}”. The address search found this instead; check it's the place you meant.`;
+    showFound(g);
+  }
+  // the result, with what's near it and the choice to pin it
+  async function showFound(g) {
+    const tok = ++pinDlgTok;
+    await lateReady;   // the nearby counts need the search data
+    if (tok !== pinDlgTok || !pinDlg.open) return;
+    pinDlg._found = g;
+    const nb = nearbySpots(g.lat, g.lon), have = samePin(g), full = pins.length >= MAX_PINS;
+    const box = pinDlg.querySelector('.ps-found');
+    box.innerHTML = `<div class="ps-place"><span aria-hidden="true">${g.school ? '🏫' : '📍'}</span> <b>${esc(g.label)}</b></div>
+      ${g.note ? `<p class="ps-warn">${esc(g.note)}</p>` : ''}
+      <p class="ps-near">${nb.crashes ? `${plural(nb.crashes, 'crash', 'crashes')} within ${NEARW}${nb.ksi ? `; ${fmt(nb.ksi)} of them killed or seriously hurt someone` : ''}.` : `No crashes within ${NEARW}.`} <span class="ps-when">Police crash reports, ${monthYear(meta.window_from)} to ${monthYear(meta.window_to)}.</span></p>
+      <div class="ps-acts">${have ? `<button type="button" class="report-btn ps-goto">Already in your pins: go to it</button>`
+        : full ? `<p class="ps-warn">You have ${MAX_PINS} pins, the most this site keeps. Remove one to add another.</p>`
+        : `<button type="button" class="report-btn ps-add"><span aria-hidden="true">📍</span> Add to my pins</button>`}
+        <button type="button" class="linkbtn ps-again">Search again</button></div>`;
+    pinDlg.querySelector('.ps-list').hidden = true; box.hidden = false;
+    say(`${g.label}. ${box.querySelector('.ps-near').textContent}`);
+    (box.querySelector('.ps-add, .ps-goto') || box.querySelector('.ps-again')).focus();
   }
   pins.forEach(drawPin);
   savePins();   // also moves a pin saved by the older single-pin version to the new list
