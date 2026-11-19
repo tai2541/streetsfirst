@@ -3287,7 +3287,7 @@
   function renderPinList() {
     if (!pinBox) return;
     pinBox.hidden = !pins.length;
-    pinBox.querySelector('.pinlist-btn').innerHTML = `<span aria-hidden="true">📍</span> My pins <small>${pins.length}</small>`;
+    pinBox.querySelector('.pinlist-btn').innerHTML = `<span aria-hidden="true">📍</span> <span class="lc-long">My pins</span><span class="lc-short">Pins</span> <small>${pins.length}</small>`;
     pinBox.querySelector('.pinlist-btn').title = 'Your pins: go to, rename or remove';
     pinBox.querySelector('.pinlist-panel').innerHTML = `<ul>${pins.map(g => `<li data-pin="${g.id}">
         <button type="button" class="linkbtn pinlist-go" title="Go to this pin"><b>${esc(pinTitle(g))}</b>${g.name ? `<small>${esc(g.label)}</small>` : ''}</button>

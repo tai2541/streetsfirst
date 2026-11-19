@@ -584,6 +584,14 @@ body.proj-on .map-legend .lg-proj { display: flex; }
 .pinlist-x { color: #8a1c1c !important; }
 .pinlist-note { margin: 6px 0 0; color: #5b6576; font-size: 11.5px; }
 .pinlist-panel .linkbtn { margin: 0; }
+/* phones: the same small tile as the Layers button (pin over "Pins", count as a corner badge) */
+@media (max-width: 760px) {
+  .pinlist { position: relative; overflow: visible !important; }
+  .pinlist-btn { position: relative; flex-direction: column; justify-content: center; gap: 4px; width: 52px; height: 50px; padding: 0; font-size: 11px; }
+  .pinlist-btn > span[aria-hidden] { font-size: 18px; line-height: 1; }
+  .pinlist-btn small { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box;
+    display: flex; align-items: center; justify-content: center; border-radius: 9px; background: #1d3461; font: 700 11px/1 inherit; }
+}
 
 /* ---- Detail sections: each in its own tinted box with a colored edge and heading, so they're easy to scan ---- */
 .dsec { --c: #5b6576; --bg: #f6f7f9; background: var(--bg); border: 1px solid color-mix(in srgb, var(--c) 18%, transparent);
